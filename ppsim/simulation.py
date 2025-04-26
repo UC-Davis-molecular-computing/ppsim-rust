@@ -149,19 +149,25 @@ class Simulation:
             updates."""
 
     rng: np.random.Generator
-    """A numpy random generator used to sample random variables outside the
-            cython code."""
+    """A numpy random generator used to sample random variables outside Rust code."""
 
     seed: int | None
-    """The optional integer seed used for rng and inside cython code."""
+    """The optional integer seed used for rng and inside Rust code."""
 
     _method: type[SimulatorMultiBatch] | type[SimulatorSequentialArray]
 
-    def __init__(self, init_config: dict[StateTypeVar, int], rule: Rule, 
-                 simulator_method: str = "MultiBatch",
-                 transition_order: str = "symmetric", seed: int | None = None,
-                 volume: float | None = None, continuous_time: bool = False, time_units: str | None = None,
-                 **kwargs):
+    def __init__(
+            self, 
+            init_config: dict[StateTypeVar, int], 
+            rule: Rule, 
+            simulator_method: str = "MultiBatch",
+            transition_order: str = "symmetric", 
+            seed: int | None = None,
+            volume: float | None = None, 
+            continuous_time: bool = False, 
+            time_units: str | None = None,
+            **kwargs
+    ) -> None:
         """Initialize a Simulation.
 
         Args:
