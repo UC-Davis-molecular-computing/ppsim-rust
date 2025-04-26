@@ -1,0 +1,30 @@
+[package]
+name = "ppsim"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "ppsim_rust"
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "main"
+path = "src/main.rs"
+
+[features]
+flm = ["flame"]  # Enable flame profiling to be switched on/off
+
+[dependencies]
+pyo3 = { version = "0.24", features = ["extension-module"] }
+numpy = "0.24"
+ndarray = "0.16"
+statrs = { version = "0.18", features = ["rand"] }
+rand = { version = "0.8", features = ["small_rng"] } # need version 0.8 of rand to use it with statrs, fails with version 0.9
+nalgebra = "0.33"
+flame = { version = "0.2", optional = true }  # Make flame optional so we can turn it on/off
+# special = "0.11"
+# puruspe = "0.4"
+lazy_static = "1"
+# micromath = "2"
+# const-ln = "0.1.2"
+# rgsl = "7"

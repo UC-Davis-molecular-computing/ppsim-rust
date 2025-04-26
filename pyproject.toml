@@ -1,0 +1,31 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "ppsim"
+version = "0.1.0"
+description = "A Python package with Rust backend for simulation"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Rust",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "numpy>=2",
+    "types-tqdm>=4",
+    "types-seaborn>=0.13",
+    "ipywidgets>=8",
+    "matplotlib>=3",
+    "seaborn>=0.13",
+    "pandas>=2",
+    "tqdm>=4",
+    "natsort>=8",
+]
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+python-source = "ppsim"
+module-name = "ppsim_rust"
