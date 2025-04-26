@@ -440,6 +440,14 @@ class Simulation:
         for k in d.keys():
             a[self.state_dict[k]] += d[k]
         return a
+    
+    def silent(self) -> bool:
+        """Check if the configuration is silent.
+
+        Returns:
+            True if the configuration is silent, False otherwise.
+        """
+        return self.simulator.silent
 
     def run(self, run_until: float | ConvergenceDetector | None = None,
             history_interval: float | Callable[[float], float] = 1.,
@@ -498,7 +506,7 @@ class Simulation:
             raise TypeError('run_until must be a float, int, function, or None.')
 
         # Stop if stop_condition is already met
-        if stop_condition():
+        if self.silent() or stop_condition():
             return
 
         def get_next_history_time():
@@ -532,7 +540,9 @@ class Simulation:
 
         # add max_wall_clock to be the minimum snapshot update time, to put a time bound on calls to simulator.run
         max_wallclock_time = [min([s.update_time for s in self.snapshots])] if len(self.snapshots) > 0 else []
-        while stop_condition() is False:
+        num_calls_to_run = 0
+        while not self.silent() and not stop_condition():
+            num_calls_to_run += 1
             if self.time >= next_time:
                 next_time = get_next_time()
                 next_step = self.time_to_steps(next_time)

@@ -708,6 +708,7 @@ impl SimulatorMultiBatch {
         let mut num_collisions = 0;
         while self.t + num_delayed / 2 < end_step {
             num_collisions += 1;
+
             flame::start("sample_coll");
             let mut u = self.rng.sample(uniform);
             let l = self.sample_coll(num_delayed + self.updated_counts.size, u, true);

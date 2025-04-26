@@ -28,17 +28,43 @@ def main():
     # plt.savefig('examples/approx_majority_plot.png')
     # print("Plot saved to examples/approx_majority_plot.png")
     print(f"history = {sim.history}")
+
+
     # num_multibatch_steps = sum(sim.simulator.collision_counts.values())
     # num_collisions = 0
-    # for collision_count, count in sim.simulator.collision_counts.items():
-    #     num_collisions += count * collision_count
-    # print(f'collision counts = (total: {num_collisions}, num_multibatch_steps: {num_multibatch_steps})')
+    # digits_steps = 1
+    # digits_collisions = 1
+    # for collision_count, steps in sim.simulator.collision_counts.items():
+    #     num_collisions += steps * collision_count
+    #     digits_collisions = max(digits_collisions, len(str(num_collisions)))
+    #     digits_steps = max(digits_steps, len(str(steps)))
+    # print(f'collision counts = (total: {num_collisions}, num_multibatch_steps: {num_multibatch_steps})')  
+    # for steps in sorted(sim.simulator.collision_counts.keys()):
+    #     print(f'{sim.simulator.collision_counts[steps]:{digits_steps}} multibatch steps with {steps} collisions')
+    
     # for count in sorted(sim.simulator.collision_counts.keys()):
-    #     print(f'  {count}: {count*sim.simulator.collision_counts[count]}')
-    # for count in sorted(sim.simulator.collision_counts.keys()):
-    #     print(f'  {count}: {sim.simulator.collision_counts[count]}')
+    #     print(f'  {count}: {count*sim.simulator.collision_counts[count]:{digits_collisions}} collisions')
+    # print('-'*20)
+    
+    
     sim.simulator.write_profile()
+    
+
+def main2():
+    a,b,u = species('A B U')
+    approx_majority = [
+        a+b >> 2*u,
+        a+u >> 2*a,
+        b+u >> 2*b,
+    ]
+    n = 10 ** 2
+    p = 0.51
+    a_init = int(n * p)
+    b_init = n - a_init
+    init_config = {a: a_init, b: b_init}
+    sim = Simulation(init_config, approx_majority, seed=0)
+    sim.run(20, 0.1)
 
 
 if __name__ == '__main__':
-    main()
+    main2()

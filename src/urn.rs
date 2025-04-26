@@ -8,29 +8,29 @@ use crate::flame;
 // We precompuate log(k!) for k = 0, 1, ..., MAX_FACTORIAL-1
 // technically MAX_FACTORIAL is the SIZE of array, not the max k for which we compute ln(k!),
 // starting at ln(0!), so this goes up to ln((MAX_FACTORIAL-1)!).
-// We use this cache because numpy does, but in practice it's actually really not
+// We use this cache because numpy does, out of paranoia, but in practice it's actually really not
 // any faster than using the Stirling approximation, and the Stirling approximation is surprisingly
-// accurate even for small values of k.
-// const MAX_FACTORIAL: usize = 200;
+// accurate even for small values of k. I'm not sure why numpy uses this cache.
+const MAX_FACTORIAL: usize = 126;
 
-// pub fn create_log_fact_cache() -> [f64; MAX_FACTORIAL] {
-//     let mut cache = [0.0; MAX_FACTORIAL];
+pub fn create_log_fact_cache() -> [f64; MAX_FACTORIAL] {
+    let mut cache = [0.0; MAX_FACTORIAL];
 
-//     let mut i: usize = 1;
-//     let mut ln_fact: f64 = 0.0;
-//     while i < MAX_FACTORIAL {
-//         // using the identity ln(k!) = ln((k-1)!) + ln(k)
-//         ln_fact += (i as f64).ln();
-//         cache[i] = ln_fact; // ln(0!)=0 is a special case but we already populated with 0.0
-//         i += 1;
-//     }
-//     cache
-// }
+    let mut i: usize = 1;
+    let mut ln_fact: f64 = 0.0;
+    while i < MAX_FACTORIAL {
+        // using the identity ln(k!) = ln((k-1)!) + ln(k)
+        ln_fact += (i as f64).ln();
+        cache[i] = ln_fact; // ln(0!)=0 is a special case but we already populated with 0.0
+        i += 1;
+    }
+    cache
+}
 
-// use lazy_static::lazy_static;
-// lazy_static! {
-//     static ref LOGFACT: [f64; MAX_FACTORIAL] = create_log_fact_cache();
-// }
+use lazy_static::lazy_static;
+lazy_static! {
+    static ref LOGFACT: [f64; MAX_FACTORIAL] = create_log_fact_cache();
+}
 
 const HALFLN2PI: f64 = 0.9189385332046728;
 
@@ -38,35 +38,26 @@ const HALFLN2PI: f64 = 0.9189385332046728;
 // pub static mut num_stirling: usize = 0;
 
 fn log_factorial(k: u64) -> f64 {
-    if k == 0 || k == 1 {
-        return 0.0;
-    }
     // for (x, lg) in LOGFACT.iter().enumerate() {
     //     println!("log_fact({}) = {}", x, lg);
     //     panic!();
     // }
-    // if k < MAX_FACTORIAL as u64 {
-    //     unsafe { num_lookup += 1 };
-    //     flame::start("log_factorial lookup");
-    //     let ret = LOGFACT[k as usize];
-    //     flame::end("log_factorial lookup");
-    //     return ret;
-    // }
+    if k < MAX_FACTORIAL as u64 {
+        // unsafe { num_lookup += 1 };
+        // flame::start("log_factorial lookup");
+        let ret = LOGFACT[k as usize];
+        // flame::end("log_factorial lookup");
+        return ret;
+    }
     // unsafe { num_stirling += 1 };
-    flame::start("log_factorial stirling");
+    // flame::start("log_factorial stirling");
     // Use the Stirling approximation for large x
     let k = k as f64;
     let ret =
         (k + 0.5) * k.ln() - k + (HALFLN2PI + (1.0 / k) * (1.0 / 12.0 - 1.0 / (360.0 * k * k)));
-    flame::end("log_factorial stirling");
+    // flame::end("log_factorial stirling");
     ret
 }
-
-// use special::Gamma;
-// fn log_factorial(x: u64) -> f64 {
-//     puruspe::ln_gamma(x as f64 + 1.0)
-//     // statrs::function::factorial::ln_factorial(x)
-// }
 
 type State = usize;
 

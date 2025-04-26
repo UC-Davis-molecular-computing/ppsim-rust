@@ -31,11 +31,11 @@ class SimulatorSequentialArray:
 
     def __init__(
             self,
-            init_config: npt.NDArray[np.uintp],
-            delta: npt.NDArray[np.uintp],
+            init_config: npt.NDArray[np.uint],
+            delta: npt.NDArray[np.uint],
             null_transitions: npt.NDArray[np.bool_],
-            random_transitions: npt.NDArray[np.uintp],
-            random_outputs: npt.NDArray[np.uintp],
+            random_transitions: npt.NDArray[np.uint],
+            random_outputs: npt.NDArray[np.uint],
             transition_probabilities: npt.NDArray[np.float64],
             seed: int | None = None
     ) -> None: ...
@@ -52,7 +52,7 @@ class SimulatorSequentialArray:
 
     def reset(
             self,
-            config: npt.NDArray[np.uintp],
+            config: npt.NDArray[np.uint],
             t: int = 0
     ) -> None: ...
 
@@ -74,11 +74,11 @@ class SimulatorMultiBatch:
 
     def __init__(
             self,
-            init_config: npt.NDArray[np.uintp],
-            delta: npt.NDArray[np.uintp],
+            init_config: npt.NDArray[np.uint],
+            delta: npt.NDArray[np.uint],
             null_transitions: npt.NDArray[np.bool_],
-            random_transitions: npt.NDArray[np.uintp],
-            random_outputs: npt.NDArray[np.uintp],
+            random_transitions: npt.NDArray[np.uint],
+            random_outputs: npt.NDArray[np.uint],
             transition_probabilities: npt.NDArray[np.float64],
             seed: int | None = None
     ) -> None: ...
@@ -93,7 +93,7 @@ class SimulatorMultiBatch:
 
     def reset(
             self,
-            config: npt.NDArray[np.uintp],
+            config: npt.NDArray[np.uint],
             t: int = 0
     ) -> None: ...
 
