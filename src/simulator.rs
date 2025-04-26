@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::time::{Duration, Instant};
 
-use crate::{flame, urn};
+use crate::flame;
 
 use numpy::PyArrayMethods;
 use numpy::PyUntypedArrayMethods;
@@ -539,16 +539,6 @@ impl SimulatorMultiBatch {
             }
         }
         Ok(())
-    }
-
-    #[pyo3()]
-    pub fn print_ln_fact_stats(&self) {
-        unsafe {
-            let num_lookup = urn::num_lookup;
-            let num_stirling = urn::num_stirling;
-            println!("number of lookups:  {num_lookup}");
-            println!("number of stirling: {num_stirling}");
-        }
     }
 
     /// Run the simulation until it is silent, i.e., no reactions are applicable.

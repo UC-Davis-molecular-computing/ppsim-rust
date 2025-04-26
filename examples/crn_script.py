@@ -38,7 +38,6 @@ def main():
     # for count in sorted(sim.simulator.collision_counts.keys()):
     #     print(f'  {count}: {sim.simulator.collision_counts[count]}')
     sim.simulator.write_profile()
-    sim.simulator.print_ln_fact_stats()
 
 
 if __name__ == '__main__':
