@@ -6,6 +6,7 @@ use crate::flame;
 
 use numpy::PyArrayMethods;
 use numpy::PyUntypedArrayMethods;
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 use nalgebra::DVector;
@@ -548,6 +549,9 @@ impl SimulatorMultiBatch {
     /// Run the simulation for a specified number of steps or until max time is reached
     #[pyo3(signature = (t_max, max_wallclock_time=3600.0))]
     pub fn run(&mut self, t_max: usize, max_wallclock_time: f64) -> PyResult<()> {
+        if self.silent {
+            return Err(PyValueError::new_err("Simulation is silent; cannot run."));
+        }
         let max_wallclock_milliseconds: u64 = (max_wallclock_time * 1_000.0).ceil() as u64;
         let duration = Duration::from_millis(max_wallclock_milliseconds);
         let start_time = Instant::now();

@@ -66,7 +66,9 @@ def main2():
     #     print(f'{seed=}')
     seed = 10
     sim = Simulation(init, approx_majority, seed=seed)
-    sim.run(20, 0.1)
+    # sim.run(20, 0.1)
+    sim.run(100)
+    print(sim.history)
 
 
 if __name__ == '__main__':

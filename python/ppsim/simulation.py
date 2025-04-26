@@ -542,6 +542,8 @@ class Simulation:
         max_wallclock_time = [min([s.update_time for s in self.snapshots])] if len(self.snapshots) > 0 else []
         num_calls_to_run = 0
         while not self.silent() and not stop_condition():
+        # while not stop_condition(): # XXX: this while condition was from the Cython implementation; 
+                                      # not sure why it didn't cause a bug there
             num_calls_to_run += 1
             if self.time >= next_time:
                 next_time = get_next_time()
