@@ -31,7 +31,7 @@ import dataclasses
 from dataclasses import dataclass
 import math
 from time import perf_counter
-from typing import Callable, Iterable, Any, cast, TypeAlias
+from typing import Callable, Iterable, Any, cast, TypeAlias, TypeVar
 from collections.abc import Hashable
 from natsort import natsorted
 import numpy as np
@@ -45,6 +45,9 @@ from ppsim_rust import SimulatorSequentialArray, SimulatorMultiBatch
 
 # TODO: these names are not showing up in the mouseover information
 State: TypeAlias = Hashable
+# the plays nicer with generic collections like dict[StateTypeVar, int] than using State
+# "Dictionaries are invariant in their key type" is the jargon.
+StateTypeVar = TypeVar("StateTypeVar", bound=State) 
 Output: TypeAlias = tuple[State, State] | dict[tuple[State, State], float]
 TransitionFunction: TypeAlias = Callable[[State, State], Output]
 Rule: TypeAlias = TransitionFunction | dict[tuple[State, State], Output] | Iterable[Reaction]
@@ -58,9 +61,8 @@ Type representing transition rules for protocol. Is one of three types:
 
 ConvergenceDetector: TypeAlias = Callable[[dict[State, int]], bool]
 
-
 # TODO: give other option for when the number of reachable states is large or unbounded
-def state_enumeration(init_dist: dict[State, int], rule: Callable[[State, State], Output]) -> set[State]:
+def state_enumeration(init_dist: dict[StateTypeVar, int], rule: Callable[[State, State], Output]) -> set[State]:
     """Finds all reachable states by breadth-first search.
 
     Args:
@@ -72,8 +74,8 @@ def state_enumeration(init_dist: dict[State, int], rule: Callable[[State, State]
     Returns:
         a set of all reachable states
     """
-    checked_states = set()
-    unchecked_states = set(init_dist.keys())
+    checked_states: set[State] = set()
+    unchecked_states: set[State] = set(init_dist.keys())
     while len(unchecked_states) > 0:
         unchecked_state = unchecked_states.pop()
         if unchecked_state not in checked_states:
@@ -111,7 +113,7 @@ class Simulation:
     """An internal :any:`Simulator` object, whose methods actually
             perform the steps of the simulation."""
 
-    configs: list[np.ndarray]
+    configs: list[npt.NDArray[np.uint]]
     """A list of all configurations that have been
             recorded during the simulation, as integer arrays."""
 
@@ -155,7 +157,8 @@ class Simulation:
 
     _method: type[SimulatorMultiBatch] | type[SimulatorSequentialArray]
 
-    def __init__(self, init_config: dict[State, int], rule: Rule, simulator_method: str = "MultiBatch",
+    def __init__(self, init_config: dict[StateTypeVar, int], rule: Rule, 
+                 simulator_method: str = "MultiBatch",
                  transition_order: str = "symmetric", seed: int | None = None,
                  volume: float | None = None, continuous_time: bool = False, time_units: str | None = None,
                  **kwargs):
@@ -312,7 +315,7 @@ class Simulation:
         if (field_names is not None and len(field_names) > 1) \
                 or (isinstance(state, tuple) and len(state) > 1):
             # Make a MultiIndex only if there are multiple fields
-            self.column_names = pd.MultiIndex.from_tuples(tuples, names=field_names)
+            self.column_names = pd.MultiIndex.from_tuples(tuples, names=field_names) # type: ignore
         else:
             self.column_names = [str(i) for i in self.state_list]
         self.configs = []
@@ -390,7 +393,7 @@ class Simulation:
 
         # if random_outputs is empty, this makes a 0D ndarray, but we need a 2D array,
         # with len (shape[0]) = 0, so that the first dimension's length will match with transition_probabilities
-        random_outputs = np.array(random_outputs, dtype=np.uint) \
+        random_outputs_arr = np.array(random_outputs, dtype=np.uint) \
             if len(random_outputs) > 0 else np.empty(shape=(0,2), dtype=np.uint)
 
         transition_probabilities = np.array(transition_probabilities, dtype=float)
@@ -414,7 +417,7 @@ class Simulation:
                                             {b, a} -> {self.rule(b, a)}''')
 
         self.simulator = self._method(config, delta, null_transitions,  # type: ignore
-                                      random_transitions, random_outputs, transition_probabilities, self.seed)
+                                      random_transitions, random_outputs_arr, transition_probabilities, self.seed)
 
     def array_from_dict(self, d: dict) -> npt.NDArray[np.uint]:
         """Convert a configuration dictionary to an array.
@@ -475,7 +478,7 @@ class Simulation:
                 raise ValueError('Running until silence only works with multibatch simulator.')
 
             def stop_condition():
-                return self.simulator.silent  # type: ignore
+                return self.simulator.silent
         elif isinstance(run_until, (float, int)):
             end_time = self.time + run_until
 
@@ -620,7 +623,7 @@ class Simulation:
         if init_config is None:
             config = self.configs[0]
         else:
-            config = np.zeros(len(self.state_list), dtype=np.int64)
+            config = np.zeros(len(self.state_list), dtype=np.uint)
             for k in init_config.keys():
                 config[self.state_dict[k]] += init_config[k]
         self.configs = [config]
@@ -642,7 +645,7 @@ class Simulation:
         if type(config) is dict:
             config_array = self.array_from_dict(config)
         else:
-            config_array = np.array(config, dtype=np.int64)
+            config_array = np.array(config, dtype=np.uint)
         self.simulator.reset(config_array, self.simulator.t)
         self.add_config()
 

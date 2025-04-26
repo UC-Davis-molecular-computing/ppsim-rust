@@ -221,6 +221,23 @@ impl SimulatorSequentialArray {
         return self.run(0, 0.0);
     }
 
+    #[getter]
+    pub fn silent(&self) -> bool {
+        // Use .copied() to convert &usize to usize when collecting
+        let states_present: Vec<State> = self.config.iter().filter(|&x| *x > 0).copied().collect();
+
+        // Check if all transitions between states_present are null
+        for &i in &states_present {
+            for &j in &states_present {
+                if !self.null_transitions[i][j] {
+                    return false; // Found a non-null transition, not silent
+                }
+            }
+        }
+
+        true // All transitions are null, system is silent
+    }
+
     /// Reset the simulation with a new configuration
     // py: Python<'_>,
     #[pyo3(signature = (config, t=0))]
@@ -231,6 +248,11 @@ impl SimulatorSequentialArray {
         self.make_population();
 
         Ok(())
+    }
+
+    #[pyo3(signature = (filename=None))]
+    pub fn write_profile(&self, filename: Option<String>) -> PyResult<()> {
+        panic!("write_profile({filename:?}) not implemented for SimulatorSequentialArray");
     }
 }
 

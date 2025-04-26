@@ -26,6 +26,7 @@ class SimulatorSequentialArray:
     t: int
     delta: list[list[tuple[RustState, RustState]]]
     null_transitions: list[list[bool]]
+    silent: bool
     population: list[RustState]
 
     def __init__(
@@ -54,6 +55,8 @@ class SimulatorSequentialArray:
             config: npt.NDArray[np.uintp],
             t: int = 0
     ) -> None: ...
+
+    def write_profile(self, filename: str | None = None) -> None: ...
 
 
 class SimulatorMultiBatch:
