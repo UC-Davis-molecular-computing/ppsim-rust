@@ -712,13 +712,23 @@ impl SimulatorMultiBatch {
             flame::start("sample_coll");
             let mut u = self.rng.sample(uniform);
             let l = self.sample_coll(num_delayed + self.updated_counts.size, u, true);
+            assert!(l > 0, "sample_coll must return at least 1");
             // add (l-1) // 2 pairs of delayed agents, the lth agent a was already picked, so has a collision
             num_delayed += 2 * ((l - 1) / 2);
             flame::end("sample_coll");
 
+            // special case for l = 2, which means that num_delayed = 0,
+            // which results in subtraction underflow later
+            // XXX: this might be the correct thing to do?? I'm not sure.
+            // It strikes me as strange since for l = 3 or 4, num_delayed = 2 also
+            if l == 2 || l == 1 {
+                num_delayed = 2;
+            }
+
             // If the sampled collision happens after t_max, then include delayed agents up until t_max
             //   and do not perform the collision.
             if t_max > 0 && self.t + num_delayed / 2 >= t_max {
+                assert!(t_max > self.t);
                 num_delayed = (t_max - self.t) * 2;
                 break;
             }

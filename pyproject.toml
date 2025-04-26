@@ -27,5 +27,6 @@ dependencies = [
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
-python-source = "ppsim"
-module-name = "ppsim_rust"
+python-source = "python"
+module-name = "ppsim.ppsim_rust.ppsim_rust"
+include = ["ppsim/**/*.py", "ppsim/**/*.pyi", "ppsim/py.typed", "MANIFEST.in"]

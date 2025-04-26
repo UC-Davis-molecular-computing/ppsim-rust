@@ -53,16 +53,19 @@ def main():
 def main2():
     a,b,u = species('A B U')
     approx_majority = [
-        a+b >> 2*u,
-        a+u >> 2*a,
-        b+u >> 2*b,
+    a+b >> 2*u,
+    a+u >> 2*a,
+    b+u >> 2*b,
     ]
     n = 10 ** 2
     p = 0.51
     a_init = int(n * p)
     b_init = n - a_init
-    init_config = {a: a_init, b: b_init}
-    sim = Simulation(init_config, approx_majority, seed=0)
+    init = {a: a_init, b: b_init}
+    # for seed in range(100):
+    #     print(f'{seed=}')
+    seed = 10
+    sim = Simulation(init, approx_majority, seed=seed)
     sim.run(20, 0.1)
 
 
