@@ -30,17 +30,17 @@ def main():
     print(f"history = {sim.history}")
 
 
-    # num_multibatch_steps = sum(sim.simulator.collision_counts.values())
-    # num_collisions = 0
-    # digits_steps = 1
-    # digits_collisions = 1
-    # for collision_count, steps in sim.simulator.collision_counts.items():
-    #     num_collisions += steps * collision_count
-    #     digits_collisions = max(digits_collisions, len(str(num_collisions)))
-    #     digits_steps = max(digits_steps, len(str(steps)))
-    # print(f'collision counts = (total: {num_collisions}, num_multibatch_steps: {num_multibatch_steps})')  
-    # for steps in sorted(sim.simulator.collision_counts.keys()):
-    #     print(f'{sim.simulator.collision_counts[steps]:{digits_steps}} multibatch steps with {steps} collisions')
+    num_multibatch_steps = sum(sim.simulator.collision_counts.values())
+    num_collisions = 0
+    digits_steps = 1
+    digits_collisions = 1
+    for collision_count, steps in sim.simulator.collision_counts.items():
+        num_collisions += steps * collision_count
+        digits_collisions = max(digits_collisions, len(str(num_collisions)))
+        digits_steps = max(digits_steps, len(str(steps)))
+    print(f'collision counts = (total: {num_collisions}, num_multibatch_steps: {num_multibatch_steps})')  
+    for steps in sorted(sim.simulator.collision_counts.keys()):
+        print(f'{sim.simulator.collision_counts[steps]:{digits_steps}} multibatch steps with {steps} collisions')
     
     # for count in sorted(sim.simulator.collision_counts.keys()):
     #     print(f'  {count}: {count*sim.simulator.collision_counts[count]:{digits_collisions}} collisions')
@@ -66,10 +66,10 @@ def main2():
     #     print(f'{seed=}')
     seed = 10
     sim = Simulation(init, approx_majority, seed=seed)
-    # sim.run(20, 0.1)
-    sim.run(100)
+    sim.run(20, 0.1)
+    # sim.run(100)
     print(sim.history)
 
 
 if __name__ == '__main__':
-    main2()
+    main()

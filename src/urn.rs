@@ -168,9 +168,9 @@ impl Urn {
     ///         (this is faster than re-initializing an output array)
     ///         
     /// Returns:
-    ///     nz: the number of nonzero entries
-    ///         v[self.order[i]] for i in range(nz) can then loop over only
-    ///             the nonzero entries of the vector
+    ///     idx_nx: the index (into self.order) of the last nonzero entry
+    ///         v[self.order[i]] for i in range(nz) can then skip looping over
+    ///         any entries after the last nonzero entry.
     pub fn sample_vector(&mut self, n: usize, v: &mut [State]) -> Result<usize, String> {
         let mut n = n as i64;
         let mut i: usize = 0;

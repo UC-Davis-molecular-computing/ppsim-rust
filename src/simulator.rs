@@ -721,14 +721,6 @@ impl SimulatorMultiBatch {
             num_delayed += 2 * ((l - 1) / 2);
             flame::end("sample_coll");
 
-            // special case for l = 2, which means that num_delayed = 0,
-            // which results in subtraction underflow later
-            // XXX: this might be the correct thing to do?? I'm not sure.
-            // It strikes me as strange since for l = 3 or 4, num_delayed = 2 also
-            if l == 2 || l == 1 {
-                num_delayed = 2;
-            }
-
             // If the sampled collision happens after t_max, then include delayed agents up until t_max
             //   and do not perform the collision.
             if t_max > 0 && self.t + num_delayed / 2 >= t_max {
@@ -743,7 +735,7 @@ impl SimulatorMultiBatch {
             // sample if a was a delayed or an updated agent
             u = self.rng.sample(uniform);
             // delayed with probability num_delayed / (num_delayed + num_updated)
-            if (u * ((num_delayed + self.updated_counts.size) as f64)) as usize <= num_delayed {
+            if (u * ((num_delayed + self.updated_counts.size) as f64)) <= num_delayed as f64 {
                 // if a was delayed, need to first update a with its first interaction before the collision
                 // c is the delayed partner that a interacted with, so add this interaction
                 a = self.urn.sample_one().unwrap();
