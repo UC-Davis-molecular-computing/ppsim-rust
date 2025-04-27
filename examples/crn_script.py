@@ -1,9 +1,9 @@
 
-from ppsim import species, Simulation
+import ppsim as pp
 from matplotlib import pyplot as plt
 
 def main():
-    a, b, u = species('A B U')
+    a, b, u = pp.species('A B U')
     approx_majority = [
         a + b >> 2 * u,
         a + u >> 2 * a,
@@ -15,7 +15,7 @@ def main():
     b_init = n - a_init
     init = {a: a_init, b: b_init}
     # init = {a: 6, b: 4}
-    sim = Simulation(init, approx_majority, seed=1)
+    sim = pp.Simulation(init, approx_majority, seed=1)
     # i, = species('I')
     # epidemic = [ i+u >> 2*i ]
     # init = { i:1, u:9 }
@@ -51,7 +51,7 @@ def main():
     
 
 def main2():
-    a,b,u = species('A B U')
+    a,b,u = pp.species('A B U')
     approx_majority = [
     a+b >> 2*u,
     a+u >> 2*a,
@@ -65,11 +65,29 @@ def main2():
     # for seed in range(100):
     #     print(f'{seed=}')
     seed = 10
-    sim = Simulation(init, approx_majority, seed=seed)
+    sim = pp.Simulation(init, approx_majority, seed=seed)
     sim.run(20, 0.1)
     # sim.run(100)
     print(sim.history)
 
+def main3():
+    # derived rate constants of the formal reaction simulated by DNA strand displacement (units of /M/s)
+    k1,k2,k3 = 9028, 2945, 1815
+    total_concentration = 80 * 1e-9 # 1x volume was 80 nM
+    vol = 1e-6 # 1 uL
+    n = pp.concentration_to_count(total_concentration, vol)
+    a,b,u = pp.species('A B U')
+    approx_majority_rates = [
+        (a+b >> 2*u).k(k1, units=pp.RateConstantUnits.mass_action),
+        (a+u >> 2*a).k(k2, units=pp.RateConstantUnits.mass_action),
+        (b+u >> 2*b).k(k3, units=pp.RateConstantUnits.mass_action),
+    ]
+    # set the initial concentrations near where the the mass-action CRN would reach an unstable equilibrium
+    p = 0.45
+    inits = {a: int(p*n), b: int((1-p)*n)}
+    sim = pp.Simulation(inits, approx_majority_rates, volume=vol, time_units='seconds')
+    sim.run()
+    print(f"history = {sim.history}")
 
 if __name__ == '__main__':
-    main()
+    main3()

@@ -28,6 +28,7 @@ class SimulatorSequentialArray:
     null_transitions: list[list[bool]]
     silent: bool
     population: list[RustState]
+    collision_counts: dict[int, int] # XXX: not really but this is just for testing and I want mypy to ignore it
 
     def __init__(
             self,
@@ -71,6 +72,7 @@ class SimulatorMultiBatch:
     enabled_reactions: list[int]
     num_enabled_reactions: int
     reaction_probabilities: list[float]
+    collision_counts: dict[int, int]
 
     def __init__(
             self,
