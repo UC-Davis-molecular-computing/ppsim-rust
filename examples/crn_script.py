@@ -57,7 +57,7 @@ def main2():
     a+u >> 2*a,
     b+u >> 2*b,
     ]
-    n = 10 ** 2
+    n = 10 ** 7
     p = 0.51
     a_init = int(n * p)
     b_init = n - a_init
@@ -65,8 +65,10 @@ def main2():
     # for seed in range(100):
     #     print(f'{seed=}')
     seed = 10
-    sim = pp.Simulation(init, approx_majority, seed=seed)
-    sim.run(20, 0.1)
+    sim = pp.Simulation(init, approx_majority, seed=seed, 
+                        # simulator_method='sequential'
+                        )
+    sim.run(20, 1)
     # sim.run(100)
     print(sim.history)
 
@@ -87,8 +89,16 @@ def main3():
     inits = {a: int(p*n), b: int((1-p)*n)}
     print(f'{inits=}')
     sim = pp.Simulation(inits, approx_majority_rates, volume=vol, time_units='seconds')
-    sim.run()
-    print(f"history = {sim.history}")
+    print('delta:')
+    for row in sim.simulator.delta:
+        print(row)
+    print('random_transitions:')
+    for row in sim.simulator.random_transitions: # type: ignore
+        print(row)
+    print(f'{sim.simulator.random_outputs=}') # type: ignore
+    print(f'{sim.simulator.transition_probabilities=}') # type: ignore
+    # sim.run()
+    # print(f"history = {sim.history}")
 
 if __name__ == '__main__':
-    main3()
+    main2()

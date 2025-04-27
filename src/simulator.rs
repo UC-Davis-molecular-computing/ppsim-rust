@@ -17,295 +17,116 @@ use rand::SeedableRng;
 use statrs::distribution::{Geometric, Multinomial, Uniform};
 use statrs::function::gamma::ln_gamma;
 
-use crate::urn::sample_discrete_uniform;
 use crate::urn::Urn;
 
 type State = usize;
-
-#[pyclass]
-pub struct SimulatorSequentialArray {
-    #[pyo3(get, set)]
-    pub config: Vec<State>,
-    #[pyo3(get, set)]
-    pub n: usize,
-    #[pyo3(get, set)]
-    pub t: usize,
-    pub q: usize,
-    #[pyo3(get, set)]
-    pub delta: Vec<Vec<(State, State)>>,
-    #[pyo3(get, set)]
-    pub null_transitions: Vec<Vec<bool>>,
-    pub is_random: bool,
-    pub random_transitions: Vec<Vec<(State, State)>>,
-    pub random_outputs: Vec<(usize, usize)>,
-    pub transition_probabilities: Vec<f64>,
-    pub random_depth: usize,
-    rng: SmallRng,
-    #[pyo3(get, set)]
-    pub population: Vec<State>,
-}
-
-#[pymethods]
-impl SimulatorSequentialArray {
-    #[new]
-    #[pyo3(signature = (init_config, delta, null_transitions, random_transitions, random_outputs, transition_probabilities, seed=None))]
-    pub fn new(
-        init_config: PyReadonlyArray1<State>,
-        delta: PyReadonlyArray3<State>,
-        null_transitions: PyReadonlyArray2<bool>,
-        random_transitions: PyReadonlyArray3<State>,
-        random_outputs: PyReadonlyArray2<State>,
-        transition_probabilities: PyReadonlyArray1<f64>,
-        seed: Option<u64>,
-    ) -> Self {
-        let config = init_config.to_vec().unwrap();
-        let transition_probabilities = transition_probabilities.to_vec().unwrap();
-        let n: usize = config.iter().sum();
-        let q = config.len() as State;
-        let t = 0;
-        let rng = if let Some(s) = seed {
-            SmallRng::seed_from_u64(s)
-        } else {
-            SmallRng::from_entropy()
-        };
-
-        debug_assert_eq!(delta.shape()[0], q as usize, "delta shape mismatch");
-        debug_assert_eq!(delta.shape()[1], q as usize, "delta shape mismatch");
-        debug_assert_eq!(delta.shape()[2], 2 as usize, "delta shape mismatch");
-        let mut delta_vec = Vec::with_capacity(q);
-        for i in 0..q {
-            let mut delta_inner_vec = Vec::with_capacity(q);
-            for j in 0..q {
-                let out1 = *delta.get([i, j, 0]).unwrap();
-                let out2 = *delta.get([i, j, 1]).unwrap();
-                delta_inner_vec.push((out1, out2));
-            }
-            delta_vec.push(delta_inner_vec);
-        }
-        let delta = delta_vec;
-
-        let mut null_transitions_vec = Vec::with_capacity(q);
-        for i in 0..q {
-            let mut null_inner_vec = Vec::with_capacity(q);
-            for j in 0..q {
-                let is_null = *null_transitions.get([i, j]).unwrap();
-                null_inner_vec.push(is_null);
-            }
-            null_transitions_vec.push(null_inner_vec);
-        }
-        let null_transitions = null_transitions_vec;
-
-        let mut random_transitions_vec = Vec::with_capacity(q);
-        for i in 0..q {
-            let mut random_inner_vec = Vec::with_capacity(q);
-            for j in 0..q {
-                let num = *random_transitions.get([i, j, 0]).unwrap();
-                let idx = *random_transitions.get([i, j, 1]).unwrap();
-                random_inner_vec.push((num, idx));
-            }
-            random_transitions_vec.push(random_inner_vec);
-        }
-        let random_transitions = random_transitions_vec;
-        // is_random is true if any num in pair (num, idx) in random_transitions is non-zero
-        let mut is_random = false;
-        // random_depth is the maximum number of outputs for any randomized transition
-        let mut random_depth = 1;
-        for random_transitions_inner in &random_transitions {
-            for &(num, _) in random_transitions_inner {
-                if num != 0 {
-                    is_random = true;
-                    random_depth = random_depth.max(num);
-                }
-            }
-        }
-
-        let random_outputs_length = random_outputs.shape()[0];
-        debug_assert_eq!(
-            random_outputs.shape()[1],
-            2 as usize,
-            "random_outputs shape mismatch"
-        );
-        let mut random_outputs_vec = Vec::with_capacity(random_outputs_length);
-        for i in 0..random_outputs_length {
-            let out1 = *random_outputs.get([i, 0]).unwrap();
-            let out2 = *random_outputs.get([i, 1]).unwrap();
-            random_outputs_vec.push((out1, out2));
-        }
-        let random_outputs = random_outputs_vec;
-
-        debug_assert_eq!(
-            random_outputs.len(),
-            transition_probabilities.len(),
-            "random_outputs and transition_probabilities length mismatch"
-        );
-
-        let mut sim = SimulatorSequentialArray {
-            config,
-            n,
-            t,
-            q,
-            delta,
-            null_transitions,
-            is_random,
-            random_transitions,
-            random_outputs,
-            transition_probabilities,
-            random_depth,
-            rng,
-            population: vec![0; n],
-        };
-        sim.make_population();
-        sim
-    }
-
-    pub fn make_population(&mut self) -> () {
-        let mut k = 0;
-        for state in 0..self.q {
-            for _ in 0..self.config[state] {
-                self.population[k] = state;
-                k += 1;
-            }
-        }
-        ()
-    }
-
-    /// Run the simulation for a specified number of steps or until max time is reached
-    #[pyo3(signature = (t_max, max_wallclock_time=3600.0))]
-    pub fn run(&mut self, t_max: usize, max_wallclock_time: f64) -> PyResult<()> {
-        let max_wallclock_milliseconds: u64 = (max_wallclock_time * 1_000.0).ceil() as u64;
-        let duration = Duration::from_millis(max_wallclock_milliseconds);
-        let start_time = Instant::now();
-        let uniform = Uniform::standard();
-        let run_until_silent = self.t == t_max && max_wallclock_time == 0.0;
-        while run_until_silent || self.t < t_max && start_time.elapsed() < duration {
-            // rejection sampling to quickly get distinct pair
-            let i: usize = sample_discrete_uniform(&mut self.rng, 0, self.n - 1);
-            let mut j = sample_discrete_uniform(&mut self.rng, 0, self.n - 1);
-            while i == j {
-                j = sample_discrete_uniform(&mut self.rng, 0, self.n - 1);
-            }
-            let in1 = self.population[i];
-            let in2 = self.population[j];
-            let out1: usize;
-            let out2: usize;
-            if !self.null_transitions[in1][in2] {
-                let num_outputs = self.random_transitions[in1][in2].0;
-                if self.is_random && num_outputs != 0 {
-                    let k = self.random_transitions[in1][in2].1;
-                    // sample from a probability distribution whose support is [k, k+1, ..., k+num_outputs-1],
-                    // where Pr[k+i] = transition_probabilities[k+i]
-                    let mut u = self.rng.sample(uniform) - self.transition_probabilities[k];
-                    let mut k = k;
-                    while u > 0.0 {
-                        k += 1;
-                        u -= self.transition_probabilities[k];
-                    }
-                    (out1, out2) = self.random_outputs[k];
-                } else {
-                    (out1, out2) = self.delta[in1][in2];
-                }
-                self.population[i] = out1;
-                self.population[j] = out2;
-                self.config[in1] -= 1;
-                self.config[in2] -= 1;
-                self.config[out1] += 1;
-                self.config[out2] += 1;
-            }
-            self.t += 1;
-        }
-        Ok(())
-    }
-
-    /// Run the simulation until it is silent, i.e., no reactions are applicable.
-    #[pyo3()]
-    pub fn run_until_silent(&mut self) -> PyResult<()> {
-        return self.run(0, 0.0);
-    }
-
-    #[getter]
-    pub fn silent(&self) -> bool {
-        // Use .copied() to convert &usize to usize when collecting
-        let states_present: Vec<State> = self.config.iter().filter(|&x| *x > 0).copied().collect();
-
-        // Check if all transitions between states_present are null
-        for &i in &states_present {
-            for &j in &states_present {
-                if !self.null_transitions[i][j] {
-                    return false; // Found a non-null transition, not silent
-                }
-            }
-        }
-
-        true // All transitions are null, system is silent
-    }
-
-    /// Reset the simulation with a new configuration
-    // py: Python<'_>,
-    #[pyo3(signature = (config, t=0))]
-    pub fn reset(&mut self, config: PyReadonlyArray1<State>, t: usize) -> PyResult<()> {
-        self.config = config.to_vec().unwrap();
-        self.t = t;
-        self.n = self.config.iter().sum();
-        self.make_population();
-
-        Ok(())
-    }
-
-    #[pyo3(signature = (filename=None))]
-    pub fn write_profile(&self, filename: Option<String>) -> PyResult<()> {
-        panic!("write_profile({filename:?}) not implemented for SimulatorSequentialArray");
-    }
-}
 
 //TODO: consider using ndarrays instead of multi-dimensional vectors
 // I think native Rust arrays won't work because their size needs to be known at compile time.
 #[pyclass]
 pub struct SimulatorMultiBatch {
+    /// The population size (sum of values in urn.config).
     #[pyo3(get, set)]
     pub n: usize,
+    /// The current number of elapsed interaction steps.
     #[pyo3(get, set)]
     pub t: usize,
+    /// The total number of states (length of urn.config).
     pub q: usize,
+    /// A q x q array of pairs (c,d) representing the transition function.
+    /// delta[a][b] gives contains the two output states for a
+    /// deterministic transition a,b --> c,d.
     #[pyo3(get, set)]
     pub delta: Vec<Vec<(State, State)>>,
+    /// A q x q boolean array where null_transitions[i][j] says if these states have a null interaction.
     #[pyo3(get, set)]
     pub null_transitions: Vec<Vec<bool>>,
+    /// A boolean that is true if there are any random transitions.
     pub is_random: bool,
+    /// A q x q array of pairs random_transitions[i][j] = (`num_outputs`, `first_idx`).
+    /// `num_outputs` is the number of possible outputs if transition i,j --> ... is random,
+    /// otherwise it is 0. `first_idx` gives the starting index to find
+    /// the outputs in the array `self.random_outputs` if it is random.
+    #[pyo3(get, set)] // XXX: for testing
     pub random_transitions: Vec<Vec<(State, State)>>,
+    /// A 1D array of pairs containing all (out1,out2) outputs of random transitions,
+    /// whose indexing information is contained in random_transitions.
+    /// For example, if there are random transitions
+    /// 3,4 --> 5,6 and 3,4 --> 7,8 and 3,4 --> 3,2, then
+    /// `random_transitions[3][4] = (3, first_idx)` for some `first_idx`, and
+    /// `random_outputs[first_idx]   = (5,6)`,
+    /// `random_outputs[first_idx+1] = (7,8)`, and
+    /// `random_outputs[first_idx+2] = (3,2)`.
+    #[pyo3(get, set)] // XXX: for testing
     pub random_outputs: Vec<(usize, usize)>,
+    /// An array containing all random transition probabilities,
+    /// whose indexing matches random_outputs.
+    #[pyo3(get, set)] // XXX: for testing
     pub transition_probabilities: Vec<f64>,
+    /// The maximum number of random outputs from any random transition.
     pub random_depth: usize,
+    /// A pseudorandom number generator.
     rng: SmallRng,
+    /// An :any:`Urn` object that stores the configuration (as urn.config) and has methods for sampling.
+    /// This is the equivalent of C in the pseudocode for the batching algorithm in the
+    /// original Berenbrink et al. paper.
     urn: Urn,
+    /// An additional :any:`Urn` where agents are stored that have been
+    /// updated during a batch. Called `C'` in the pseudocode for the batching algorithm.
     updated_counts: Urn,
+    /// Precomputed log(n).
     logn: f64,
+    /// Minimum number of interactions that must be simulated in each
+    /// batch. Collisions will be repeatedly sampled up until batch_threshold
+    /// interaction steps, then all non-colliding pairs of 'delayed agents' are
+    /// processed in parallel.
     batch_threshold: usize,
+    /// Array which stores sampled counts of initiator agents
+    /// (row sums of the 'D' matrix from the paper).
     row_sums: Vec<usize>,
+    /// Array which stores the counts of responder agents for each type of
+    /// initiator agent (one row of the 'D' matrix from the paper).
     row: Vec<usize>,
     // Cython implementation maintained this array to avoid reallocation sicne the numpy c_distributions
     // implementation of multinomial writes into a user-provided array.
     // But in the Rust implementation, we use the statrs Multinomial struct, which creates a new Vector
     // whenever sampled from, so there's no point in maintaining this array.
     // m: Vec<usize>,
+    /// A boolean determining if we are currently doing Gillespie steps.
     #[pyo3(get, set)]
     pub do_gillespie: bool,
+    /// A boolean determining if the configuration is silent (all interactions are null).
     #[pyo3(get, set)]
     pub silent: bool,
+    /// A list of reactions, as (input, input, output, output).
     #[pyo3(get, set)]
     pub reactions: Vec<(State, State, State, State)>,
+    /// An array holding indices into `self.reactions` of all currently enabled
+    /// (i.e., applicable; positive counts of reactants) reactions.
     #[pyo3(get, set)]
     pub enabled_reactions: Vec<usize>,
+    /// The number of meaningful indices in `self.enabled_reactions`.
     #[pyo3(get, set)]
     pub num_enabled_reactions: usize,
+    /// An array of length `self.reactions.len()` holding the propensities of each reaction.
     propensities: Vec<f64>, // these are used only when doing Gillespie steps and are all 0 otherwise
+    /// The probability of each reaction.
     #[pyo3(get, set)]
     pub reaction_probabilities: Vec<f64>,
+    /// The probability of a non-null interaction must be below this
+    /// threshold to keep doing Gillespie steps.
     gillespie_threshold: f64,
+    /// Precomputed values to speed up the function sample_coll(r, u).
+    /// This is a 2D array of size (`coll_table_r_values.len()`, `coll_table_u_values.len()`).
     coll_table: Vec<Vec<usize>>,
+    /// Values of r, giving one axis of coll_table.
     coll_table_r_values: Vec<usize>,
+    /// Values of u, giving the other axis of coll_table.
     coll_table_u_values: Vec<f64>,
+    /// Used to populate coll_table_r_values.
     r_constant: usize,
 
+    // Used for testing; not needed for simulation.
     #[pyo3(get, set)]
     collision_counts: HashMap<usize, usize>,
 }
@@ -595,7 +416,7 @@ impl SimulatorMultiBatch {
             self.set_n_parameters();
         }
         self.t = t;
-        self.silent = false;
+        self.update_enabled_reactions();
         self.do_gillespie = false;
         Ok(())
     }

@@ -1,10 +1,11 @@
 use pyo3::prelude::*;
 
 pub mod simulator;
+pub mod simulator_sequential;
 pub mod urn;
 
 use simulator::SimulatorMultiBatch;
-use simulator::SimulatorSequentialArray;
+use simulator_sequential::SimulatorSequentialArray;
 
 /// A Python module implemented in Rust.
 #[pymodule]
