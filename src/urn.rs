@@ -10,7 +10,10 @@ use crate::flame;
 // starting at ln(0!), so this goes up to ln((MAX_FACTORIAL-1)!).
 // We use this cache because numpy does, out of paranoia, but in practice it's actually really not
 // any faster than using the Stirling approximation, and the Stirling approximation is surprisingly
-// accurate even for small values of k. I'm not sure why numpy uses this cache.
+// accurate even for small values of k. I'm not sure why numpy uses this cache, maybe
+// because Numerical Recipes in C recommends that: https://numerical.recipes/book.html
+// since it defers to log_gamma for large, which might be slower than the Stirling approximation
+// used for integer k in log_factorial.
 const MAX_FACTORIAL: usize = 126;
 
 pub fn create_log_fact_cache() -> [f64; MAX_FACTORIAL] {
