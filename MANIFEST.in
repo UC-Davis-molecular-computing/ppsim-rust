@@ -1,3 +1,0 @@
-recursive-include ppsim *.py
-recursive-include ppsim *.pyi
-include ppsim/py.typed

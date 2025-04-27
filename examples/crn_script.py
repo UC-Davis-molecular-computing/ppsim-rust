@@ -74,7 +74,7 @@ def main3():
     # derived rate constants of the formal reaction simulated by DNA strand displacement (units of /M/s)
     k1,k2,k3 = 9028, 2945, 1815
     total_concentration = 80 * 1e-9 # 1x volume was 80 nM
-    vol = 1e-6 # 1 uL
+    vol = 1e-14 # 1 uL
     n = pp.concentration_to_count(total_concentration, vol)
     a,b,u = pp.species('A B U')
     approx_majority_rates = [
@@ -85,6 +85,7 @@ def main3():
     # set the initial concentrations near where the the mass-action CRN would reach an unstable equilibrium
     p = 0.45
     inits = {a: int(p*n), b: int((1-p)*n)}
+    print(f'{inits=}')
     sim = pp.Simulation(inits, approx_majority_rates, volume=vol, time_units='seconds')
     sim.run()
     print(f"history = {sim.history}")
