@@ -815,7 +815,7 @@ class Simulation:
         samples = []
         t = self.simulator.t
         for _ in tqdm(range(num_samples)):
-            self.simulator.reset(np.array(self.configs[-1]), t)
+            self.simulator.reset(np.array(self.configs[-1], dtype=np.uint), t)
             end_step = t + self.time_to_steps(time)
             self.simulator.run(end_step)
             samples.append(np.array(self.simulator.config))
