@@ -23,6 +23,7 @@ dependencies = [
     "pandas>=2",
     "tqdm>=4",
     "natsort>=8",
+    "gpac>=1",
 ]
 
 [tool.maturin]

@@ -291,5 +291,51 @@ def main4():
     print(sim.history)
     sim.simulator.write_profile()
 
+def main5():
+    a,b,u = pp.species('A B U')
+    approx_majority = [
+        a+b >> 2*u,
+        a+u >> 2*a,
+        b+u >> 2*b,
+    ]
+    n = 10 ** 6
+    p = 0.51
+    a_init = int(n * p)
+    b_init = n - a_init
+    init = {a: a_init, b: b_init}
+    gp_init, gp_rxns = pp.gpac_format(init, approx_majority)
+    print(f'init =')
+    for sp, count in gp_init.items():
+        print(f'{sp}: {count}')
+    print('rxns = ')
+    for rxn in gp_rxns:
+        print(rxn)
+
+    import gpac as gp
+    tmax = 10
+    sol = gp.rebop_crn_counts(gp_rxns, gp_init, tmax=tmax, nb_steps=200, seed=0)
+    print(f'sol = {sol}')
+
+def main6():
+    import rebop
+    import gpac
+    import numpy as np
+
+    a,b,u = gpac.species('A B U')
+    rxns = [
+        a+b >> 2*u,
+        a+u >> 2*a,
+        b+u >> 2*b,
+    ]
+    n = 10**6
+    inits = {
+        a: round(n * 0.51),
+        b: round(n * 0.49),
+    }
+    tmax = 10
+    # gpac.plot_gillespie(rxns, inits, tmax, nb_steps=200)
+    sol = gpac.rebop_crn_counts(rxns, inits, tmax, nb_steps=200, seed=0)
+    print(sol)
+
 if __name__ == '__main__':
-    main3()
+    main6()

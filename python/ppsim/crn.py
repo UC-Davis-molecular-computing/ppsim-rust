@@ -31,6 +31,7 @@ from enum import Enum
 from typing import Iterable, Any, TypeAlias
 from dataclasses import dataclass
 from xml.dom import minidom
+import gpac as gp
 
 
 def species(sp: str | Iterable[str]) -> tuple[Specie, ...]:
@@ -660,6 +661,41 @@ def species_in_rxns(rxns: Iterable[Reaction]) -> list[Specie]:
                 species_list.append(sp)
     return species_list
 
+def gpac_format(init_config: dict[Specie, int], rxns: Iterable[Reaction]) -> tuple[dict[gp.Specie, int], list[gp.Reaction]]:
+    """
+    Create a gpac CRN in the form of equivalent initial configuration and list of gpac Reaction objects.
+
+    These can be simulated using the Gillespie algorithm (with the rebop package as a backend)
+    in gpac using gpac.rebop_crn_counts, and plotted using gpac.plot_crn_counts.
+
+    Args:
+        init_config: dict mapping each (ppsim) :any:`Specie` to its initial count
+        rxns: reactions to translate to gpac
+
+    Returns:
+        A tuple of (config, reactions) essentially equivalent to the ppsim init_config and rxns
+        but using the gpac package's versions of those data structures.
+    """
+    pp_species_set = set()
+    for rxn in rxns:
+        for sp in rxn.get_species():
+            pp_species_set.add(sp)
+    gp_init = {gp.Specie(name=sp.name): count for sp, count in init_config.items()}
+    gp_rxns = []
+    for rxn in rxns:
+        pp_reactants = rxn.reactants.species
+        pp_products = rxn.products.species
+        gp_reactants = [gp.Specie(name=sp.name) for sp in pp_reactants]
+        gp_products = [gp.Specie(name=sp.name) for sp in pp_products]
+        gp_reactants_expr = gp.Expression(gp_reactants)
+        gp_products_expr = gp.Expression(gp_products)
+        gp_rxn = (gp_reactants_expr >> gp_products_expr).k(rxn.rate_constant)
+        if rxn.reversible:
+            gp_rxn.r(rxn.rate_constant_reverse)
+        gp_rxns.append(gp_rxn)
+    
+    return gp_init, gp_rxns
+    
 
 def gillespy2_format(init_config: dict[Specie, int], rxns: Iterable[Reaction],
                      volume: float = 1.0) -> Any:
