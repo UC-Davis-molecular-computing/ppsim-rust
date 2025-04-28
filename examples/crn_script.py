@@ -10,7 +10,7 @@ def main():
         b + u >> 2 * b,
     ]
     # init = {a: 50_001_000, b: 49_990_000}
-    n = 10**9
+    n = 10**12
     a_init = int(n * 0.51)
     b_init = n - a_init
     init = {a: a_init, b: b_init}
@@ -27,7 +27,7 @@ def main():
     # plt.ylim(0, sum(init.values()))
     # plt.savefig('examples/approx_majority_plot.png')
     # print("Plot saved to examples/approx_majority_plot.png")
-    print(f"history = {sim.history}")
+    print(f"history =\n{sim.history}")
 
 
     num_multibatch_steps = sum(sim.simulator.collision_counts.values())
@@ -57,7 +57,7 @@ def main2():
     a+u >> 2*a,
     b+u >> 2*b,
     ]
-    n = 10 ** 7
+    n = 10 ** 6
     p = 0.51
     a_init = int(n * p)
     b_init = n - a_init
@@ -66,17 +66,18 @@ def main2():
     #     print(f'{seed=}')
     seed = 10
     sim = pp.Simulation(init, approx_majority, seed=seed, 
-                        # simulator_method='sequential'
+                        simulator_method='sequential'
                         )
-    sim.run(20, 1)
+    # sim.run(20, 1)
     # sim.run(100)
+    sim.run()
     print(sim.history)
 
 def main3():
     # derived rate constants of the formal reaction simulated by DNA strand displacement (units of /M/s)
     k1,k2,k3 = 9028, 2945, 1815
     total_concentration = 80 * 1e-9 # 1x volume was 80 nM
-    vol = 1e-14 # 1 uL
+    vol = 1e-6 # 1 uL
     n = pp.concentration_to_count(total_concentration, vol)
     a,b,u = pp.species('A B U')
     approx_majority_rates = [
@@ -88,17 +89,24 @@ def main3():
     p = 0.45
     inits = {a: int(p*n), b: int((1-p)*n)}
     print(f'{inits=}')
-    sim = pp.Simulation(inits, approx_majority_rates, volume=vol, time_units='seconds')
-    print('delta:')
-    for row in sim.simulator.delta:
-        print(row)
-    print('random_transitions:')
-    for row in sim.simulator.random_transitions: # type: ignore
-        print(row)
-    print(f'{sim.simulator.random_outputs=}') # type: ignore
-    print(f'{sim.simulator.transition_probabilities=}') # type: ignore
-    # sim.run()
-    # print(f"history = {sim.history}")
+    sim = pp.Simulation(inits, approx_majority_rates, volume=vol, time_units='seconds', seed=0)
+    # print('delta:')
+    # m = ['a', 'b', 'u']
+    # for row in sim.simulator.delta:
+    #     for i,j in row:
+    #         print(f'({m[i]},{m[j]})', end=', ')
+    #     print()
+    # print('random_transitions:')
+    # for row in sim.simulator.random_transitions: # type: ignore
+    #     print(row)
+    # print('random_outputs:')
+    # for idx, (o1,o2) in enumerate(sim.simulator.random_outputs): # type: ignore
+    #     print(f'idx {idx}: ({m[o1]},{m[o2]})', end=', ')
+    # print()
+    # print(f'{sim.simulator.transition_probabilities=}') # type: ignore
+    sim.run()
+    print(f"history =\n{sim.history}")
+    sim.simulator.write_profile()
 
 if __name__ == '__main__':
-    main2()
+    main()

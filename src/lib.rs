@@ -3,6 +3,7 @@ use pyo3::prelude::*;
 pub mod simulator;
 pub mod simulator_sequential;
 pub mod urn;
+pub mod util;
 
 use simulator::SimulatorMultiBatch;
 use simulator_sequential::SimulatorSequentialArray;

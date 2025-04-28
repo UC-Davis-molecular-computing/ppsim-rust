@@ -9,15 +9,14 @@ use numpy::PyUntypedArrayMethods;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
-use nalgebra::DVector;
 use numpy::{PyReadonlyArray1, PyReadonlyArray2, PyReadonlyArray3};
 use rand::rngs::SmallRng;
 use rand::Rng;
 use rand::SeedableRng;
-use statrs::distribution::{Geometric, Multinomial, Uniform};
-use statrs::function::gamma::ln_gamma;
+use statrs::distribution::{Geometric, Uniform};
 
 use crate::urn::Urn;
+use crate::util::{ln_gamma, multinomial_sample};
 
 type State = usize;
 
@@ -87,11 +86,8 @@ pub struct SimulatorMultiBatch {
     /// Array which stores the counts of responder agents for each type of
     /// initiator agent (one row of the 'D' matrix from the paper).
     row: Vec<usize>,
-    // Cython implementation maintained this array to avoid reallocation sicne the numpy c_distributions
-    // implementation of multinomial writes into a user-provided array.
-    // But in the Rust implementation, we use the statrs Multinomial struct, which creates a new Vector
-    // whenever sampled from, so there's no point in maintaining this array.
-    // m: Vec<usize>,
+    /// Vector holding multinomial samples when doing randomized transitions.
+    m: Vec<usize>,
     /// A boolean determining if we are currently doing Gillespie steps.
     #[pyo3(get, set)]
     pub do_gillespie: bool,
@@ -230,6 +226,7 @@ impl SimulatorMultiBatch {
         let updated_counts = Urn::new(vec![0; q], seed);
         let row_sums = vec![0; q];
         let row = vec![0; q];
+        let m = vec![0; random_depth];
         let silent = false;
         let do_gillespie = false;
 
@@ -343,6 +340,7 @@ impl SimulatorMultiBatch {
             batch_threshold,
             row_sums,
             row,
+            m,
             do_gillespie,
             silent,
             reactions,
@@ -380,7 +378,9 @@ impl SimulatorMultiBatch {
             if self.silent {
                 return Ok(());
             } else if self.do_gillespie {
+                flame::start("gillespie step");
                 self.gillespie_step(t_max);
+                flame::end("gillespie step");
             } else {
                 self.multibatch_step(t_max);
             }
@@ -510,6 +510,10 @@ fn process_span(span_data_map: &mut HashMap<String, SpanData>, span: &flame::Spa
 impl SimulatorMultiBatch {
     fn multibatch_step(&mut self, t_max: usize) -> () {
         self.updated_counts.reset();
+        //TODO: if the two Urns could share the same order Vec, that would be more efficient,
+        // but that seems complex to do with Rust borrowship rules.
+        // A workaround could be to pass an Option<&Vec<usize>> to the sampling methods,
+        // and we could call self.updated_counts.sample_one() with Some(self.urn.order) as an argument.
         for i in 0..self.urn.order.len() {
             self.updated_counts.order[i] = self.urn.order[i];
         }
@@ -534,13 +538,13 @@ impl SimulatorMultiBatch {
         while self.t + num_delayed / 2 < end_step {
             num_collisions += 1;
 
-            flame::start("sample_coll");
+            // flame::start("sample_coll");
             let mut u = self.rng.sample(uniform);
             let l = self.sample_coll(num_delayed + self.updated_counts.size, u, true);
             assert!(l > 0, "sample_coll must return at least 1");
             // add (l-1) // 2 pairs of delayed agents, the lth agent a was already picked, so has a collision
             num_delayed += 2 * ((l - 1) / 2);
-            flame::end("sample_coll");
+            // flame::end("sample_coll");
 
             // If the sampled collision happens after t_max, then include delayed agents up until t_max
             //   and do not perform the collision.
@@ -550,46 +554,62 @@ impl SimulatorMultiBatch {
                 break;
             }
 
-            let mut a: State;
+            // flame::start("process collision");
 
-            flame::start("process collision");
-            // sample if a was a delayed or an updated agent
+            let mut initiator: State; // initiator, called a in Cython implementation
+            let mut responder: State; // responder, called b in Cython implementation
+
+            /*
+            Definitions from paper https://arxiv.org/abs/2005.03584
+
+            - *untouched* agents did not interact in the current epoch (multibatch step).
+              Hence, all agents are labeled untouched at the beginning of an epoch.
+
+            - *updated* agents took part in at least one interaction that was already evaluated.
+              Thus, updated agents are already assigned their most recent state.
+
+            - *delayed* agents took part in exactly one interaction that was not yet evaluated.
+              Thus, delayed agents are still in the same state they had at the beginning of the
+              epoch, but are scheduled to interact at a later point in time. We additionally
+              require that their interaction partner is also labeled delayed.
+             */
+
+            // sample if initiator was delayed or updated
             u = self.rng.sample(uniform);
-            // delayed with probability num_delayed / (num_delayed + num_updated)
+            // initiator is delayed with probability num_delayed / (num_delayed + num_updated)
             if (u * ((num_delayed + self.updated_counts.size) as f64)) <= num_delayed as f64 {
-                // if a was delayed, need to first update a with its first interaction before the collision
-                // c is the delayed partner that a interacted with, so add this interaction
-                a = self.urn.sample_one().unwrap();
+                // if initiator is delayed, need to first update it with its first interaction before the collision
+                // c is the delayed partner that initiator interacted with, so add this interaction
+                initiator = self.urn.sample_one().unwrap();
                 let mut c = self.urn.sample_one().unwrap();
-                (a, c) = self.unordered_delta(a, c);
+                (initiator, c) = self.unordered_delta(initiator, c);
                 self.t += 1;
-                // c is moved from delayed to updated, a is currently uncounted
+                // c is moved from delayed to updated, initiator is currently uncounted
                 self.updated_counts.add_to_entry(c, 1);
                 num_delayed -= 2;
             } else {
-                // if a was updated, we simply sample a and remove it from updated counts
-                a = self.updated_counts.sample_one().unwrap();
+                // if initiator is updated, we simply sample initiator and remove it from updated_counts
+                initiator = self.updated_counts.sample_one().unwrap();
             }
 
-            let mut b: State;
-
+            // sample responder
             if l % 2 == 0 {
-                // when l is even, the collision must with a formally untouched agent
-                b = self.urn.sample_one().unwrap();
+                // when l is even, the collision must with a formerly untouched agent
+                responder = self.urn.sample_one().unwrap();
             } else {
                 // when l is odd, the collision is with the next agent, either untouched, delayed, or updated
                 u = self.rng.sample(uniform);
                 if ((u * ((self.n - 1) as f64)) as usize) < self.updated_counts.size {
-                    // b is an updated agent, simply remove it
-                    b = self.updated_counts.sample_one().unwrap();
+                    // responder is an updated agent, simply remove it
+                    responder = self.updated_counts.sample_one().unwrap();
                 } else {
-                    // we simply remove b from C if b is untouched
-                    b = self.urn.sample_one().unwrap();
-                    // if b was delayed, we have to do the past interaction
+                    // we simply remove responeder from self.urn if responder is untouched
+                    responder = self.urn.sample_one().unwrap();
+                    // if responeder is delayed, we have to do the past interaction
                     if ((u * (self.n - 1) as f64) as usize) < self.updated_counts.size + num_delayed
                     {
                         let mut c = self.urn.sample_one().unwrap();
-                        (b, c) = self.unordered_delta(b, c);
+                        (responder, c) = self.unordered_delta(responder, c);
                         self.t += 1;
                         self.updated_counts.add_to_entry(c, 1);
                         num_delayed -= 2;
@@ -597,11 +617,11 @@ impl SimulatorMultiBatch {
                 }
             }
 
-            (a, b) = self.unordered_delta(a, b);
+            (initiator, responder) = self.unordered_delta(initiator, responder);
             self.t += 1;
-            self.updated_counts.add_to_entry(a, 1);
-            self.updated_counts.add_to_entry(b, 1);
-            flame::end("process collision");
+            self.updated_counts.add_to_entry(initiator, 1);
+            self.updated_counts.add_to_entry(responder, 1);
+            // flame::end("process collision");
         }
 
         self.collision_counts
@@ -617,19 +637,49 @@ impl SimulatorMultiBatch {
 
         self.do_gillespie = true; // if entire batch are null reactions, stays true and switches to gillspie
 
+        // use num_format::{Locale, ToFormattedString};
+        // println!(
+        //     "num_delayed = {}",
+        //     num_delayed.to_formatted_string(&Locale::en)
+        // );
+        // println!("self.urn.config = {:?}", self.urn.config);
+        // println!(
+        //     "self.updated_counts.config = {:?}",
+        //     self.updated_counts.config
+        // );
         let i_max = self
             .urn
             .sample_vector(num_delayed / 2, &mut self.row_sums)
             .unwrap();
-        // println!("i_max = {i_max}");
+        // println!("** after sampling number of initiator into self.row_sums");
+        // println!("   self.row_sums = {:?}", self.row_sums);
+        // println!("   self.urn.config = {:?}", self.urn.config);
+        // println!(
+        //     "   self.updated_counts.config = {:?}",
+        //     self.updated_counts.config
+        // );
+        // println!("* self.urn.order = {:?}", self.urn.order);
+
         for i in 0..i_max {
             let o_i = self.urn.order[i];
             let j_max = self
                 .urn
                 .sample_vector(self.row_sums[o_i], &mut self.row)
                 .unwrap();
+
+            // println!("** after sampling number of responder to initiator {o_i} into self.row");
+            // println!("   self.row = {:?}", self.row);
+            // println!("   self.urn.config = {:?}", self.urn.config);
+            // println!(
+            //     "   self.updated_counts.config = {:?}",
+            //     self.updated_counts.config
+            // );
             for j in 0..j_max {
                 let o_j = self.urn.order[j];
+                // println!(
+                //     "i,j = {i},{j}   o_i,o_j: {o_i},{o_j}   self.random_transitions[o_i][o_j].0 > 0: {}",
+                //     self.random_transitions[o_i][o_j].0 > 0
+                // );
                 if self.is_random && self.random_transitions[o_i][o_j].0 > 0 {
                     // don't switch to gillespie because we did a random transition
                     // TODO: this might not switch to gillespie soon enough in certain cases
@@ -641,16 +691,37 @@ impl SimulatorMultiBatch {
                     let probabilities =
                         self.transition_probabilities[first_idx..first_idx + num_outputs].to_vec();
                     flame::start("multinomial sample");
-                    let multinomial =
-                        Multinomial::new(probabilities, self.row[o_j] as u64).unwrap();
-                    let sample: DVector<u64> = self.rng.sample(multinomial);
+                    multinomial_sample(self.row[o_j], &probabilities, &mut self.m, &mut self.rng);
                     flame::end("multinomial sample");
-                    debug_assert_eq!(sample.len(), self.row[o_j], "sample length mismatch");
+                    // println!("num_outputs: {num_outputs}");
+                    // println!("first_idx: {first_idx}");
+                    // println!(
+                    //     "n (self.row[o_j]) = {};  probabilities: {:?}",
+                    //     self.row[o_j], probabilities
+                    // );
+                    // println!("self.row: {:?}", self.row);
+                    // println!("self.row_sums (later) = {:?}", self.row_sums);
+                    // println!("self.row_sums[o_i]: {:?}", self.row_sums[o_i]);
+                    // print!("sample: ");
+                    // for elt in &sample {
+                    //     print!("{elt}, ");
+                    // }
+                    // println!();
+                    // assert sum of entries in self.m is equal to self.row[o_j]
+                    // println!(
+                    //     "self.m: {:?}   self.row: {:?}   self.row[o_j]: {}",
+                    //     self.m, self.row, self.row[o_j]
+                    // );
+                    debug_assert_eq!(
+                        self.m.iter().sum::<usize>(),
+                        self.row[o_j],
+                        "sample sum mismatch"
+                    );
                     for c in 0..num_outputs {
                         let idx = first_idx + c;
                         let (out1, out2) = self.random_outputs[idx];
-                        self.updated_counts.add_to_entry(out1, sample[c] as i64);
-                        self.updated_counts.add_to_entry(out2, sample[c] as i64);
+                        self.updated_counts.add_to_entry(out1, self.m[c] as i64);
+                        self.updated_counts.add_to_entry(out2, self.m[c] as i64);
                     }
                 } else {
                     if self.do_gillespie {
@@ -841,9 +912,10 @@ impl SimulatorMultiBatch {
     fn set_n_parameters(&mut self) -> () {
         self.logn = (self.n as f64).ln();
         // theoretical optimum for batch_threshold is Theta(sqrt(n / logn) * q) agents / batch
-        self.batch_threshold = ((self.n as f64 / self.logn).sqrt()
-            * (self.q as f64).min((self.n as f64).powf(0.7)))
-            as usize;
+        let batch_constant = 2_i32.pow(11) as usize;
+        self.batch_threshold = batch_constant
+            * ((self.n as f64 / self.logn).sqrt() * (self.q as f64).min((self.n as f64).powf(0.7)))
+                as usize;
         // first rough approximation for probability of successful reaction where we want to do gillespie
         self.gillespie_threshold = 2.0 / (self.n as f64).sqrt();
 
@@ -928,8 +1000,11 @@ impl SimulatorMultiBatch {
         let mut t_hi: usize;
         let logu = u.ln();
         debug_assert!(self.n + 1 - r > 0);
-        let diff = (self.n + 1 - r) as f64;
-        let lhs = ln_gamma(diff) - logu;
+        let diff = self.n + 1 - r;
+        // flame::start("ln_gamma");
+        let ln_gamma_diff = ln_gamma(diff);
+        // flame::end("ln_gamma");
+        let lhs = ln_gamma_diff - logu;
         // The condition P(l < t) < U becomes
         //     lhs < lgamma(n - r - t + 1) + t * log(n)
 
@@ -943,10 +1018,10 @@ impl SimulatorMultiBatch {
             // for u values we similarly invert the definition: np.linspace(0, 1, num_u_values)
             let j = (u * (self.coll_table_u_values.len() - 1) as f64) as usize;
 
-            debug_assert!(self.coll_table_r_values[i] <= r);
-            debug_assert!(r <= self.coll_table_r_values[i + 1]);
-            debug_assert!(self.coll_table_u_values[j] <= u);
-            debug_assert!(u <= self.coll_table_u_values[j + 1]);
+            // debug_assert!(self.coll_table_r_values[i] <= r);
+            // debug_assert!(r <= self.coll_table_r_values[i + 1]);
+            // debug_assert!(self.coll_table_u_values[j] <= u);
+            // debug_assert!(u <= self.coll_table_u_values[j + 1]);
             t_lo = self.coll_table[i + 1][j + 1];
             t_hi = self.coll_table[i][j].min(self.n - r + 1);
         } else {
@@ -963,7 +1038,10 @@ impl SimulatorMultiBatch {
         //               lhs <  lgamma(n - r - t_hi + 1) + t_hi * logn
         while t_lo < t_hi - 1 {
             let t_mid = (t_lo + t_hi) / 2;
-            if lhs < ln_gamma((self.n - r + 1 - t_mid) as f64) + (t_mid as f64) * self.logn {
+            // flame::start("ln_gamma");
+            let ln_gamma_nr1 = ln_gamma(self.n - r + 1 - t_mid);
+            // flame::end("ln_gamma");
+            if lhs < ln_gamma_nr1 + (t_mid as f64) * self.logn {
                 t_hi = t_mid;
             } else {
                 t_lo = t_mid;

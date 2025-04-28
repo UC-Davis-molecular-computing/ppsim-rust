@@ -30,3 +30,5 @@ features = ["pyo3/extension-module"]
 python-source = "python"
 module-name = "ppsim.ppsim_rust.ppsim_rust"
 include = ["ppsim/**/*.py", "ppsim/**/*.pyi", "ppsim/py.typed", "MANIFEST.in"]
+# Ignore CONDA_PREFIX environment variable to avoid conflicts with virtual environments
+ignore-conda-prefix = true
