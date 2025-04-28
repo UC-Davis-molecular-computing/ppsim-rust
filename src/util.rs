@@ -166,6 +166,8 @@ pub fn log_factorial(k: u64) -> f64 {
     ret
 }
 
+// adapted from numpy's implementation of the hypergeometric distribution (as of April 2025)
+// https://github.com/numpy/numpy/blob/b76bb2329032809229e8a531ba3179c34b0a3f0a/numpy/random/src/distributions/random_hypergeometric.c#L246
 pub fn hypergeometric_sample(
     popsize: usize,
     good: usize,
@@ -196,7 +198,7 @@ pub fn hypergeometric_sample(
     Ok(h)
 }
 
-// adapted from numpy's implementation of the hypergeometric distribution (as of April 2025)
+// adapted from numpy's implementation of the hypergeometric_hrua algorithm
 // https://github.com/numpy/numpy/blob/b76bb2329032809229e8a531ba3179c34b0a3f0a/numpy/random/src/distributions/random_hypergeometric.c#L119
 const D1: f64 = 1.7155277699214135; // 2*sqrt(2/e)
 const D2: f64 = 0.8989161620588988; // 3 - 2*sqrt(3/e)
@@ -328,7 +330,7 @@ pub fn multinomial_sample(n: usize, pix: &Vec<f64>, result: &mut Vec<usize>, rng
     let mut remaining_p = 1.0;
     let d = pix.len(); // in numpy C code, pix is just a pointer so they need the length too
     let mut dn = n;
-    // Original Cython implementation zeroed out the result array, but
+    // Original Cython implementation zeroed out the result array initially, but
     // since we are overwriting the array, we only zero out the entries if we break out of the loop early.
     for j in 0..(d - 1) {
         result[j] = binomial_sample(dn as usize, pix[j] / remaining_p, rng);

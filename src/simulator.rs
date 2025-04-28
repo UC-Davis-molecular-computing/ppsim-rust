@@ -913,6 +913,7 @@ impl SimulatorMultiBatch {
         self.logn = (self.n as f64).ln();
         // theoretical optimum for batch_threshold is Theta(sqrt(n / logn) * q) agents / batch
         let batch_constant = 2_i32.pow(11) as usize;
+        // let batch_constant = 1 as usize;
         self.batch_threshold = batch_constant
             * ((self.n as f64 / self.logn).sqrt() * (self.q as f64).min((self.n as f64).powf(0.7)))
                 as usize;
