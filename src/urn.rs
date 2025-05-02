@@ -98,7 +98,9 @@ impl Urn {
 
     /// Adds one element at index.
     pub fn add_to_entry(&mut self, index: usize, amount: i64) {
+        debug_assert!(self.config[index] as i64 + amount >= 0);
         self.config[index] = (self.config[index] as i64 + amount) as State;
+        debug_assert!(self.size as i64 + amount >= 0);
         self.size = (self.size as i64 + amount) as usize;
     }
 
@@ -117,7 +119,7 @@ impl Urn {
     ///         v[self.order[i]] for i in range(nz) can then skip looping over
     ///         any entries after the last nonzero entry.
     pub fn sample_vector(&mut self, n: usize, v: &mut [State]) -> Result<usize, String> {
-        let mut n = n as i64;
+        let mut n = n;
         let mut i: usize = 0;
         let mut total: usize = self.size;
         for j in 0..v.len() {
@@ -127,21 +129,26 @@ impl Urn {
         while n > 0 && i < self.config.len() - 1 {
             let index = self.order[i];
             let successes = self.config[index];
-            let h = hypergeometric_sample(total, successes, n as usize, &mut self.rng)?;
+            let h = hypergeometric_sample(total, successes, n, &mut self.rng)?;
             total -= self.config[index];
 
-            v[index] = h as usize;
-            n -= h as i64;
-            self.size -= h as usize;
-            self.config[index] -= h as usize;
+            v[index] = h;
+            debug_assert!(n as i64 - h as i64 >= 0);
+            n -= h;
+            debug_assert!(self.size as i64 - h as i64 >= 0);
+            self.size -= h;
+            debug_assert!(self.config[index] as i64 - h as i64 >= 0);
+            self.config[index] -= h;
             i += 1;
         }
 
         if n != 0 {
             debug_assert!(n > 0);
-            v[self.order[i]] = n as usize;
-            self.config[self.order[i]] -= n as usize;
-            self.size -= n as usize;
+            v[self.order[i]] = n;
+            debug_assert!(self.config[self.order[i]] as i64 - n as i64 >= 0);
+            self.config[self.order[i]] -= n;
+            debug_assert!(self.size as i64 - n as i64 >= 0);
+            self.size -= n;
             i += 1;
         }
 

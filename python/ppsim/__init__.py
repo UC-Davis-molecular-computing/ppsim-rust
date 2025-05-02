@@ -8,6 +8,6 @@ try:
 except (ImportError, ModuleNotFoundError):
     __version__ = "0.1.0"  # fallback version
 
-from ppsim.snapshot import *
 from ppsim.crn import *
+from ppsim.snapshot import *
 from ppsim.simulation import *

@@ -592,14 +592,18 @@ class Reaction:
         self.rate_constant_reverse = coeff
         return self
 
-    def get_species(self) -> set[Specie]:
+    def get_species(self) -> tuple[Specie]:
         """
-        Return: the set of species present in the products and reactants.
+        Return: 
+            the species present in the products and reactants.
         """
-        return {
-            *self.reactants.get_species(),
-            *self.products.get_species()
-        }
+        all_species = []
+        all_species_set = set()
+        for s in self.reactants.species + self.products.species:
+            if s not in all_species_set:
+                all_species.append(s)
+                all_species_set.add(s)
+        return tuple(all_species)
 
 
 # example of StochKit format:
@@ -661,7 +665,7 @@ def species_in_rxns(rxns: Iterable[Reaction]) -> list[Specie]:
                 species_list.append(sp)
     return species_list
 
-def gpac_format(init_config: dict[Specie, int], rxns: Iterable[Reaction]) -> tuple[dict[gp.Specie, int], list[gp.Reaction]]:
+def gpac_format(rxns: Iterable[Reaction], init_config: dict[Specie, int]) -> tuple[list[gp.Reaction], dict[gp.Specie, int]]:
     """
     Create a gpac CRN in the form of equivalent initial configuration and list of gpac Reaction objects.
 
@@ -669,11 +673,11 @@ def gpac_format(init_config: dict[Specie, int], rxns: Iterable[Reaction]) -> tup
     in gpac using gpac.rebop_crn_counts, and plotted using gpac.plot_crn_counts.
 
     Args:
-        init_config: dict mapping each (ppsim) :any:`Specie` to its initial count
         rxns: reactions to translate to gpac
+        init_config: dict mapping each (ppsim) :any:`Specie` to its initial count
 
     Returns:
-        A tuple of (config, reactions) essentially equivalent to the ppsim init_config and rxns
+        A tuple of (reactions, config) essentially equivalent to the ppsim init_config and rxns
         but using the gpac package's versions of those data structures.
     """
     pp_species_set = set()
@@ -694,7 +698,7 @@ def gpac_format(init_config: dict[Specie, int], rxns: Iterable[Reaction]) -> tup
             gp_rxn.r(rxn.rate_constant_reverse)
         gp_rxns.append(gp_rxn)
     
-    return gp_init, gp_rxns
+    return gp_rxns, gp_init
     
 
 def gillespy2_format(init_config: dict[Specie, int], rxns: Iterable[Reaction],

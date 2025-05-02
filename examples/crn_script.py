@@ -1,6 +1,7 @@
-
-import ppsim as pp
+import polars as pl
+import numpy as np
 from matplotlib import pyplot as plt
+import ppsim as pp
 
 def main():
     a, b, u = pp.species('A B U')
@@ -10,7 +11,7 @@ def main():
         b + u >> 2 * b,
     ]
     # init = {a: 50_001_000, b: 49_990_000}
-    n = 10**12
+    n = 10**9
     a_init = int(n * 0.51)
     b_init = n - a_init
     init = {a: a_init, b: b_init}
@@ -50,29 +51,6 @@ def main():
     sim.simulator.write_profile()
     
 
-def main2():
-    a,b,u = pp.species('A B U')
-    approx_majority = [
-    a+b >> 2*u,
-    a+u >> 2*a,
-    b+u >> 2*b,
-    ]
-    n = 10 ** 6
-    p = 0.51
-    a_init = int(n * p)
-    b_init = n - a_init
-    init = {a: a_init, b: b_init}
-    # for seed in range(100):
-    #     print(f'{seed=}')
-    seed = 10
-    sim = pp.Simulation(init, approx_majority, seed=seed, 
-                        simulator_method='sequential'
-                        )
-    # sim.run(20, 1)
-    # sim.run(100)
-    sim.run()
-    print(sim.history)
-
 def main3():
     # derived rate constants of the formal reaction simulated by DNA strand displacement (units of /M/s)
     k1,k2,k3 = 9028, 2945, 1815
@@ -109,7 +87,7 @@ def main3():
     sim.simulator.write_profile()
 
 
-def main4():
+def dsd_oscillator():
     from ppsim import species, Simulation, RateConstantUnits, concentration_to_count
     # Fig. 1 in https://www.biorxiv.org/content/10.1101/138420v2.full.pdf
     # A+B --> 2B
@@ -291,51 +269,75 @@ def main4():
     print(sim.history)
     sim.simulator.write_profile()
 
-def main5():
+
+def main2():
     a,b,u = pp.species('A B U')
     approx_majority = [
         a+b >> 2*u,
         a+u >> 2*a,
         b+u >> 2*b,
     ]
-    n = 10 ** 6
+    n = 10 ** 2
     p = 0.51
     a_init = int(n * p)
     b_init = n - a_init
     init = {a: a_init, b: b_init}
-    gp_init, gp_rxns = pp.gpac_format(init, approx_majority)
-    print(f'init =')
-    for sp, count in gp_init.items():
-        print(f'{sp}: {count}')
-    print('rxns = ')
-    for rxn in gp_rxns:
-        print(rxn)
+    # for seed in range(100):
+    #     print(f'{seed=}')
+    seed = 10
+    sim = pp.Simulation(init, approx_majority, seed=seed, 
+                        # simulator_method='sequential'
+                        )
+    # sim.run(20, 1)
+    # sim.run(100)
+    sim.run(5)
+    print(sim.history)
 
-    import gpac as gp
-    tmax = 10
-    sol = gp.rebop_crn_counts(gp_rxns, gp_init, tmax=tmax, nb_steps=200, seed=0)
-    print(f'sol = {sol}')
-
-def main6():
-    import rebop
-    import gpac
-    import numpy as np
-
-    a,b,u = gpac.species('A B U')
-    rxns = [
+def sample_configs():
+    a,b,u = pp.species('A B U')
+    approx_majority = [
         a+b >> 2*u,
         a+u >> 2*a,
         b+u >> 2*b,
     ]
-    n = 10**6
-    inits = {
-        a: round(n * 0.51),
-        b: round(n * 0.49),
-    }
-    tmax = 10
-    # gpac.plot_gillespie(rxns, inits, tmax, nb_steps=200)
-    sol = gpac.rebop_crn_counts(rxns, inits, tmax, nb_steps=200, seed=0)
-    print(sol)
+
+    trials_exponent = 6
+    pop_exponent = 2
+    n = 10 ** pop_exponent
+    p = 0.51 # TODO: restore this
+    # p = 0.5
+    a_init = int(n * p)
+    b_init = n - a_init
+    inits = {a: a_init, b: b_init}
+    trials = 10 ** trials_exponent
+    end_time = 5
+    sim = pp.Simulation(inits, approx_majority)
+
+    fn_noext = f'examples/rebop_samples_popsize10e{pop_exponent}_trials10e{trials_exponent}'
+    fn = f'{fn_noext}.parquet'
+    results_rebop = pl.read_parquet(fn)
+    results_ppsim = sim.sample_future_configuration(end_time, num_samples = trials)
+
+    fig, ax = plt.subplots(figsize = (10,4))
+    state = 'A'
+    # state = 'B'
+    # state = 'U'
+    ax.hist([results_ppsim[state], results_rebop[state]], 
+            bins = np.linspace(0, n, 20), # type: ignore
+            alpha = 1, label=['ppsim', 'rebop']) #, density=True, edgecolor = 'k', linewidth = 0.5)
+    ax.legend()
+
+    ax.set_xlabel(f'count of state {state}')
+    ax.set_ylabel(f'empirical probability')
+    ax.set_title(f'state {state} distribution sampled at simulated time 5 ($10^{trials_exponent}$ samples)')
+    
+    # plt.ylim(0, 200_000)
+
+    pdf_fn = f'{fn_noext}_regula.pdf'
+    # plt.savefig(pdf_fn, bbox_inches='tight')
+    plt.show()
+    
 
 if __name__ == '__main__':
-    main6()
+    # main2()
+    sample_configs()

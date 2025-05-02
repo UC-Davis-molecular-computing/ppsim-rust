@@ -27,7 +27,6 @@ convergence time of a protocol.
 """
 
 import dataclasses
-# from copy import deepcopy
 from dataclasses import dataclass
 import math
 from time import perf_counter

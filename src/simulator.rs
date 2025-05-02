@@ -144,8 +144,8 @@ impl SimulatorMultiBatch {
         let n = config.iter().sum();
         let q = config.len() as State;
 
-        debug_assert_eq!(delta.shape()[0], q as usize, "delta shape mismatch");
-        debug_assert_eq!(delta.shape()[1], q as usize, "delta shape mismatch");
+        debug_assert_eq!(delta.shape()[0], q, "delta shape mismatch");
+        debug_assert_eq!(delta.shape()[1], q, "delta shape mismatch");
         debug_assert_eq!(delta.shape()[2], 2 as usize, "delta shape mismatch");
         let mut delta_vec = Vec::with_capacity(q);
         for i in 0..q {
@@ -371,7 +371,7 @@ impl SimulatorMultiBatch {
         if self.silent {
             return Err(PyValueError::new_err("Simulation is silent; cannot run."));
         }
-        let max_wallclock_milliseconds: u64 = (max_wallclock_time * 1_000.0).ceil() as u64;
+        let max_wallclock_milliseconds = (max_wallclock_time * 1_000.0).ceil() as u64;
         let duration = Duration::from_millis(max_wallclock_milliseconds);
         let start_time = Instant::now();
         while self.t < t_max && start_time.elapsed() < duration {
@@ -507,8 +507,14 @@ fn process_span(span_data_map: &mut HashMap<String, SpanData>, span: &flame::Spa
     }
 }
 
+const CAP_BATCH_THRESHOLD: bool = true;
+// const CAP_BATCH_THRESHOLD: bool = false;
+
 impl SimulatorMultiBatch {
     fn multibatch_step(&mut self, t_max: usize) -> () {
+        if CAP_BATCH_THRESHOLD && self.batch_threshold > self.n / 4 {
+            self.batch_threshold = self.n / 4;
+        }
         self.updated_counts.reset();
         //TODO: if the two Urns could share the same order Vec, that would be more efficient,
         // but that seems complex to do with Rust borrowship rules.
@@ -533,6 +539,8 @@ impl SimulatorMultiBatch {
         let uniform = Uniform::standard();
 
         flame::start("process collisions");
+
+        // println!("batch_threshold = {}", self.batch_threshold);
 
         let mut num_collisions = 0;
         while self.t + num_delayed / 2 < end_step {
@@ -599,15 +607,14 @@ impl SimulatorMultiBatch {
             } else {
                 // when l is odd, the collision is with the next agent, either untouched, delayed, or updated
                 u = self.rng.sample(uniform);
-                if ((u * ((self.n - 1) as f64)) as usize) < self.updated_counts.size {
+                if (u * ((self.n - 1) as f64)) < self.updated_counts.size as f64 {
                     // responder is an updated agent, simply remove it
                     responder = self.updated_counts.sample_one().unwrap();
                 } else {
                     // we simply remove responeder from self.urn if responder is untouched
                     responder = self.urn.sample_one().unwrap();
                     // if responeder is delayed, we have to do the past interaction
-                    if ((u * (self.n - 1) as f64) as usize) < self.updated_counts.size + num_delayed
-                    {
+                    if (u * (self.n - 1) as f64) < (self.updated_counts.size + num_delayed) as f64 {
                         let mut c = self.urn.sample_one().unwrap();
                         (responder, c) = self.unordered_delta(responder, c);
                         self.t += 1;
@@ -637,28 +644,10 @@ impl SimulatorMultiBatch {
 
         self.do_gillespie = true; // if entire batch are null reactions, stays true and switches to gillspie
 
-        // use num_format::{Locale, ToFormattedString};
-        // println!(
-        //     "num_delayed = {}",
-        //     num_delayed.to_formatted_string(&Locale::en)
-        // );
-        // println!("self.urn.config = {:?}", self.urn.config);
-        // println!(
-        //     "self.updated_counts.config = {:?}",
-        //     self.updated_counts.config
-        // );
         let i_max = self
             .urn
             .sample_vector(num_delayed / 2, &mut self.row_sums)
             .unwrap();
-        // println!("** after sampling number of initiator into self.row_sums");
-        // println!("   self.row_sums = {:?}", self.row_sums);
-        // println!("   self.urn.config = {:?}", self.urn.config);
-        // println!(
-        //     "   self.updated_counts.config = {:?}",
-        //     self.updated_counts.config
-        // );
-        // println!("* self.urn.order = {:?}", self.urn.order);
 
         for i in 0..i_max {
             let o_i = self.urn.order[i];
@@ -667,19 +656,8 @@ impl SimulatorMultiBatch {
                 .sample_vector(self.row_sums[o_i], &mut self.row)
                 .unwrap();
 
-            // println!("** after sampling number of responder to initiator {o_i} into self.row");
-            // println!("   self.row = {:?}", self.row);
-            // println!("   self.urn.config = {:?}", self.urn.config);
-            // println!(
-            //     "   self.updated_counts.config = {:?}",
-            //     self.updated_counts.config
-            // );
             for j in 0..j_max {
                 let o_j = self.urn.order[j];
-                // println!(
-                //     "i,j = {i},{j}   o_i,o_j: {o_i},{o_j}   self.random_transitions[o_i][o_j].0 > 0: {}",
-                //     self.random_transitions[o_i][o_j].0 > 0
-                // );
                 if self.is_random && self.random_transitions[o_i][o_j].0 > 0 {
                     // don't switch to gillespie because we did a random transition
                     // TODO: this might not switch to gillespie soon enough in certain cases
@@ -693,25 +671,6 @@ impl SimulatorMultiBatch {
                     flame::start("multinomial sample");
                     multinomial_sample(self.row[o_j], &probabilities, &mut self.m, &mut self.rng);
                     flame::end("multinomial sample");
-                    // println!("num_outputs: {num_outputs}");
-                    // println!("first_idx: {first_idx}");
-                    // println!(
-                    //     "n (self.row[o_j]) = {};  probabilities: {:?}",
-                    //     self.row[o_j], probabilities
-                    // );
-                    // println!("self.row: {:?}", self.row);
-                    // println!("self.row_sums (later) = {:?}", self.row_sums);
-                    // println!("self.row_sums[o_i]: {:?}", self.row_sums[o_i]);
-                    // print!("sample: ");
-                    // for elt in &sample {
-                    //     print!("{elt}, ");
-                    // }
-                    // println!();
-                    // assert sum of entries in self.m is equal to self.row[o_j]
-                    // println!(
-                    //     "self.m: {:?}   self.row: {:?}   self.row[o_j]: {}",
-                    //     self.m, self.row, self.row[o_j]
-                    // );
                     debug_assert_eq!(
                         self.m.iter().sum::<usize>(),
                         self.row[o_j],
@@ -759,7 +718,9 @@ impl SimulatorMultiBatch {
         //   t_2 - t_1 = t_3 - t_2
         // self.batch_threshold = ((t3 - t2) / (t2 - t1)).powf(0.1) as usize * self.batch_threshold;
         // Keep the batch threshold within some fixed bounds.
-        self.batch_threshold = self.batch_threshold.min(2 * self.n / 3);
+        if CAP_BATCH_THRESHOLD {
+            self.batch_threshold = self.batch_threshold.min(self.n / 4);
+        }
         self.batch_threshold = self.batch_threshold.max(3);
 
         if TIMING_PRINTS {
@@ -785,11 +746,11 @@ impl SimulatorMultiBatch {
 
     /// Chooses sender/receiver, then applies delta to input states a, b.
     fn unordered_delta(&mut self, a_p: State, b_p: State) -> (State, State) {
-        let coin = self.rng.gen_bool(0.5);
+        let heads = self.rng.gen_bool(0.5); // fair coin flip
         let mut a = a_p;
         let mut b = b_p;
-        // swap roles of a, b and swap return order if coin is true
-        if coin {
+        // swap roles of a, b and swap return order if heads is true
+        if heads {
             (b, a) = (a, b);
         }
         let o1: State;
@@ -807,8 +768,8 @@ impl SimulatorMultiBatch {
         } else {
             (o1, o2) = self.delta[a][b];
         }
-        // swap outputs if coin is true
-        if coin {
+        // swap outputs if heads is true
+        if heads {
             (o2, o1)
         } else {
             (o1, o2)
@@ -825,14 +786,14 @@ impl SimulatorMultiBatch {
     ///     (Because of the memoryless property of the geometric, this gives a
     ///     faithful simulation up to step num_steps).
     fn gillespie_step(&mut self, t_max: usize) -> () {
+        // println!("gillespie_step at interaction {}", self.t);
         let total_propensity = self.get_total_propensity();
         if total_propensity == 0.0 {
             self.silent = true;
             return;
         }
-        let n: f64 = self.n as f64;
-        let success_probability = total_propensity / (n * (n - 1.0) / 2.0);
-        let mut enabled_reactions_changed = false;
+        let n_choose_2 = (self.n * (self.n - 1) / 2) as f64;
+        let success_probability = total_propensity / n_choose_2;
 
         if success_probability > self.gillespie_threshold {
             self.do_gillespie = false;
@@ -847,28 +808,27 @@ impl SimulatorMultiBatch {
             return;
         }
         // sample the successful reaction r, currently just using linear search
-        let mut x = self.rng.sample(uniform);
+        let mut x: f64 = self.rng.sample(uniform);
         let mut i = 0;
         while x > 0.0 {
             x -= self.propensities[self.enabled_reactions[i]];
             i += 1;
         }
+        let (r1, r2, p1, p2) = self.reactions[self.enabled_reactions[i - 1]];
 
-        let r = &self.reactions[self.enabled_reactions[i - 1]];
-        // updated with the successful reaction r
-        // if any products were not already present, will update enabled_reactions
-        if self.urn.config[r.2] == 0 || self.urn.config[r.3] == 0 {
-            enabled_reactions_changed = true;
-        }
-        // this is a bit wasteful, but want to make sure the urn data structure stays intact
-        self.urn.add_to_entry(r.0, -1);
-        self.urn.add_to_entry(r.1, -1);
-        self.urn.add_to_entry(r.2, 1);
-        self.urn.add_to_entry(r.3, 1);
-        // if any reactants are now absent, will update enabled_reactions
-        if enabled_reactions_changed || self.urn.config[r.0] == 0 || self.urn.config[r.1] == 0 {
+        // update with the successful reaction r1+r2 --> p1+p2
+        // if any products were not already present, or any reactants went absent, will update enabled_reactions
+        let new_products = self.urn.config[p1] == 0 || self.urn.config[p2] == 0;
+        let absent_reactants = self.urn.config[r1] == 0 || self.urn.config[r2] == 0;
+        if new_products || absent_reactants {
             self.update_enabled_reactions();
         }
+
+        // now apply the reaction
+        self.urn.add_to_entry(r1, -1);
+        self.urn.add_to_entry(r2, -1);
+        self.urn.add_to_entry(p1, 1);
+        self.urn.add_to_entry(p2, 1);
     }
 
     /// Updates propensity vector, and returns total propensity:
@@ -925,8 +885,8 @@ impl SimulatorMultiBatch {
         let mut num_r_values = (10.0 * self.logn) as usize;
         let num_u_values = num_r_values;
 
-        self.r_constant = (((1.5 * self.batch_threshold as f64).floor() as u64)
-            / (((num_r_values - 2) * (num_r_values - 2)) as u64))
+        self.r_constant = (((1.5 * self.batch_threshold as f64) as usize)
+            / ((num_r_values - 2) * (num_r_values - 2)))
             .max(1) as usize;
 
         self.coll_table_r_values = vec![];
@@ -945,6 +905,15 @@ impl SimulatorMultiBatch {
             self.coll_table_u_values[i] = i as f64 / (num_u_values as f64 - 1.0);
         }
 
+        // println!(
+        //     "r values: {:?}, u values (len = {}):",
+        //     self.coll_table_r_values, num_u_values,
+        // );
+        // for u in &self.coll_table_u_values {
+        //     print!("{u:.2}, ");
+        // }
+        // println!();
+
         debug_assert_eq!(
             self.coll_table_r_values.len(),
             num_r_values,
@@ -956,13 +925,16 @@ impl SimulatorMultiBatch {
             "self.coll_table_u_values length mismatch",
         );
 
+        // println!("collision table:");
         self.coll_table = vec![vec![0; num_u_values]; num_r_values];
         for r_idx in 0..num_r_values {
             for u_idx in 0..num_u_values {
                 let r = self.coll_table_r_values[r_idx];
                 let u = self.coll_table_u_values[u_idx];
                 self.coll_table[r_idx][u_idx] = self.sample_coll(r, u, false);
+                print!("{}, ", self.coll_table[r_idx][u_idx]);
             }
+            // println!();
         }
     }
 
@@ -1010,19 +982,20 @@ impl SimulatorMultiBatch {
         //     lhs < lgamma(n - r - t + 1) + t * log(n)
 
         if has_bounds {
+            // println!("bounds ");
             // Look up bounds from coll_table.
             // For r values, we invert the definition of self.coll_table_r_values:
             //   np.array([2 + self.r_constant * (i ** 2) for i in range(self.num_r_values - 1)] + [self.n])
-            let i = (((r - 2) as f64).sqrt() / self.r_constant as f64) as usize;
+            let i = (((r - 2) as f64) / self.r_constant as f64).sqrt() as usize;
             let i = i.min(self.coll_table_r_values.len() - 2);
 
             // for u values we similarly invert the definition: np.linspace(0, 1, num_u_values)
             let j = (u * (self.coll_table_u_values.len() - 1) as f64) as usize;
 
-            // debug_assert!(self.coll_table_r_values[i] <= r);
-            // debug_assert!(r <= self.coll_table_r_values[i + 1]);
-            // debug_assert!(self.coll_table_u_values[j] <= u);
-            // debug_assert!(u <= self.coll_table_u_values[j + 1]);
+            debug_assert!(self.coll_table_r_values[i] <= r);
+            debug_assert!(r <= self.coll_table_r_values[i + 1]);
+            debug_assert!(self.coll_table_u_values[j] <= u);
+            debug_assert!(u <= self.coll_table_u_values[j + 1]);
             t_lo = self.coll_table[i + 1][j + 1];
             t_hi = self.coll_table[i][j].min(self.n - r + 1);
         } else {

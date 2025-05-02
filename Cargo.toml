@@ -12,7 +12,13 @@ name = "main"
 path = "src/main.rs"
 
 [features]
+# I'm using this to test whether my faster implementation of some functions/distributions
+# available in external libraries is inaccurate and causing the sampled distribution to be off.
+# Stands for "use external".
+ue = []
 flm = ["flame"]  # Enable flame profiling to be switched on/off
+
+
 
 [dependencies]
 num-format = "0.4"

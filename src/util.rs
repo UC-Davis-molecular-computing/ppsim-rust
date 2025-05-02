@@ -2,10 +2,70 @@ use rand::rngs::SmallRng;
 use rand::Rng;
 
 use rand_distr::Distribution;
-use statrs::distribution::Hypergeometric;
 
 #[allow(unused_imports)]
 use crate::flame;
+
+#[cfg(feature = "ue")]
+pub fn ln_gamma(x: usize) -> f64 {
+    // println!("ue version called");
+    ln_gamma_special(x)
+}
+
+#[cfg(not(feature = "ue"))]
+pub fn ln_gamma(x: usize) -> f64 {
+    // println!("non ue version called");
+    ln_gamma_manual(x)
+}
+
+#[cfg(feature = "ue")]
+pub fn log_factorial(x: usize) -> f64 {
+    // println!("ue version called");
+    log_factorial_statrs(x as u64)
+}
+
+#[cfg(not(feature = "ue"))]
+pub fn log_factorial(x: usize) -> f64 {
+    // println!("non ue version called");
+    log_factorial_manual(x as u64)
+}
+
+#[cfg(feature = "ue")]
+pub fn hypergeometric_sample(
+    popsize: usize,
+    good: usize,
+    draws: usize,
+    rng: &mut SmallRng,
+) -> Result<usize, String> {
+    // println!("hypergeometric_sample_statrs");
+    hypergeometric_sample_statrs(popsize, good, draws, rng)
+}
+
+#[cfg(not(feature = "ue"))]
+pub fn hypergeometric_sample(
+    popsize: usize,
+    good: usize,
+    draws: usize,
+    rng: &mut SmallRng,
+) -> Result<usize, String> {
+    // println!("hypergeometric_sample_manual");
+    hypergeometric_sample_manual(popsize, good, draws, rng)
+}
+
+#[cfg(feature = "ue")]
+pub fn multinomial_sample(n: usize, pix: &Vec<f64>, result: &mut Vec<usize>, rng: &mut SmallRng) {
+    // println!("ue version called");
+    multinomial_sample_statrs(n, pix, result, rng);
+}
+
+#[cfg(not(feature = "ue"))]
+pub fn multinomial_sample(n: usize, pix: &Vec<f64>, result: &mut Vec<usize>, rng: &mut SmallRng) {
+    // println!("non ue version called");
+    multinomial_sample_manual(n, pix, result, rng);
+}
+
+/////////////////////////////////////////////////////////////////////////////////
+// ln_gamma
 
 // As always, if the statrs crate implements something, it's slower than alternatives.
 // Here we use the special crate instead, which is about 40% faster.
@@ -13,13 +73,13 @@ use crate::flame;
 // UPDATE: The custom implementation below, adapted from R, is slight faster, maybe 10-20%,
 // than the implementation in the special crate.
 
-// pub fn ln_gamma_special(x: usize) -> f64 {
-//     // special implements these as methods that can be called on f64's if we use special::Gamma,
-//     // but that gives a Rust warning about possibly the method name being used in Rust in the future.
-//     // We can call the method directly like this, but for some reason it returns a pair,
-//     // and the output of ln_gamma is the first element.
-//     special::Gamma::ln_gamma(x as f64).0
-// }
+pub fn ln_gamma_special(x: usize) -> f64 {
+    // special implements these as methods that can be called on f64's if we use special::Gamma,
+    // but that gives a Rust warning about possibly the method name being used in Rust in the future.
+    // We can call the method directly like this, but for some reason it returns a pair,
+    // and the output of ln_gamma is the first element.
+    special::Gamma::ln_gamma(x as f64).0
+}
 
 // adapted from C source for R standard library
 // https://github.com/SurajGupta/r-source/blob/a28e609e72ed7c47f6ddfbb86c85279a0750f0b7/src/nmath/lgamma.c#L44
@@ -28,7 +88,7 @@ use crate::flame;
 const M_LN_SQRT_2PI: f64 = 0.918938533204672741780329736406; // log(sqrt(2*pi)) == log(2*pi)/2
 const XMAX_LN_GAMMA: f64 = 2.5327372760800758e+305;
 
-pub fn ln_gamma(x: usize) -> f64 {
+pub fn ln_gamma_manual(x: usize) -> f64 {
     let ret: f64;
     if x <= 10 {
         return special::Gamma::gamma(x as f64).ln();
@@ -109,6 +169,13 @@ fn chebyshev_eval(x: f64) -> f64 {
     (b0 - b2) * 0.5
 }
 
+/////////////////////////////////////////////////////////////////////////////////
+// log_factorial
+
+pub fn log_factorial_statrs(k: u64) -> f64 {
+    statrs::function::factorial::ln_factorial(k)
+}
+
 // We precompuate log(k!) for k = 0, 1, ..., MAX_FACTORIAL-1
 // technically MAX_FACTORIAL is the SIZE of array, not the max k for which we compute ln(k!),
 // starting at ln(0!), so this goes up to ln((MAX_FACTORIAL-1)!).
@@ -144,7 +211,7 @@ const HALFLN2PI: f64 = 0.9189385332046728;
 // pub static mut num_lookup: usize = 0;
 // pub static mut num_stirling: usize = 0;
 
-pub fn log_factorial(k: u64) -> f64 {
+pub fn log_factorial_manual(k: u64) -> f64 {
     // for (x, lg) in LOGFACT.iter().enumerate() {
     //     println!("log_fact({}) = {}", x, lg);
     //     panic!();
@@ -166,24 +233,48 @@ pub fn log_factorial(k: u64) -> f64 {
     ret
 }
 
-// adapted from numpy's implementation of the hypergeometric distribution (as of April 2025)
-// https://github.com/numpy/numpy/blob/b76bb2329032809229e8a531ba3179c34b0a3f0a/numpy/random/src/distributions/random_hypergeometric.c#L246
-pub fn hypergeometric_sample(
+/////////////////////////////////////////////////////////////////////////////////
+// hypergeometric_sample
+
+use statrs::distribution::Hypergeometric;
+
+pub fn hypergeometric_sample_statrs(
     popsize: usize,
     good: usize,
-    sample: usize,
+    draws: usize,
     rng: &mut SmallRng,
 ) -> Result<usize, String> {
-    // println!("popsize = {popsize}, good = {good}, sample = {sample}");
+    let hypergeometric_result = Hypergeometric::new(popsize as u64, good as u64, draws as u64);
+    if hypergeometric_result.is_err() {
+        return Err(String::from(format!(
+            "Hypergeometric distribution creation error: {:?}",
+            hypergeometric_result.unwrap_err(),
+        )));
+    }
+    let hypergeometric = hypergeometric_result.unwrap();
+    let h64: u64 = rng.sample(hypergeometric);
+    let h = h64 as usize;
+    Ok(h)
+}
+
+// adapted from numpy's implementation of the hypergeometric distribution (as of April 2025)
+// https://github.com/numpy/numpy/blob/b76bb2329032809229e8a531ba3179c34b0a3f0a/numpy/random/src/distributions/random_hypergeometric.c#L246
+pub fn hypergeometric_sample_manual(
+    popsize: usize,
+    good: usize,
+    draws: usize,
+    rng: &mut SmallRng,
+) -> Result<usize, String> {
+    // println!("popsize = {popsize}, good = {good}, draws = {draws}");
     let h: usize;
-    if sample >= 10 && sample <= good + popsize - 10 {
+    if draws >= 10 && draws <= good + popsize - 10 {
         // flame::start("hypergeometric_hrua");
-        h = hypergeometric_hrua(popsize, good, sample, rng)?;
+        h = hypergeometric_hrua(popsize, good, draws, rng)?;
         // flame::end("hypergeometric_hrua");
     } else {
         // flame::start("hypergeometric_slow");
         // This is the simpler implementation for small samples.
-        let hypergeometric_result = Hypergeometric::new(popsize as u64, good as u64, sample as u64);
+        let hypergeometric_result = Hypergeometric::new(popsize as u64, good as u64, draws as u64);
         if hypergeometric_result.is_err() {
             return Err(String::from(format!(
                 "Hypergeometric distribution creation error: {:?}",
@@ -250,10 +341,10 @@ pub fn hypergeometric_hrua(
     let m =
         ((computed_sample + 1) as f64 * (mingoodbad + 1) as f64 / (popsize + 2) as f64) as usize;
 
-    let g = log_factorial(m as u64)
-        + log_factorial((mingoodbad - m) as u64)
-        + log_factorial((computed_sample - m) as u64)
-        + log_factorial((maxgoodbad + m - computed_sample) as u64);
+    let g = log_factorial(m)
+        + log_factorial(mingoodbad - m)
+        + log_factorial(computed_sample - m)
+        + log_factorial(maxgoodbad + m - computed_sample);
 
     /*
      *  b is the upper bound for random samples:
@@ -283,10 +374,10 @@ pub fn hypergeometric_hrua(
 
         k = x.floor() as usize;
 
-        let gp = log_factorial(k as u64)
-            + log_factorial((mingoodbad - k) as u64)
-            + log_factorial((computed_sample - k) as u64)
-            + log_factorial((maxgoodbad + k - computed_sample) as u64);
+        let gp = log_factorial(k)
+            + log_factorial(mingoodbad - k)
+            + log_factorial(computed_sample - k)
+            + log_factorial(maxgoodbad + k - computed_sample);
 
         let t = g - gp;
 
@@ -317,6 +408,30 @@ pub fn hypergeometric_hrua(
     Ok(k)
 }
 
+/////////////////////////////////////////////////////////////////////////////////
+// multinomial_sample
+
+use nalgebra::DVector;
+use statrs::distribution::Multinomial;
+
+pub fn multinomial_sample_statrs(
+    n: usize,
+    pix: &Vec<f64>,
+    result: &mut Vec<usize>,
+    rng: &mut SmallRng,
+) {
+    debug_assert_eq!(pix.len(), result.len());
+    // let multinomial = statrs::distribution::Multinomial::new(pix.clone(), n as u64).unwrap();
+    // let sample: DVector<u64> = rng.sample(multinomial);
+    let multinomial = Multinomial::new(pix.clone(), n as u64).unwrap();
+    let sample: DVector<u64> = rng.sample(multinomial);
+
+    debug_assert_eq!(sample.len(), result.len());
+    for i in 0..result.len() {
+        result[i] = sample[i] as usize;
+    }
+}
+
 pub fn binomial_sample(n: usize, p: f64, mut rng: &mut SmallRng) -> usize {
     let binomial_distribution = rand_distr::Binomial::new(n as u64, p).unwrap();
     let sample = binomial_distribution.sample(&mut rng);
@@ -325,8 +440,13 @@ pub fn binomial_sample(n: usize, p: f64, mut rng: &mut SmallRng) -> usize {
 
 // port of numpy's multinomial sample to Rust, using rand_distr::Binomial as the underlying binomial sampler
 // https://github.com/numpy/numpy/blob/4961a1414bba2222016f29a03dcf75e6034a13f7/numpy/random/src/distributions/distributions.c#L1726
-pub fn multinomial_sample(n: usize, pix: &Vec<f64>, result: &mut Vec<usize>, rng: &mut SmallRng) {
-    debug_assert_eq!(result.len(), pix.len());
+pub fn multinomial_sample_manual(
+    n: usize,
+    pix: &Vec<f64>,
+    result: &mut Vec<usize>,
+    rng: &mut SmallRng,
+) {
+    debug_assert_eq!(pix.len(), result.len());
     let mut remaining_p = 1.0;
     let d = pix.len(); // in numpy C code, pix is just a pointer so they need the length too
     let mut dn = n;
