@@ -98,9 +98,9 @@ impl Urn {
 
     /// Adds one element at index.
     pub fn add_to_entry(&mut self, index: usize, amount: i64) {
-        debug_assert!(self.config[index] as i64 + amount >= 0);
+        assert!(self.config[index] as i64 + amount >= 0);
         self.config[index] = (self.config[index] as i64 + amount) as State;
-        debug_assert!(self.size as i64 + amount >= 0);
+        assert!(self.size as i64 + amount >= 0);
         self.size = (self.size as i64 + amount) as usize;
     }
 
@@ -133,21 +133,21 @@ impl Urn {
             total -= self.config[index];
 
             v[index] = h;
-            debug_assert!(n as i64 - h as i64 >= 0);
+            assert!(n as i64 - h as i64 >= 0);
             n -= h;
-            debug_assert!(self.size as i64 - h as i64 >= 0);
+            assert!(self.size as i64 - h as i64 >= 0);
             self.size -= h;
-            debug_assert!(self.config[index] as i64 - h as i64 >= 0);
+            assert!(self.config[index] as i64 - h as i64 >= 0);
             self.config[index] -= h;
             i += 1;
         }
 
         if n != 0 {
-            debug_assert!(n > 0);
+            assert!(n > 0);
             v[self.order[i]] = n;
-            debug_assert!(self.config[self.order[i]] as i64 - n as i64 >= 0);
+            assert!(self.config[self.order[i]] as i64 - n as i64 >= 0);
             self.config[self.order[i]] -= n;
-            debug_assert!(self.size as i64 - n as i64 >= 0);
+            assert!(self.size as i64 - n as i64 >= 0);
             self.size -= n;
             i += 1;
         }

@@ -144,9 +144,9 @@ impl SimulatorMultiBatch {
         let n = config.iter().sum();
         let q = config.len() as State;
 
-        debug_assert_eq!(delta.shape()[0], q, "delta shape mismatch");
-        debug_assert_eq!(delta.shape()[1], q, "delta shape mismatch");
-        debug_assert_eq!(delta.shape()[2], 2 as usize, "delta shape mismatch");
+        assert_eq!(delta.shape()[0], q, "delta shape mismatch");
+        assert_eq!(delta.shape()[1], q, "delta shape mismatch");
+        assert_eq!(delta.shape()[2], 2 as usize, "delta shape mismatch");
         let mut delta_vec = Vec::with_capacity(q);
         for i in 0..q {
             let mut delta_inner_vec = Vec::with_capacity(q);
@@ -195,7 +195,7 @@ impl SimulatorMultiBatch {
         }
 
         let random_outputs_length = random_outputs.shape()[0];
-        debug_assert_eq!(
+        assert_eq!(
             random_outputs.shape()[1],
             2 as usize,
             "random_outputs shape mismatch"
@@ -209,7 +209,7 @@ impl SimulatorMultiBatch {
         let random_outputs = random_outputs_vec;
 
         let transition_probabilities = transition_probabilities.to_vec().unwrap();
-        debug_assert_eq!(
+        assert_eq!(
             random_outputs.len(),
             transition_probabilities.len(),
             "random_outputs and transition_probabilities length mismatch"
@@ -512,15 +512,12 @@ const CAP_BATCH_THRESHOLD: bool = true;
 
 impl SimulatorMultiBatch {
     fn multibatch_step(&mut self, t_max: usize) -> () {
-        let max_batch_threshold = self.n / 2 - 2; //TODO: FIX
+        let max_batch_threshold = self.n / 4; //TODO: FIX
         if CAP_BATCH_THRESHOLD && self.batch_threshold > max_batch_threshold {
             self.batch_threshold = max_batch_threshold;
         }
         self.updated_counts.reset();
-        //TODO: if the two Urns could share the same order Vec, that would be more efficient,
-        // but that seems complex to do with Rust borrowship rules.
-        // A workaround could be to pass an Option<&Vec<usize>> to the sampling methods,
-        // and we could call self.updated_counts.sample_one() with Some(self.urn.order) as an argument.
+
         for i in 0..self.urn.order.len() {
             self.updated_counts.order[i] = self.urn.order[i];
         }
@@ -680,7 +677,7 @@ impl SimulatorMultiBatch {
                     flame::start("multinomial sample");
                     multinomial_sample(self.row[o_j], &probabilities, &mut self.m, &mut self.rng);
                     flame::end("multinomial sample");
-                    debug_assert_eq!(
+                    assert_eq!(
                         self.m.iter().sum::<usize>(),
                         self.row[o_j],
                         "sample sum mismatch"
@@ -923,12 +920,12 @@ impl SimulatorMultiBatch {
         // }
         // println!();
 
-        debug_assert_eq!(
+        assert_eq!(
             self.coll_table_r_values.len(),
             num_r_values,
             "self.coll_table_r_values length mismatch",
         );
-        debug_assert_eq!(
+        assert_eq!(
             self.coll_table_u_values.len(),
             num_u_values,
             "self.coll_table_u_values length mismatch",
@@ -941,7 +938,7 @@ impl SimulatorMultiBatch {
                 let r = self.coll_table_r_values[r_idx];
                 let u = self.coll_table_u_values[u_idx];
                 self.coll_table[r_idx][u_idx] = self.sample_coll(r, u, false);
-                print!("{}, ", self.coll_table[r_idx][u_idx]);
+                // print!("{}, ", self.coll_table[r_idx][u_idx]);
             }
             // println!();
         }
@@ -981,7 +978,7 @@ impl SimulatorMultiBatch {
         let mut t_lo: usize;
         let mut t_hi: usize;
         let logu = u.ln();
-        debug_assert!(self.n + 1 - r > 0);
+        assert!(self.n + 1 - r > 0);
         let diff = self.n + 1 - r;
         // flame::start("ln_gamma");
         let ln_gamma_diff = ln_gamma(diff);
@@ -1001,10 +998,10 @@ impl SimulatorMultiBatch {
             // for u values we similarly invert the definition: np.linspace(0, 1, num_u_values)
             let j = (u * (self.coll_table_u_values.len() - 1) as f64) as usize;
 
-            debug_assert!(self.coll_table_r_values[i] <= r);
-            debug_assert!(r <= self.coll_table_r_values[i + 1]);
-            debug_assert!(self.coll_table_u_values[j] <= u);
-            debug_assert!(u <= self.coll_table_u_values[j + 1]);
+            assert!(self.coll_table_r_values[i] <= r);
+            assert!(r <= self.coll_table_r_values[i + 1]);
+            assert!(self.coll_table_u_values[j] <= u);
+            assert!(u <= self.coll_table_u_values[j + 1]);
             t_lo = self.coll_table[i + 1][j + 1];
             t_hi = self.coll_table[i][j].min(self.n - r + 1);
         } else {

@@ -420,13 +420,13 @@ pub fn multinomial_sample_statrs(
     result: &mut Vec<usize>,
     rng: &mut SmallRng,
 ) {
-    debug_assert_eq!(pix.len(), result.len());
+    assert_eq!(pix.len(), result.len());
     // let multinomial = statrs::distribution::Multinomial::new(pix.clone(), n as u64).unwrap();
     // let sample: DVector<u64> = rng.sample(multinomial);
     let multinomial = Multinomial::new(pix.clone(), n as u64).unwrap();
     let sample: DVector<u64> = rng.sample(multinomial);
 
-    debug_assert_eq!(sample.len(), result.len());
+    assert_eq!(sample.len(), result.len());
     for i in 0..result.len() {
         result[i] = sample[i] as usize;
     }
@@ -446,7 +446,7 @@ pub fn multinomial_sample_manual(
     result: &mut Vec<usize>,
     rng: &mut SmallRng,
 ) {
-    debug_assert_eq!(pix.len(), result.len());
+    assert_eq!(pix.len(), result.len());
     let mut remaining_p = 1.0;
     let d = pix.len(); // in numpy C code, pix is just a pointer so they need the length too
     let mut dn = n;

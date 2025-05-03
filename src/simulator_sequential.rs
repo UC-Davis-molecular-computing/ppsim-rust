@@ -61,9 +61,9 @@ impl SimulatorSequentialArray {
             SmallRng::from_entropy()
         };
 
-        debug_assert_eq!(delta.shape()[0], q as usize, "delta shape mismatch");
-        debug_assert_eq!(delta.shape()[1], q as usize, "delta shape mismatch");
-        debug_assert_eq!(delta.shape()[2], 2 as usize, "delta shape mismatch");
+        assert_eq!(delta.shape()[0], q as usize, "delta shape mismatch");
+        assert_eq!(delta.shape()[1], q as usize, "delta shape mismatch");
+        assert_eq!(delta.shape()[2], 2 as usize, "delta shape mismatch");
         let mut delta_vec = Vec::with_capacity(q);
         for i in 0..q {
             let mut delta_inner_vec = Vec::with_capacity(q);
@@ -112,7 +112,7 @@ impl SimulatorSequentialArray {
         }
 
         let random_outputs_length = random_outputs.shape()[0];
-        debug_assert_eq!(
+        assert_eq!(
             random_outputs.shape()[1],
             2 as usize,
             "random_outputs shape mismatch"
@@ -125,7 +125,7 @@ impl SimulatorSequentialArray {
         }
         let random_outputs = random_outputs_vec;
 
-        debug_assert_eq!(
+        assert_eq!(
             random_outputs.len(),
             transition_probabilities.len(),
             "random_outputs and transition_probabilities length mismatch"
