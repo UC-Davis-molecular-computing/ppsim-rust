@@ -551,6 +551,9 @@ impl SimulatorMultiBatch {
             let mut u = self.rng.sample(uniform);
             let l = self.sample_coll(num_delayed + self.updated_counts.size, u, true);
             assert!(l > 0, "sample_coll must return at least 1");
+            if l == 1 {
+                break;
+            }
             // add (l-1) // 2 pairs of delayed agents, the lth agent a was already picked, so has a collision
             num_delayed += 2 * ((l - 1) / 2);
             // flame::end("sample_coll");
@@ -564,9 +567,6 @@ impl SimulatorMultiBatch {
             }
 
             // flame::start("process collision");
-
-            let mut initiator: State; // initiator, called a in Cython implementation
-            let mut responder: State; // responder, called b in Cython implementation
 
             /*
             Definitions from paper https://arxiv.org/abs/2005.03584
@@ -582,6 +582,9 @@ impl SimulatorMultiBatch {
               epoch, but are scheduled to interact at a later point in time. We additionally
               require that their interaction partner is also labeled delayed.
              */
+
+            let mut initiator: State; // initiator, called a in Cython implementation
+            let mut responder: State; // responder, called b in Cython implementation
 
             // sample if initiator was delayed or updated
             u = self.rng.sample(uniform);
@@ -632,10 +635,11 @@ impl SimulatorMultiBatch {
             // flame::end("process collision");
 
             // println!(
-            //     "num_collisions: {num_collisions}, num_delayed = {num_delayed}, num_updated = {}, self.urn.size = {}, self.urn.config: {:?}",
-            //     self.updated_counts.size, self.urn.size, self.urn.config
+            //     "num_collisions: {num_collisions}, l = {l}, num_delayed = {num_delayed}, num_updated = {}, self.urn.size = {}, self.urn.config: {:?}, self.t + num_delayed / 2: {} end_step: {}",
+            //     self.updated_counts.size, self.urn.size, self.urn.config, self.t + num_delayed / 2, end_step
             // );
         }
+        // panic!();
 
         self.collision_counts
             .entry(num_collisions)

@@ -301,7 +301,7 @@ def sample_configs():
         b+u >> 2*b,
     ]
 
-    trials_exponent = 6
+    trials_exponent = 5
     pop_exponent = 4
     n = 10 ** pop_exponent
     p = 0.51 # TODO: restore this
