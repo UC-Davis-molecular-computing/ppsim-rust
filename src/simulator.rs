@@ -512,8 +512,9 @@ const CAP_BATCH_THRESHOLD: bool = true;
 
 impl SimulatorMultiBatch {
     fn multibatch_step(&mut self, t_max: usize) -> () {
-        if CAP_BATCH_THRESHOLD && self.batch_threshold > self.n / 4 {
-            self.batch_threshold = self.n / 4;
+        let max_batch_threshold = self.n / 2 - 2; //TODO: FIX
+        if CAP_BATCH_THRESHOLD && self.batch_threshold > max_batch_threshold {
+            self.batch_threshold = max_batch_threshold;
         }
         self.updated_counts.reset();
         //TODO: if the two Urns could share the same order Vec, that would be more efficient,
@@ -540,7 +541,10 @@ impl SimulatorMultiBatch {
 
         flame::start("process collisions");
 
-        // println!("batch_threshold = {}", self.batch_threshold);
+        // println!(
+        //     "*********************\nProcessing collisions\nbatch_threshold = {}",
+        //     self.batch_threshold
+        // );
 
         let mut num_collisions = 0;
         while self.t + num_delayed / 2 < end_step {
@@ -629,6 +633,11 @@ impl SimulatorMultiBatch {
             self.updated_counts.add_to_entry(initiator, 1);
             self.updated_counts.add_to_entry(responder, 1);
             // flame::end("process collision");
+
+            // println!(
+            //     "num_collisions: {num_collisions}, num_delayed = {num_delayed}, num_updated = {}, self.urn.size = {}, self.urn.config: {:?}",
+            //     self.updated_counts.size, self.urn.size, self.urn.config
+            // );
         }
 
         self.collision_counts
@@ -719,7 +728,7 @@ impl SimulatorMultiBatch {
         // self.batch_threshold = ((t3 - t2) / (t2 - t1)).powf(0.1) as usize * self.batch_threshold;
         // Keep the batch threshold within some fixed bounds.
         if CAP_BATCH_THRESHOLD {
-            self.batch_threshold = self.batch_threshold.min(self.n / 4);
+            self.batch_threshold = self.batch_threshold.min(max_batch_threshold);
         }
         self.batch_threshold = self.batch_threshold.max(3);
 
