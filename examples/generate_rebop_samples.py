@@ -50,8 +50,9 @@ def main():
         print(f'{sp}: {count}')
     
     # for trials_exponent in range(3, 7):
+    # for trials_exponent in range(3, 8):
     for trials_exponent in range(6, 7):
-        print(f'*************\nCollecting data for pop size 10^{pop_exponent} with 10^{trials_exponent} trials\n')
+        print(f'*************\nCollecting rebop data for pop size 10^{pop_exponent} with 10^{trials_exponent} trials\n')
         trials = 10 ** trials_exponent
         results_rebop = gp.rebop_sample_future_configurations(gp_rxns, gp_inits, end_time, trials=trials)
         df = pl.DataFrame(results_rebop)

@@ -20,12 +20,13 @@ def test_simulator_sequential_array():
     random_outputs = np.zeros((1, 2), dtype=np.uint)
     transition_probabilities = np.ones(1, dtype=np.float64)
     sim = SimulatorSequentialArray(
-        init_config=init_config,
-        delta=delta,
-        null_transitions=null_transitions,
-        random_transitions=random_transitions,
-        random_outputs=random_outputs,
-        transition_probabilities=transition_probabilities,
+        init_config,
+        delta,
+        null_transitions,
+        random_transitions,
+        random_outputs,
+        transition_probabilities,
+        gillespie=False,
         seed=0,
     )
 

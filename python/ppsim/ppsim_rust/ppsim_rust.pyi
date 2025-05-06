@@ -38,6 +38,7 @@ class SimulatorSequentialArray:
             random_transitions: npt.NDArray[np.uint],
             random_outputs: npt.NDArray[np.uint],
             transition_probabilities: npt.NDArray[np.float64],
+            gillespie: bool = False,
             seed: int | None = None
     ) -> None: ...
 
@@ -82,6 +83,7 @@ class SimulatorMultiBatch:
             random_transitions: npt.NDArray[np.uint],
             random_outputs: npt.NDArray[np.uint],
             transition_probabilities: npt.NDArray[np.float64],
+            gillespie: bool = False,
             seed: int | None = None
     ) -> None: ...
 

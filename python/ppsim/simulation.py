@@ -155,10 +155,13 @@ class Simulation:
 
     _method: type[SimulatorMultiBatch] | type[SimulatorSequentialArray]
 
+    simulator_method: str
+
     def __init__(
             self, 
             init_config: dict[StateTypeVar, int], 
             rule: Rule, 
+            *,
             simulator_method: str = "MultiBatch",
             transition_order: str = "symmetric", 
             seed: int | None = None,
@@ -185,11 +188,14 @@ class Simulation:
                 which will be parsed into an equivalent population protocol.
             
             simulator_method: Which Simulator method to use, either ``'MultiBatch'``
-                or ``'Sequential'``.
+                or ``'Sequential'`` or ``'Gillespie'``.
                 - ``'MultiBatch'``:
                     :any:`SimulatorMultiBatch` does O(sqrt(n)) interaction steps in parallel
                     using batching, and is much faster for large population sizes and
                     relatively small state sets.
+                - ``'Gillespie'``:
+                    uncondtionally uses the Gillespie algorithm. Still uses the multibatch 
+                    simulator, but instructs it to always use the Gillespie algorithm.
                 - ``'Sequential'``:
                     :any:`SimulatorSequentialArray` represents the population as an array of
                     agents, and simulates each interaction step by choosing a pair of agents
@@ -247,6 +253,7 @@ class Simulation:
                     sim = Simulation(init_config, rule, threshold=20)
 
         """
+        self.simulator_method = simulator_method
         self.seed = seed
         self.rng = np.random.default_rng(seed)
         self.n = sum(init_config.values())
@@ -295,12 +302,12 @@ class Simulation:
         self.state_list = natsorted(state_list, key=lambda x: repr(x))
         self.state_dict = {state: i for i, state in enumerate(self.state_list)}
 
-        if simulator_method.lower() == 'multibatch':
+        if simulator_method.lower() in ('multibatch', 'gillespie'):
             self._method = SimulatorMultiBatch
         elif simulator_method.lower() == 'sequential':
             self._method = SimulatorSequentialArray
         else:
-            raise ValueError('simulator_method must be multibatch or sequential')
+            raise ValueError('simulator_method must be multibatch, sequential, or gillespie.')
         self._transition_order = transition_order
         self.initialize_simulator(self.array_from_dict(init_config))
 
@@ -421,8 +428,14 @@ class Simulation:
                                             {a, b} -> {self.rule(a, b)}
                                             {b, a} -> {self.rule(b, a)}''')
 
-        self.simulator = self._method(config, delta, null_transitions,  # type: ignore
-                                      random_transitions, random_outputs_arr, transition_probabilities, self.seed)
+        gillespie = self.simulator_method.lower() == 'gillespie'
+        # print(f"{self.simulator_method.lower()=}, {gillespie=}")
+        self.simulator = self._method(
+        # self.simulator = SimulatorSequentialArray(
+            config, delta, null_transitions,  # type: ignore
+            random_transitions, random_outputs_arr, transition_probabilities, 
+            gillespie=gillespie, seed=self.seed
+        )
 
     def array_from_dict(self, d: dict) -> npt.NDArray[np.uint]:
         """Convert a configuration dictionary to an array.

@@ -226,7 +226,7 @@ def dsd_oscillator():
         if rxn.reversible:
             rxn.r(r, units=RateConstantUnits.mass_action)
 
-    vol = 10 * nL
+    vol = 0.001 * nL
 
     # scale time to make simulations take less time
     time_scaling = 1
@@ -262,7 +262,9 @@ def dsd_oscillator():
     init_config.update(init_config_helper)
     init_config.update(init_config_produce)
 
-    sim = Simulation(init_config=init_config, rule=all_rps_dsd_rxns, volume=vol, time_units='seconds')
+    # method = 'gillespie'
+    method = 'multibatch'
+    sim = Simulation(init_config=init_config, rule=all_rps_dsd_rxns, volume=vol, time_units='seconds', simulator_method=method)
     print(f'{init_config=}')
     hours = 12
     sim.run(hours * 3600, 60)  # run for 12 hours, saving every 60 seconds
@@ -277,21 +279,60 @@ def main2():
         a+u >> 2*a,
         b+u >> 2*b,
     ]
-    n = 10 ** 2
+    n = 10 ** 11
     p = 0.51
     a_init = int(n * p)
     b_init = n - a_init
     init = {a: a_init, b: b_init}
     # for seed in range(100):
     #     print(f'{seed=}')
-    seed = 10
+    seed = 3
     sim = pp.Simulation(init, approx_majority, seed=seed, 
                         # simulator_method='sequential'
                         )
     # sim.run(20, 1)
     # sim.run(100)
-    sim.run(5)
+    sim.run(20)
     print(sim.history)
+    sim.simulator.write_profile()
+
+def compare_rebop_sequential():
+    trials_exponent = 7
+    pop_exponent = 2
+    n = 10 ** pop_exponent
+    end_time = 5
+
+    shared_fn = f'samples_popsize10e{pop_exponent}_trials10e{trials_exponent}'
+
+    fn_rebop_noext = f'examples/rebop_{shared_fn}'
+    fn_rebop = f'{fn_rebop_noext}.parquet'
+    results_rebop = pl.read_parquet(fn_rebop)
+
+    fn_seq_noext = f'examples/sequential_{shared_fn}'
+    fn_seq = f'{fn_seq_noext}.parquet'
+    results_seq = pl.read_parquet(fn_seq)
+
+    fig, ax = plt.subplots(figsize = (10,4))
+    state = 'A'
+    # state = 'B'
+    # state = 'U'
+    bins = np.linspace(int(n*0.32), int(n*.43), 20) 
+    if pop_exponent == 2:
+        bins = np.linspace(0, n, 20)
+    ax.hist([results_seq[state], results_rebop[state]], 
+            bins = bins, # type: ignore 
+            alpha = 1, label=['sequential', 'rebop']) #, density=True, edgecolor = 'k', linewidth = 0.5)
+    ax.legend()
+
+    ax.set_xlabel(f'count of state {state}')
+    ax.set_ylabel(f'empirical probability')
+    ax.set_title(f'state {state} distribution at time {end_time} ($10^{trials_exponent}$ samples, n=$10^{pop_exponent}$)')
+    
+    # plt.ylim(0, 200_000)
+
+    pdf_fn = f'examples/rebop_vs_sequential_{shared_fn}.pdf'
+    plt.savefig(pdf_fn, bbox_inches='tight')
+    plt.show()
 
 def sample_configs():
     a,b,u = pp.species('A B U')
@@ -313,7 +354,8 @@ def sample_configs():
     end_time = 5
     sim = pp.Simulation(inits, approx_majority)
 
-    fn_noext = f'examples/rebop_samples_popsize10e{pop_exponent}_trials10e{trials_exponent}'
+    # fn_noext = f'examples/rebop_samples_popsize10e{pop_exponent}_trials10e{trials_exponent}'
+    fn_noext = f'examples/sequential_samples_popsize10e{pop_exponent}_trials10e{trials_exponent}'
     fn = f'{fn_noext}.parquet'
     results_rebop = pl.read_parquet(fn)
     results_ppsim = sim.sample_future_configuration(end_time, num_samples = trials)
@@ -333,11 +375,13 @@ def sample_configs():
     
     # plt.ylim(0, 200_000)
 
-    pdf_fn = f'{fn_noext}_regula.pdf'
-    plt.savefig(pdf_fn, bbox_inches='tight')
+    pdf_fn = f'{fn_noext}.pdf'
+    # plt.savefig(pdf_fn, bbox_inches='tight')
     plt.show()
     
 
 if __name__ == '__main__':
+    # dsd_oscillator()
     # main2()
-    sample_configs()
+    # sample_configs()
+    compare_rebop_sequential()

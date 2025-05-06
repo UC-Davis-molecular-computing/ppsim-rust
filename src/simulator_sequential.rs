@@ -40,7 +40,7 @@ pub struct SimulatorSequentialArray {
 #[pymethods]
 impl SimulatorSequentialArray {
     #[new]
-    #[pyo3(signature = (init_config, delta, null_transitions, random_transitions, random_outputs, transition_probabilities, seed=None))]
+    #[pyo3(signature = (init_config, delta, null_transitions, random_transitions, random_outputs, transition_probabilities, gillespie=false, seed=None))]
     pub fn new(
         init_config: PyReadonlyArray1<State>,
         delta: PyReadonlyArray3<State>,
@@ -48,8 +48,13 @@ impl SimulatorSequentialArray {
         random_transitions: PyReadonlyArray3<State>,
         random_outputs: PyReadonlyArray2<State>,
         transition_probabilities: PyReadonlyArray1<f64>,
+        gillespie: bool,
         seed: Option<u64>,
     ) -> Self {
+        assert!(
+            gillespie == false,
+            "gillespie = True is not supported for SimulatorSequentialArray"
+        );
         let config = init_config.to_vec().unwrap();
         let transition_probabilities = transition_probabilities.to_vec().unwrap();
         let n: usize = config.iter().sum();

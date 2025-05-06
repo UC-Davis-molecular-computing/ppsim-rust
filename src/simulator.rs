@@ -16,7 +16,8 @@ use rand::SeedableRng;
 use statrs::distribution::{Geometric, Uniform};
 
 use crate::urn::Urn;
-use crate::util::{ln_gamma, multinomial_sample};
+#[allow(unused_imports)]
+use crate::util::{ln_gamma, log_factorial, multinomial_sample};
 
 type State = usize;
 
@@ -121,6 +122,8 @@ pub struct SimulatorMultiBatch {
     coll_table_u_values: Vec<f64>,
     /// Used to populate coll_table_r_values.
     r_constant: usize,
+    /// If true, unconditionally use the Gillespie algorithm.
+    gillespie_always: bool,
 
     // Used for testing; not needed for simulation.
     #[pyo3(get, set)]
@@ -130,7 +133,7 @@ pub struct SimulatorMultiBatch {
 #[pymethods]
 impl SimulatorMultiBatch {
     #[new]
-    #[pyo3(signature = (init_config, delta, null_transitions, random_transitions, random_outputs, transition_probabilities, seed=None))]
+    #[pyo3(signature = (init_config, delta, null_transitions, random_transitions, random_outputs, transition_probabilities, gillespie=false, seed=None))]
     pub fn new(
         init_config: PyReadonlyArray1<State>,
         delta: PyReadonlyArray3<State>,
@@ -138,6 +141,7 @@ impl SimulatorMultiBatch {
         random_transitions: PyReadonlyArray3<usize>,
         random_outputs: PyReadonlyArray2<State>,
         transition_probabilities: PyReadonlyArray1<f64>,
+        gillespie: bool,
         seed: Option<u64>,
     ) -> Self {
         let config = init_config.to_vec().unwrap();
@@ -228,7 +232,8 @@ impl SimulatorMultiBatch {
         let row = vec![0; q];
         let m = vec![0; random_depth];
         let silent = false;
-        let do_gillespie = false;
+        let do_gillespie = false; // this changes during run
+        let gillespie_always = gillespie; // this never changes; if True we always do Gillespie steps
 
         let mut reactions: Vec<(usize, usize, usize, usize)> = vec![];
         let mut reaction_probabilities = vec![];
@@ -353,6 +358,7 @@ impl SimulatorMultiBatch {
             coll_table_r_values,
             coll_table_u_values,
             r_constant,
+            gillespie_always,
             collision_counts,
         };
         sim.set_n_parameters();
@@ -375,6 +381,10 @@ impl SimulatorMultiBatch {
         let duration = Duration::from_millis(max_wallclock_milliseconds);
         let start_time = Instant::now();
         while self.t < t_max && start_time.elapsed() < duration {
+            // println!("self.gillespie_always = {}", self.gillespie_always);
+            if self.gillespie_always {
+                self.do_gillespie = true;
+            }
             if self.silent {
                 return Ok(());
             } else if self.do_gillespie {
@@ -392,6 +402,9 @@ impl SimulatorMultiBatch {
     #[pyo3()]
     pub fn run_until_silent(&mut self) {
         while !self.silent {
+            if self.gillespie_always {
+                self.do_gillespie = true;
+            }
             if self.do_gillespie {
                 self.gillespie_step(0);
             } else {
@@ -417,7 +430,7 @@ impl SimulatorMultiBatch {
         }
         self.t = t;
         self.update_enabled_reactions();
-        self.do_gillespie = false;
+        self.do_gillespie = self.gillespie_always;
         Ok(())
     }
 
@@ -512,7 +525,7 @@ const CAP_BATCH_THRESHOLD: bool = true;
 
 impl SimulatorMultiBatch {
     fn multibatch_step(&mut self, t_max: usize) -> () {
-        let max_batch_threshold = self.n / 4; //TODO: FIX
+        let max_batch_threshold = self.n / 2; //TODO: FIX
         if CAP_BATCH_THRESHOLD && self.batch_threshold > max_batch_threshold {
             self.batch_threshold = max_batch_threshold;
         }
@@ -538,22 +551,39 @@ impl SimulatorMultiBatch {
 
         flame::start("process collisions");
 
-        // println!(
-        //     "*********************\nProcessing collisions\nbatch_threshold = {}",
-        //     self.batch_threshold
-        // );
+        const PRINT: bool = false;
+
+        if PRINT {
+            println!(
+                "*********************\nProcessing collisions\nbatch_threshold = {}                               sqrt(n) = {}",
+                self.batch_threshold, (self.n as f64).sqrt() as usize
+            );
+        }
 
         let mut num_collisions = 0;
+        let sqrt_n = (self.n as f64).sqrt() as usize;
         while self.t + num_delayed / 2 < end_step {
+            // loop {
             num_collisions += 1;
+
+            let exp_l = if num_delayed + self.updated_counts.size > sqrt_n {
+                self.n / (num_delayed + self.updated_counts.size)
+            } else {
+                sqrt_n
+            };
+            if PRINT {
+                println!("exp_l = {exp_l:7}");
+            }
 
             // flame::start("sample_coll");
             let mut u = self.rng.sample(uniform);
             let l = self.sample_coll(num_delayed + self.updated_counts.size, u, true);
+            // println!(
+            //     "l = {l:7} = sample_col({:8}, {u:.3})",
+            //     num_delayed + self.updated_counts.size
+            // );
             assert!(l > 0, "sample_coll must return at least 1");
-            if l == 1 {
-                break;
-            }
+
             // add (l-1) // 2 pairs of delayed agents, the lth agent a was already picked, so has a collision
             num_delayed += 2 * ((l - 1) / 2);
             // flame::end("sample_coll");
@@ -589,14 +619,18 @@ impl SimulatorMultiBatch {
             // sample if initiator was delayed or updated
             u = self.rng.sample(uniform);
             // initiator is delayed with probability num_delayed / (num_delayed + num_updated)
-            if (u * ((num_delayed + self.updated_counts.size) as f64)) <= num_delayed as f64 {
+            let initiator_delayed =
+                u * ((num_delayed + self.updated_counts.size) as f64) < num_delayed as f64;
+            if initiator_delayed {
                 // if initiator is delayed, need to first update it with its first interaction before the collision
                 // c is the delayed partner that initiator interacted with, so add this interaction
                 initiator = self.urn.sample_one().unwrap();
                 let mut c = self.urn.sample_one().unwrap();
                 (initiator, c) = self.unordered_delta(initiator, c);
                 self.t += 1;
-                // c is moved from delayed to updated, initiator is currently uncounted
+                // c is moved from delayed to updated, initiator is currently uncounted;
+                // we've updated initiator state, but don't put it in updated_counts because
+                // we'd just need to take it back out to do the initiator/responder interaction
                 self.updated_counts.add_to_entry(c, 1);
                 num_delayed -= 2;
             } else {
@@ -615,9 +649,9 @@ impl SimulatorMultiBatch {
                     // responder is an updated agent, simply remove it
                     responder = self.updated_counts.sample_one().unwrap();
                 } else {
-                    // we simply remove responeder from self.urn if responder is untouched
+                    // responder is untouched or delayed; we remove responder from self.urn in either case
                     responder = self.urn.sample_one().unwrap();
-                    // if responeder is delayed, we have to do the past interaction
+                    // if responder is delayed, we also have to do the past interaction
                     if (u * (self.n - 1) as f64) < (self.updated_counts.size + num_delayed) as f64 {
                         let mut c = self.urn.sample_one().unwrap();
                         (responder, c) = self.unordered_delta(responder, c);
@@ -634,12 +668,16 @@ impl SimulatorMultiBatch {
             self.updated_counts.add_to_entry(responder, 1);
             // flame::end("process collision");
 
-            // println!(
-            //     "num_collisions: {num_collisions}, l = {l}, num_delayed = {num_delayed}, num_updated = {}, self.urn.size = {}, self.urn.config: {:?}, self.t + num_delayed / 2: {} end_step: {}",
-            //     self.updated_counts.size, self.urn.size, self.urn.config, self.t + num_delayed / 2, end_step
-            // );
+            if PRINT {
+                println!(
+                    "    l = {l:7}, collisions: {num_collisions:7}, num_delayed = {num_delayed:7}, num_updated = {:5}, initiator_delayed = {initiator_delayed:5}, self.urn.size = {:12}, self.urn.config: {:?}, self.t + num_delayed / 2: {} end_step: {}",
+                    self.updated_counts.size, self.urn.size, self.urn.config, self.t + num_delayed / 2, end_step
+                );
+            }
         }
-        // panic!();
+        if PRINT {
+            panic!();
+        }
 
         self.collision_counts
             .entry(num_collisions)
@@ -887,6 +925,8 @@ impl SimulatorMultiBatch {
         self.batch_threshold = batch_constant
             * ((self.n as f64 / self.logn).sqrt() * (self.q as f64).min((self.n as f64).powf(0.7)))
                 as usize;
+        // println!("batch_constant = {batch_constant}; n = {}", self.n);
+        // panic!();
         // first rough approximation for probability of successful reaction where we want to do gillespie
         self.gillespie_threshold = 2.0 / (self.n as f64).sqrt();
 
@@ -984,9 +1024,10 @@ impl SimulatorMultiBatch {
         let logu = u.ln();
         assert!(self.n + 1 - r > 0);
         let diff = self.n + 1 - r;
-        // flame::start("ln_gamma");
-        let ln_gamma_diff = ln_gamma(diff);
-        // flame::end("ln_gamma");
+
+        // let ln_gamma_diff = ln_gamma(diff);
+        let ln_gamma_diff = log_factorial(diff - 1);
+
         let lhs = ln_gamma_diff - logu;
         // The condition P(l < t) < U becomes
         //     lhs < lgamma(n - r - t + 1) + t * log(n)
@@ -1017,15 +1058,23 @@ impl SimulatorMultiBatch {
             t_hi = self.n - r;
         }
 
+        let logn_minus_1 = ((self.n - 1) as f64).ln();
         // We maintain the invariant that P(l > t_lo) >= u and P(l > t_hi) < u
         // Equivalently, lhs >= lgamma(n - r - t_lo + 1) + t_lo * logn and
         //               lhs <  lgamma(n - r - t_hi + 1) + t_hi * logn
         while t_lo < t_hi - 1 {
             let t_mid = (t_lo + t_hi) / 2;
-            // flame::start("ln_gamma");
-            let ln_gamma_nr1 = ln_gamma(self.n - r + 1 - t_mid);
-            // flame::end("ln_gamma");
-            if lhs < ln_gamma_nr1 + (t_mid as f64) * self.logn {
+
+            // let ln_gamma_nr1 = ln_gamma(self.n - r + 1 - t_mid);
+            let ln_gamma_nr1 = log_factorial(self.n - r - t_mid);
+
+            // ceil(t_mid / 2) * logn + floor(t_mid / 2) * log(n - 1)
+            let rhs = ln_gamma_nr1
+                + (((t_mid + 1) / 2) as f64) * self.logn
+                + ((t_mid / 2) as f64) * logn_minus_1;
+            // let rhs = ln_gamma_nr1 + (t_mid as f64) * self.logn;
+
+            if lhs < rhs {
                 t_hi = t_mid;
             } else {
                 t_lo = t_mid;
