@@ -43,7 +43,7 @@ def main():
 
     # for trials_exponent in range(3, 7):
     # for trials_exponent in range(4, 8):
-    for trials_exponent in range(6, 7):
+    for trials_exponent in range(8, 9):
         print(f'*************\nCollecting sequential data for pop size 10^{pop_exponent} with 10^{trials_exponent} trials\n')
         trials = 10 ** trials_exponent
         sim = pp.Simulation(inits, approx_majority, simulator_method='sequential')
