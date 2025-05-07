@@ -3,21 +3,21 @@ import importlib.util
 import os
 from pathlib import Path
 
-# Path to your renamed .pyd file
-custom_pyd_path = Path("C:/Dropbox/git/ppsim-rust/python/ppsim/ppsim_rust/ppsim_rust.cp312-win_amd64_2.pyd")
+if False:
+    # Path to your renamed .pyd file
+    custom_pyd_path = Path("C:/Dropbox/git/ppsim-rust/python/ppsim/ppsim_rust/ppsim_rust.cp312-win_amd64_2.pyd")
 
-# Define a custom finder and loader for .pyd files
-class CustomPydFinder:
-    @classmethod
-    def find_spec(cls, fullname, path=None, target=None):
-        # Only handle the specific module we want to redirect
-        if fullname == "ppsim.ppsim_rust.ppsim_rust":
-            return importlib.util.spec_from_file_location(fullname, str(custom_pyd_path))
-        return None
+    # Define a custom finder and loader for .pyd files
+    class CustomPydFinder:
+        @classmethod
+        def find_spec(cls, fullname, path=None, target=None):
+            # Only handle the specific module we want to redirect
+            if fullname == "ppsim.ppsim_rust.ppsim_rust":
+                return importlib.util.spec_from_file_location(fullname, str(custom_pyd_path))
+            return None
 
-# Register our custom finder at the beginning of the meta_path
-sys.meta_path.insert(0, CustomPydFinder)
-
+    # Register our custom finder at the beginning of the meta_path
+    sys.meta_path.insert(0, CustomPydFinder)
 
 
 import ppsim as pp
@@ -49,7 +49,7 @@ def main():
         sim = pp.Simulation(inits, approx_majority, simulator_method='sequential')
         results_sequential = sim.sample_future_configuration(end_time, num_samples=trials)
         df = pl.DataFrame(results_sequential)
-        fn = f'examples/sequential_samples_popsize10e{pop_exponent}_trials10e{trials_exponent}.parquet'
+        fn = f'examples/sequential_samples_n10e{pop_exponent}_trials10e{trials_exponent}.parquet'
         df.write_parquet(fn, compression="zstd")
 
 if __name__ == "__main__":

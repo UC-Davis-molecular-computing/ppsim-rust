@@ -4,12 +4,8 @@ from collections import defaultdict
 import json
 import os
 
-def convert_parquet_files():
-    if len(sys.argv) != 2:
-        raise ValueError("Please provide exactly one argument: <parquet_file>")
-    fn = sys.argv[1]
+def convert_parquet_files(fn: str):
     fn_no_ext, _ = os.path.splitext(fn)
-
     df = pl.read_parquet(fn)
     column_names = df.columns
     all_counts = {}
@@ -22,8 +18,13 @@ def convert_parquet_files():
         all_counts[name] = counts
         
     json_fn = f'{fn_no_ext}.json'
-    json.dump(all_counts, open(json_fn, 'w'), indent=4)
+    with open(json_fn, 'w') as f:
+        json.dump(all_counts, f, indent=4)
+    # return json.dumps(all_counts, indent=4)
         
 
 if __name__ == "__main__":
-    convert_parquet_files()
+    if len(sys.argv) != 2:
+        raise ValueError("Please provide exactly one argument: <parquet_file>")
+    fn = sys.argv[1]
+    convert_parquet_files(fn)

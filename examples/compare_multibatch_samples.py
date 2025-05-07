@@ -1,7 +1,7 @@
 import sys
 from pathlib import Path
 
-if True:
+if False:
     import importlib.util
     custom_pyd_path = Path("C:/Dropbox/git/ppsim-rust/python/ppsim/ppsim_rust/ppsim_rust.cp312-win_amd64_bt-n-over-2.pyd")
 
@@ -41,7 +41,7 @@ def generate_ppsim_samples(pop_exponent: int, trials_exponent: int, end_time: in
     results_ppsim = sim.sample_future_configuration(end_time, num_samples = trials)
     
     df = pl.DataFrame(results_ppsim)
-    fn = f'{dir}/ppsim_samples_popsize10e{pop_exponent}_trials10e{trials_exponent}_bt-n-over-2.parquet'
+    fn = f'{dir}/ppsim_samples_n10e{pop_exponent}_trials10e{trials_exponent}_bt-n-over-2.parquet'
     df.write_parquet(fn, compression="zstd")
 
     return df
@@ -56,7 +56,7 @@ def main():
           f'10^{pop_exponent} and 10^{trials_exponent} trials at time {end_time}.')
 
     
-    fn_noext = f'{compare_to}_samples_popsize10e{pop_exponent}_trials10e{trials_exponent}'
+    fn_noext = f'{compare_to}_samples_n10e{pop_exponent}_trials10e{trials_exponent}'
     fn = f'{fn_noext}.parquet'
     results_other = pl.read_parquet(f'{dir}/{fn}')
     results_ppsim = generate_ppsim_samples(pop_exponent, trials_exponent, end_time, dir)
@@ -125,8 +125,8 @@ def compare_stats():
     end_time = 5
 
     ppsim_name = 'ppsim'
-    other_fn = f'{compare_name}_samples_popsize10e{pop_exponent}_trials10e{trials_exponent}.parquet'
-    ppsim_fn = f'{ppsim_name}_samples_popsize10e{pop_exponent}_trials10e{trials_exponent}_bt-n-over-2.parquet'
+    other_fn = f'{compare_name}_samples_n10e{pop_exponent}_trials10e{trials_exponent}.parquet'
+    ppsim_fn = f'{ppsim_name}_samples_n10e{pop_exponent}_trials10e{trials_exponent}_bt-n-over-2.parquet'
     results_other = pl.read_parquet(f'{dir}/{other_fn}')
     results_ppsim = pl.read_parquet(f'{dir}/{ppsim_fn}')
     a_other = results_other['A'].to_numpy()
