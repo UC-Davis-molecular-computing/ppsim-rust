@@ -149,33 +149,9 @@ def get_smallest_uint_type(max_val):
         return pl.UInt32
     else:
         return pl.UInt64
-    
-def convert_parquet_files():
-    import os
-    dir = 'examples'
-    for fn in os.listdir(dir):
-        if fn.endswith('.parquet'):
-            df = pl.read_parquet(f'{dir}/{fn}')
-            result = []
 
-            for column_name in df.columns:
-                if df.schema[column_name] == pl.Int64:
-                    max_val = df.select(pl.col(column_name).max()).item()
-                    if max_val < 0:
-                        result.append(pl.col(column_name))
-                        continue
-                    optimal_type = get_smallest_uint_type(max_val)
-                    result.append(pl.col(column_name).cast(optimal_type))
-                else:
-                    result.append(pl.col(column_name))
-
-            small_df = df.select(result)
-            small_df.write_parquet(f'{dir}/sm_{fn}', compression="zstd")
-
-            
             
 
 if __name__ == "__main__":
-    # main()
+    main()
     # compare_stats()
-    convert_parquet_files()
