@@ -467,16 +467,26 @@ impl SimulatorMultiBatch {
         Ok(())
     }
 
-    #[pyo3(signature = (r, u, has_bounds=false))]
-    pub fn sample_collision(&self, r: usize, u: f64, has_bounds: bool) -> usize {
-        self.sample_coll(r, u, has_bounds)
+    #[pyo3(signature = (r, u, has_bounds=false, pp=false))]
+    pub fn sample_collision(&self, r: usize, u: f64, has_bounds: bool, pp: bool) -> usize {
+        self.sample_coll(r, u, has_bounds, pp)
     }
 
+    /// Sample from birthday distribution "directly". This is the number of times
+    /// we can sample with replacement from a set of size n, given that r objects
+    /// have already been sampled. If `pp` is true, we use the slight variant of
+    /// this where the sample events are numbered 1,2, 3,4, 5,6, ..., and we
+    /// automatically rule out collisions of the form i,i+1 for odd i. This corresponds
+    /// to sampling for a population protocol, where the initiator is chosen on
+    /// step i (for odd i), and the responder is chosen on step i+1, but guaranteed
+    /// to be different from the initiator.
     #[pyo3()]
-    pub fn sample_collision_directly(&mut self, n: usize, r: usize) -> usize {
+    pub fn sample_collision_directly(&mut self, n: usize, r: usize, pp: bool) -> usize {
         let mut idx = 0usize;
         let mut seen = HashSet::new();
         assert!(r < n, "r must be less than n");
+        assert!(n < usize::MAX, "n must be less than usize::MAX");
+        let mut most_recent_sample = usize::MAX;
         loop {
             idx += 1;
             let sample = self.rng.gen_range(0..n);
@@ -484,9 +494,12 @@ impl SimulatorMultiBatch {
                 return idx;
             }
             if seen.contains(&sample) {
-                return idx;
+                if !pp || idx % 2 == 1 || sample != most_recent_sample {
+                    return idx;
+                }
             }
             seen.insert(sample);
+            most_recent_sample = sample;
         }
     }
 }
@@ -601,9 +614,10 @@ impl SimulatorMultiBatch {
             let mut u = self.rng.sample(uniform);
 
             let has_bounds = false;
+            let pp = true;
             // let has_bounds = true;
             flame::start("sample_coll");
-            let l = self.sample_coll(num_delayed + self.updated_counts.size, u, has_bounds);
+            let l = self.sample_coll(num_delayed + self.updated_counts.size, u, has_bounds, pp);
             flame::end("sample_coll");
 
             // println!(
@@ -998,7 +1012,7 @@ impl SimulatorMultiBatch {
             for u_idx in 0..num_u_values {
                 let r = self.coll_table_r_values[r_idx];
                 let u = self.coll_table_u_values[u_idx];
-                self.coll_table[r_idx][u_idx] = self.sample_coll(r, u, false);
+                self.coll_table[r_idx][u_idx] = self.sample_coll(r, u, false, true);
             }
         }
     }
@@ -1030,10 +1044,12 @@ impl SimulatorMultiBatch {
     ///     u: A uniform random variable.
     ///     has_bounds: Has the table for precomputed values of r, u already been computed?
     ///         (This will be false while the function is being called to populate the table.)
-    ///
+    ///     pp: If true, we do not consider collisions of the form i,i+1 for odd i,
+    ///         corresponding to the sequential schedule picking an initiator and responder
+    ///         who are guaranteed to be distinct.
     /// Returns:
     ///     The number of sampled agents to get the first collision (including the collided agent).
-    fn sample_coll(&self, r: usize, u: f64, has_bounds: bool) -> usize {
+    fn sample_coll(&self, r: usize, u: f64, has_bounds: bool, pp: bool) -> usize {
         let mut t_lo: usize;
         let mut t_hi: usize;
         let logu = u.ln();
@@ -1048,7 +1064,6 @@ impl SimulatorMultiBatch {
         //     lhs < lgamma(n - r - t + 1) + t * log(n)
 
         if has_bounds {
-            // println!("bounds ");
             // Look up bounds from coll_table.
             // For r values, we invert the definition of self.coll_table_r_values:
             //   np.array([2 + self.r_constant * (i ** 2) for i in range(self.num_r_values - 1)] + [self.n])
@@ -1084,12 +1099,19 @@ impl SimulatorMultiBatch {
             // let ln_gamma_nr1 = ln_gamma(self.n - r + 1 - t_mid);
             let ln_gamma_nr1 = log_factorial(self.n - r - t_mid);
 
-            // ceil(t_mid / 2) * logn + floor(t_mid / 2) * log(n - 1)
-            let rhs = ln_gamma_nr1
-                + (((t_mid + 1) / 2) as f64) * self.logn
-                + ((t_mid / 2) as f64) * logn_minus_1;
-
-            // let rhs = ln_gamma_nr1 + (t_mid as f64) * self.logn;
+            let rhs: f64;
+            if pp {
+                // ceil(t_mid / 2) * logn + floor(t_mid / 2) * log(n - 1)
+                // This corrects the PDF of the distribution replacing the term
+                // n^-t with n^-ceil(t/2) * (n-1)^-floor(t/2), to account for the
+                // fact that the sequential scheduler cannot pick the same agent
+                // at indices i,i+1 for odd i, assuming we start at index i=1.
+                rhs = ln_gamma_nr1
+                    + (((t_mid + 1) / 2) as f64) * self.logn
+                    + ((t_mid / 2) as f64) * logn_minus_1;
+            } else {
+                rhs = ln_gamma_nr1 + (t_mid as f64) * self.logn;
+            }
 
             if lhs < rhs {
                 t_hi = t_mid;

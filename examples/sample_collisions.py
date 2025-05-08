@@ -12,7 +12,7 @@ def main():
         b+u >> 2*b,
     ]
 
-    trials_exponent = 7
+    trials_exponent = 8
     pop_exponent = 4
     n = 10 ** pop_exponent
     p = 0.51 
@@ -23,22 +23,24 @@ def main():
 
     sim = pp.Simulation(inits, rxns)
 
-    r = 10*math.ceil(math.sqrt(n))
+    # r = 3*math.ceil(math.sqrt(n))
+    r = 0
     print(f'{n=}, {r=}')
 
     ls_pp = []
     ls_dir = []
     import time
+    omit_pp_collision = True
     for i in tqdm(range(trials)):
         # t1 = time.perf_counter()
 
-        l_dir = sim.simulator.sample_collision_directly(n, r) # type: ignore
+        l_dir = sim.simulator.sample_collision_directly(n, r, pp=omit_pp_collision) # type: ignore
         ls_dir.append(l_dir)
 
         # t2 = time.perf_counter()
         
         u = random.random()
-        l_pp = sim.simulator.sample_collision(r, u, has_bounds=True) # type: ignore
+        l_pp = sim.simulator.sample_collision(r, u, has_bounds=False, pp=omit_pp_collision) # type: ignore
         ls_pp.append(l_pp)
 
         # t3 = time.perf_counter()
@@ -47,8 +49,10 @@ def main():
         
     ls_pp = np.array(ls_pp)
     ls_dir = np.array(ls_dir)
-    print(f' {ls_pp.mean()=}')
-    print(f'{ls_dir.mean()=}')    
+    # print(f'fast:   { ls_pp.mean():7.2f}, stddev: { ls_pp.std():6.2f}')
+    # print(f'direct: {ls_dir.mean():7.2f}, stddev: {ls_dir.std():6.2f}')
+    print(f'fast:   { ls_pp.mean():7.2f}')
+    print(f'direct: {ls_dir.mean():7.2f}')
 
 if __name__ == "__main__":
     main()
