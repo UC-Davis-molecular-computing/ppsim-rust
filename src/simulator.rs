@@ -1073,7 +1073,7 @@ impl SimulatorMultiBatch {
             t_hi = self.n - r;
         }
 
-        // let logn_minus_1 = ((self.n - 1) as f64).ln();
+        let logn_minus_1 = ((self.n - 1) as f64).ln();
 
         // We maintain the invariant that P(l > t_lo) >= u and P(l > t_hi) < u
         // Equivalently, lhs >= lgamma(n - r - t_lo + 1) + t_lo * logn and
@@ -1085,11 +1085,11 @@ impl SimulatorMultiBatch {
             let ln_gamma_nr1 = log_factorial(self.n - r - t_mid);
 
             // ceil(t_mid / 2) * logn + floor(t_mid / 2) * log(n - 1)
-            // let rhs = ln_gamma_nr1
-            //     + (((t_mid + 1) / 2) as f64) * self.logn
-            //     + ((t_mid / 2) as f64) * logn_minus_1;
+            let rhs = ln_gamma_nr1
+                + (((t_mid + 1) / 2) as f64) * self.logn
+                + ((t_mid / 2) as f64) * logn_minus_1;
 
-            let rhs = ln_gamma_nr1 + (t_mid as f64) * self.logn;
+            // let rhs = ln_gamma_nr1 + (t_mid as f64) * self.logn;
 
             if lhs < rhs {
                 t_hi = t_mid;
