@@ -378,10 +378,34 @@ def sample_configs():
     pdf_fn = f'{fn_noext}.pdf'
     # plt.savefig(pdf_fn, bbox_inches='tight')
     plt.show()
-    
+
+def sequential():
+    a,b,u = pp.species('A B U')
+    approx_majority = [
+        a+b >> 2*u,
+        a+u >> 2*a,
+        b+u >> 2*b,
+    ]
+    n = 10 ** 6
+    p = 0.51
+    a_init = int(n * p)
+    b_init = n - a_init
+    init = {a: a_init, b: b_init}
+    # for seed in range(100):
+    #     print(f'{seed=}')
+    seed = 3
+    sim = pp.Simulation(init, approx_majority, seed=seed, 
+                        simulator_method='sequential'
+                        )
+    # sim.run(20, 1)
+    # sim.run(100)
+    sim.run(20)
+    # print(sim.history)
+    # sim.simulator.write_profile()
 
 if __name__ == '__main__':
+    sequential()
     # dsd_oscillator()
     # main2()
     # sample_configs()
-    compare_rebop_sequential()
+    # compare_rebop_sequential()
