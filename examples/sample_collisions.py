@@ -12,7 +12,7 @@ def main():
         b+u >> 2*b,
     ]
 
-    trials_exponent = 8
+    trials_exponent = 7
     pop_exponent = 4
     n = 10 ** pop_exponent
     p = 0.51 
@@ -23,7 +23,7 @@ def main():
 
     sim = pp.Simulation(inits, rxns)
 
-    # r = 3*math.ceil(math.sqrt(n))
+    # r = math.ceil(math.sqrt(n))
     r = 0
     print(f'{n=}, {r=}')
 
