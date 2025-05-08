@@ -81,21 +81,22 @@ def main():
         minimum = 0
         maximum = n
 
+    print(f'minimum: {minimum}, maximum: {maximum}')
     bins = np.linspace(minimum, maximum, 20) # type: ignore
 
     ax.hist([results_ppsim[state], results_other[state]], 
             # bins = np.linspace(int(n*0.32), int(n*.43), 20), # type: ignore
             bins = bins, # type: ignore
-            alpha = 1, label=['ppsim', compare_to]) #, density=True, edgecolor = 'k', linewidth = 0.5)
+            alpha = 1, label=['multibatch', compare_to]) #, density=True, edgecolor = 'k', linewidth = 0.5)
     ax.legend()
 
     ax.set_xlabel(f'count of state {state}')
     ax.set_ylabel(f'empirical probability')
-    ax.set_title(f'ppsim vs {compare_to} state {state} distribution sampled at time {end_time} ($10^{trials_exponent}$ samples, n=$10^{pop_exponent}$)')
+    ax.set_title(f'multibatch vs {compare_to} state {state} distribution sampled at time {end_time} ($10^{trials_exponent}$ samples, n=$10^{pop_exponent}$)')
     
     # plt.ylim(0, 200_000)
 
-    pdf_fn = f'{dir}/multibatch_vs_{fn_noext}_bt-n-over-2.pdf'
+    pdf_fn = f'{dir}/multibatch_vs_{compare_to}_n10e{pop_exponent}_trials10e{trials_exponent}_bt-n-over-2_sample_coll-no-precompute.pdf'
     plt.savefig(pdf_fn, bbox_inches='tight')
     plt.show()
 

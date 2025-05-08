@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::time::{Duration, Instant};
 
@@ -466,6 +466,29 @@ impl SimulatorMultiBatch {
 
         Ok(())
     }
+
+    #[pyo3(signature = (r, u, has_bounds=false))]
+    pub fn sample_collision(&self, r: usize, u: f64, has_bounds: bool) -> usize {
+        self.sample_coll(r, u, has_bounds)
+    }
+
+    #[pyo3()]
+    pub fn sample_collision_directly(&mut self, n: usize, r: usize) -> usize {
+        let mut idx = 0usize;
+        let mut seen = HashSet::new();
+        assert!(r < n, "r must be less than n");
+        loop {
+            idx += 1;
+            let sample = self.rng.gen_range(0..n);
+            if sample < r {
+                return idx;
+            }
+            if seen.contains(&sample) {
+                return idx;
+            }
+            seen.insert(sample);
+        }
+    }
 }
 
 fn write_span_data(content: &mut String, span_data_map: &HashMap<String, SpanData>, depth: usize) {
@@ -577,7 +600,8 @@ impl SimulatorMultiBatch {
 
             // flame::start("sample_coll");
             let mut u = self.rng.sample(uniform);
-            let l = self.sample_coll(num_delayed + self.updated_counts.size, u, true);
+            // let l = self.sample_coll(num_delayed + self.updated_counts.size, u, true);
+            let l = self.sample_coll(num_delayed + self.updated_counts.size, u, false);
             // println!(
             //     "l = {l:7} = sample_col({:8}, {u:.3})",
             //     num_delayed + self.updated_counts.size
@@ -955,15 +979,6 @@ impl SimulatorMultiBatch {
             self.coll_table_u_values[i] = i as f64 / (num_u_values as f64 - 1.0);
         }
 
-        // println!(
-        //     "r values: {:?}, u values (len = {}):",
-        //     self.coll_table_r_values, num_u_values,
-        // );
-        // for u in &self.coll_table_u_values {
-        //     print!("{u:.2}, ");
-        // }
-        // println!();
-
         assert_eq!(
             self.coll_table_r_values.len(),
             num_r_values,
@@ -975,16 +990,13 @@ impl SimulatorMultiBatch {
             "self.coll_table_u_values length mismatch",
         );
 
-        // println!("collision table:");
         self.coll_table = vec![vec![0; num_u_values]; num_r_values];
         for r_idx in 0..num_r_values {
             for u_idx in 0..num_u_values {
                 let r = self.coll_table_r_values[r_idx];
                 let u = self.coll_table_u_values[u_idx];
                 self.coll_table[r_idx][u_idx] = self.sample_coll(r, u, false);
-                // print!("{}, ", self.coll_table[r_idx][u_idx]);
             }
-            // println!();
         }
     }
 
@@ -1069,10 +1081,11 @@ impl SimulatorMultiBatch {
             let ln_gamma_nr1 = log_factorial(self.n - r - t_mid);
 
             // ceil(t_mid / 2) * logn + floor(t_mid / 2) * log(n - 1)
-            let rhs = ln_gamma_nr1
-                + (((t_mid + 1) / 2) as f64) * self.logn
-                + ((t_mid / 2) as f64) * logn_minus_1;
-            // let rhs = ln_gamma_nr1 + (t_mid as f64) * self.logn;
+            // let rhs = ln_gamma_nr1
+            //     + (((t_mid + 1) / 2) as f64) * self.logn
+            //     + ((t_mid / 2) as f64) * logn_minus_1;
+
+            let rhs = ln_gamma_nr1 + (t_mid as f64) * self.logn;
 
             if lhs < rhs {
                 t_hi = t_mid;
