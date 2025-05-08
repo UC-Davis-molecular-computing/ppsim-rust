@@ -598,10 +598,14 @@ impl SimulatorMultiBatch {
                 println!("exp_l = {exp_l:7}");
             }
 
-            // flame::start("sample_coll");
             let mut u = self.rng.sample(uniform);
-            // let l = self.sample_coll(num_delayed + self.updated_counts.size, u, true);
-            let l = self.sample_coll(num_delayed + self.updated_counts.size, u, false);
+
+            let has_bounds = false;
+            // let has_bounds = true;
+            flame::start("sample_coll");
+            let l = self.sample_coll(num_delayed + self.updated_counts.size, u, has_bounds);
+            flame::end("sample_coll");
+
             // println!(
             //     "l = {l:7} = sample_col({:8}, {u:.3})",
             //     num_delayed + self.updated_counts.size
@@ -610,7 +614,6 @@ impl SimulatorMultiBatch {
 
             // add (l-1) // 2 pairs of delayed agents, the lth agent a was already picked, so has a collision
             num_delayed += 2 * ((l - 1) / 2);
-            // flame::end("sample_coll");
 
             // If the sampled collision happens after t_max, then include delayed agents up until t_max
             //   and do not perform the collision.
@@ -944,8 +947,8 @@ impl SimulatorMultiBatch {
     fn set_n_parameters(&mut self) -> () {
         self.logn = (self.n as f64).ln();
         // theoretical optimum for batch_threshold is Theta(sqrt(n / logn) * q) agents / batch
-        let batch_constant = 2_i32.pow(11) as usize;
-        // let batch_constant = 1 as usize;
+        // let batch_constant = 2_i32.pow(10) as usize;
+        let batch_constant = 1 as usize;
         self.batch_threshold = batch_constant
             * ((self.n as f64 / self.logn).sqrt() * (self.q as f64).min((self.n as f64).powf(0.7)))
                 as usize;
@@ -1070,7 +1073,8 @@ impl SimulatorMultiBatch {
             t_hi = self.n - r;
         }
 
-        let logn_minus_1 = ((self.n - 1) as f64).ln();
+        // let logn_minus_1 = ((self.n - 1) as f64).ln();
+
         // We maintain the invariant that P(l > t_lo) >= u and P(l > t_hi) < u
         // Equivalently, lhs >= lgamma(n - r - t_lo + 1) + t_lo * logn and
         //               lhs <  lgamma(n - r - t_hi + 1) + t_hi * logn

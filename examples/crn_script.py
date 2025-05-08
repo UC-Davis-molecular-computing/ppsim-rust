@@ -279,7 +279,7 @@ def main2():
         a+u >> 2*a,
         b+u >> 2*b,
     ]
-    n = 10 ** 11
+    n = 10 ** 9
     p = 0.51
     a_init = int(n * p)
     b_init = n - a_init
@@ -293,7 +293,7 @@ def main2():
     # sim.run(20, 1)
     # sim.run(100)
     sim.run(20)
-    print(sim.history)
+    # print(sim.history)
     sim.simulator.write_profile()
 
 def compare_rebop_sequential():
@@ -382,6 +382,6 @@ def sample_configs():
 
 if __name__ == '__main__':
     # dsd_oscillator()
-    # main2()
+    main2()
     # sample_configs()
-    compare_rebop_sequential()
+    # compare_rebop_sequential()

@@ -97,7 +97,7 @@ def main():
     # plt.ylim(0, 200_000)
 
     pdf_fn = f'{dir}/multibatch_vs_{compare_to}_n10e{pop_exponent}_trials10e{trials_exponent}_bt-n-over-2_sample_coll-no-precompute.pdf'
-    plt.savefig(pdf_fn, bbox_inches='tight')
+    # plt.savefig(pdf_fn, bbox_inches='tight')
     plt.show()
 
 def cl_args() -> tuple[str, int, int]:
