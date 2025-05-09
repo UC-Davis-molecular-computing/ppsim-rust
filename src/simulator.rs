@@ -553,7 +553,7 @@ const CAP_BATCH_THRESHOLD: bool = true;
 
 impl SimulatorMultiBatch {
     fn multibatch_step(&mut self, t_max: usize) -> () {
-        let max_batch_threshold = self.n / 2; //TODO: FIX
+        let max_batch_threshold = self.n / 4; //TODO: FIX
         if CAP_BATCH_THRESHOLD && self.batch_threshold > max_batch_threshold {
             self.batch_threshold = max_batch_threshold;
         }
