@@ -2,6 +2,7 @@
 A module for :class:`Snapshot` objects used to visualize the protocol during or after
 the simulation has run.
 
+
 :class:`Snapshot` is a base class for snapshot objects that get are updated by :class:`ppsim.simulation.Simulation`.
 
 :class:`Plotter` is a subclass of :class:`Snapshot` that creates a matplotlib figure and axis.

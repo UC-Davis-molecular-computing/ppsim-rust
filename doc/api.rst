@@ -11,7 +11,18 @@ Module Documentation
 
 .. toctree::
    :maxdepth: 2
-   
-   _autosummary/ppsim.simulation
-   _autosummary/ppsim.crn
-   _autosummary/ppsim.snapshot
+
+.. automodule:: ppsim.simulation
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. automodule:: ppsim.crn
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. automodule:: ppsim.snapshot
+   :members:
+   :undoc-members:
+   :show-inheritance:

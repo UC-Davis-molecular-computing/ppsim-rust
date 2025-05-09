@@ -22,7 +22,7 @@ The general syntax is
 
 More examples given in https://github.com/UC-Davis-molecular-computing/ppsim/tree/main/examples
 
-:py:meth:`time_trials` is a convenience function used for gathering data about the
+:func:`time_trials` is a convenience function used for gathering data about the
 convergence time of a protocol.
 """
 
