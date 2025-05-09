@@ -68,8 +68,9 @@ Now let's run this simulation for `10` units of parallel time (`10 * n` interact
 sim.run(10, 0.1)
 ```
 
-     Time: 10.000
-    
+```
+Time: 10.000
+```    
 
 The `Simulation` class can display all these configurations in a `pandas` dataframe in the attribute `history`.
 
@@ -178,7 +179,7 @@ p = sim.history.plot()
 
 
     
-![png](https://github.com/UC-Davis-molecular-computing/ppsim/blob/main/README_files/README_12_0.png)
+![png](README_files/README_12_0.png)
     
 
 
@@ -189,13 +190,13 @@ Without specifying an end time, `run` will run the simulation until the configur
 sim.run()
 p = sim.history.plot()
 ```
+```
+Time: 21.000
+``` 
 
-     Time: 21.000
+
     
-
-
-    
-![png](https://github.com/UC-Davis-molecular-computing/ppsim/blob/main/README_files/README_14_1.png)
+![png](README_files/README_14_1.png)
     
 
 
@@ -220,16 +221,16 @@ print(sim.reactions)
 sim.run()
 p = sim.history.plot()
 ```
+```
+A, B  -->  U, U      with probability 0.5
+A, U  -->  A, A      with probability 0.5
+B, U  -->  B, B      with probability 0.5
+  Time: 44.000
+```    
 
-    A, B  -->  U, U      with probability 0.5
-    A, U  -->  A, A      with probability 0.5
-    B, U  -->  B, B      with probability 0.5
-     Time: 44.000
+
     
-
-
-    
-![png](https://github.com/UC-Davis-molecular-computing/ppsim/blob/main/README_files/README_18_1.png)
+![png](README_files/README_18_1.png)
     
 
 
@@ -332,7 +333,7 @@ lp.set_xscale('log')
 
 
     
-![png](https://github.com/UC-Davis-molecular-computing/ppsim/blob/main/README_files/README_22_0.png)
+![png](README_files/README_22_0.png)
     
 
 
@@ -360,9 +361,9 @@ We did not need to explicitly describe the state set. Upon initialization, `Simu
 ```python
 print(sim.state_list)
 ```
-
-    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50]
-    
+```
+[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50]
+```
 
 This enumeration will call the function `rule` we give it O(q^2) times, where q is the number of reachable states. This preprocessing step also builds an internal representation of the transition function, so it will not need to continue calling `rule`. Thus we don't need to worry too much about our code for `rule` being efficient.
 
@@ -375,9 +376,9 @@ sim.config_dict
 
 
 
-
-    {0: 500000, 50: 500000}
-
+```
+{0: 500000, 50: 500000}
+```
 
 
 
@@ -387,15 +388,15 @@ sim.config_array
 
 
 
-
-    array([500000,      0,      0,      0,      0,      0,      0,      0,
-                0,      0,      0,      0,      0,      0,      0,      0,
-                0,      0,      0,      0,      0,      0,      0,      0,
-                0,      0,      0,      0,      0,      0,      0,      0,
-                0,      0,      0,      0,      0,      0,      0,      0,
-                0,      0,      0,      0,      0,      0,      0,      0,
-                0,      0, 500000], dtype=int64)
-
+```
+array([500000,      0,      0,      0,      0,      0,      0,      0,
+            0,      0,      0,      0,      0,      0,      0,      0,
+            0,      0,      0,      0,      0,      0,      0,      0,
+            0,      0,      0,      0,      0,      0,      0,      0,
+            0,      0,      0,      0,      0,      0,      0,      0,
+            0,      0,      0,      0,      0,      0,      0,      0,
+            0,      0, 500000], dtype=int64)
+```
 
 
 A key result about these discrete averaging dynamics is that they converge in O(log n) time to at most 3 consecutive values. It could take longer to reach the ultimate silent configuration with only 2 consecutive values, so if we wanted to check for the faster convergence condition, we could use a function that checks for the condition. This function takes a configuration dictionary (mapping states to counts) as input and returns `True` if the convergence criterion has been met.
@@ -763,19 +764,19 @@ plot_row(-1)
 
 
     
-![png](https://github.com/UC-Davis-molecular-computing/ppsim/blob/main/README_files/README_35_0.png)
+![png](README_files/README_35_0.png)
     
 
 
 
     
-![png](https://github.com/UC-Davis-molecular-computing/ppsim/blob/main/README_files/README_35_1.png)
+![png](README_files/README_35_1.png)
     
 
 
 
     
-![png](https://github.com/UC-Davis-molecular-computing/ppsim/blob/main/README_files/README_35_2.png)
+![png](README_files/README_35_2.png)
     
 
 
@@ -788,7 +789,7 @@ bar = widgets.interact(plot_row, row = widgets.IntSlider(
     min=0, max=len(sim.history)-1, step=1, value=0, layout = widgets.Layout(width='100%')))
 ```
 
-![gif](https://github.com/UC-Davis-molecular-computing/ppsim/blob/main/README_files/barplot1.gif)
+![gif](README_files/barplot1.gif)
 
 It is recommended to use an interactive matplotlib backend, such as `ipympl`, which can be installed with `pip install ipympl` and then activated with the cell magic `%matplotlib widget`. The recommended environment to use for these notebooks is [Jupyter Lab](https://jupyterlab.readthedocs.io/en/stable/). Unfortunately, these interactive backends are not supported with [Google Colab](https://colab.research.google.com/), so there does not seem to be an easy way to have access to interactive backends with something that can be run only in a browser without local installation.
 
@@ -851,7 +852,7 @@ bar = widgets.interact(plot_row,
                       yscale = ['linear','symlog'])
 ```
 
-![gif](https://github.com/UC-Davis-molecular-computing/ppsim/blob/main/README_files/barplot2.gif)
+![gif](README_files/barplot2.gif)
 
 ## Protocol with Multiple Fields
 
@@ -859,7 +860,7 @@ For more complicated protocol, it is helpful to have the states be more complica
 
 As a concrete example, we will use the protocol from [Simple and Efficient Leader Election](https://drops.dagstuhl.de/opus/volltexte/2018/8302/pdf/OASIcs-SOSA-2018-9.pdf). We start by translating the explicit description of an agents state into our Agent class.
 
-![png](https://github.com/UC-Davis-molecular-computing/ppsim/blob/main/README_files/SimpleLeaderElection1.PNG)
+![png](README_files/SimpleLeaderElection1.PNG)
 
 
 ```python
@@ -879,7 +880,7 @@ class Agent:
     counter: int = 0
 ```
 
-![png](https://github.com/UC-Davis-molecular-computing/ppsim/blob/main/README_files/SimpleLeaderElection2.PNG)
+![png](README_files/SimpleLeaderElection2.PNG)
 
 
 ```python
@@ -911,7 +912,7 @@ def leader_election(v: Agent, u: Agent, loglogn: int, Ulogn: int):
 
 The pseudocode was described in the following way:
 
-![png](https://github.com/UC-Davis-molecular-computing/ppsim/blob/main/README_files/SimpleLeaderElection3.PNG)
+![png](README_files/SimpleLeaderElection3.PNG)
 
 We can implement this assumption by having our transition rule call the the `leader_election` function twice:
 
@@ -940,7 +941,7 @@ plt.show()
 
 
     
-![png](https://github.com/UC-Davis-molecular-computing/ppsim/blob/main/README_files/README_53_0.png)
+![png](README_files/README_53_0.png)
     
 
 
@@ -1327,30 +1328,30 @@ sim.history.columns
 
 
 
-
-    MultiIndex([('contender', 0, 0,    'marking',  0),
-                ('contender', 0, 0,    'marking',  2),
-                ('contender', 0, 0,    'marking',  4),
-                ('contender', 0, 0,    'marking',  6),
-                ('contender', 0, 0,    'marking',  8),
-                ('contender', 0, 0,    'marking', 10),
-                ('contender', 0, 0,    'marking', 12),
-                ('contender', 0, 0,    'marking', 14),
-                ('contender', 0, 0, 'tournament', 12),
-                ('contender', 0, 0, 'tournament', 13),
-                ...
-                (   'minion', 1, 1, 'tournament', 50),
-                (   'minion', 1, 1, 'tournament', 51),
-                (   'minion', 1, 1, 'tournament', 52),
-                (   'minion', 1, 1, 'tournament', 53),
-                (   'minion', 1, 1, 'tournament', 54),
-                (   'minion', 1, 1, 'tournament', 55),
-                (   'minion', 1, 1, 'tournament', 56),
-                (   'minion', 1, 1, 'tournament', 57),
-                (   'minion', 1, 1, 'tournament', 58),
-                (   'minion', 1, 1, 'tournament', 59)],
-               names=['role', 'flip_bit', 'marker', 'phase', 'counter'], length=384)
-
+```
+MultiIndex([('contender', 0, 0,    'marking',  0),
+            ('contender', 0, 0,    'marking',  2),
+            ('contender', 0, 0,    'marking',  4),
+            ('contender', 0, 0,    'marking',  6),
+            ('contender', 0, 0,    'marking',  8),
+            ('contender', 0, 0,    'marking', 10),
+            ('contender', 0, 0,    'marking', 12),
+            ('contender', 0, 0,    'marking', 14),
+            ('contender', 0, 0, 'tournament', 12),
+            ('contender', 0, 0, 'tournament', 13),
+            ...
+            (   'minion', 1, 1, 'tournament', 50),
+            (   'minion', 1, 1, 'tournament', 51),
+            (   'minion', 1, 1, 'tournament', 52),
+            (   'minion', 1, 1, 'tournament', 53),
+            (   'minion', 1, 1, 'tournament', 54),
+            (   'minion', 1, 1, 'tournament', 55),
+            (   'minion', 1, 1, 'tournament', 56),
+            (   'minion', 1, 1, 'tournament', 57),
+            (   'minion', 1, 1, 'tournament', 58),
+            (   'minion', 1, 1, 'tournament', 59)],
+            names=['role', 'flip_bit', 'marker', 'phase', 'counter'], length=384)
+```
 
 
 We can use the pandas [groupby](https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.groupby.html) function to conveniently look at the values of just one field. For a field whose name is the string `field`, then calling `sim.history.groupby(field, axis=1).sum()` gives the counts of values of just a single state. If we have a set of fields `field1, field2, ...` then calling `sim.history.groupby([field1, field2, ...], axis=1).sum()` will give the counts of values of just those fields.
@@ -1452,7 +1453,7 @@ plt.show()
 
 
     
-![png](https://github.com/UC-Davis-molecular-computing/ppsim/blob/main/README_files/README_63_0.png)
+![png](README_files/README_63_0.png)
     
 
 
@@ -1464,7 +1465,7 @@ plt.show()
 
 
     
-![png](https://github.com/UC-Davis-molecular-computing/ppsim/blob/main/README_files/README_64_0.png)
+![png](README_files/README_64_0.png)
     
 
 
@@ -1480,21 +1481,21 @@ df.iloc[10]
 
 
 
-
-    counter  role     
-    0        contender        2
-    1        contender       48
-    2        contender      441
-    3        contender     2876
-    4        contender    13600
-                          ...  
-    57       minion           0
-    58       contender        0
-             minion           0
-    59       contender        0
-             minion           0
-    Name: 10.0, Length: 108, dtype: int64
-
+```
+counter  role     
+0        contender        2
+1        contender       48
+2        contender      441
+3        contender     2876
+4        contender    13600
+                      ...  
+57       minion           0
+58       contender        0
+          minion           0
+59       contender        0
+          minion           0
+Name: 10.0, Length: 108, dtype: int64
+```
 
 
 Then calling `unstack()` on the series will give pull off the first field, and give us a dataframe that can immediately plotted as a multibar plot.
@@ -1836,7 +1837,7 @@ plt.show()
 
 
     
-![png](https://github.com/UC-Davis-molecular-computing/ppsim/blob/main/README_files/README_69_0.png)
+![png](README_files/README_69_0.png)
     
 
 
@@ -1855,14 +1856,14 @@ bar = widgets.interact(plot_row,
                       yscale = ['linear','symlog'])
 ```
 
-![gif](https://github.com/UC-Davis-molecular-computing/ppsim/blob/main/README_files/barplot3.gif)
+![gif](README_files/barplot3.gif)
 
 
 ## Simulating Chemical Reaction Networks (CRNs)
 
 `ppsim` is able to simulate any Chemical Reaction Network that has only bimolecular (2-input, 2-output) and unimolecular (1-input, 1-output) reactions. There is a special syntax used to specify CRNs, such as
 
-![png](https://github.com/UC-Davis-molecular-computing/ppsim/blob/main/README_files/CRN.PNG)
+![png](README_files/CRN.PNG)
 
 
 
@@ -1886,7 +1887,7 @@ p = sim.history.plot()
     
 
     
-![png](https://github.com/UC-Davis-molecular-computing/ppsim/blob/main/README_files/README_75_1.png)
+![png](README_files/README_75_1.png)
     
 
 
@@ -1898,4 +1899,4 @@ By default, `ppsim` sets the volume `v` to be the population size `n`, which mak
 For more details about the CRN model and how it is faithfully represented as a continuous time population protocol, see [this paper](https://arxiv.org/abs/2105.04702).
 
 ## More examples
-See https://github.com/UC-Davis-molecular-computing/population-protocols-python-package/tree/main/examples/
+See [examples](examples/).
