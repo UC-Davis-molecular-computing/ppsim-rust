@@ -1,7 +1,7 @@
 """
 A module for simulating population protocols.
 
-The main class :any:`Simulation` is created with a description of the protocol and the initial condition,
+The main class :class:`Simulation` is created with a description of the protocol and the initial condition,
 and is responsible for running the simulation.
 
 The general syntax is
@@ -55,14 +55,15 @@ Type representing transition rules for protocol. Is one of three types:
 
 - a function that takes two states and returns either a tuple of two states or a dictionary mapping pairs of states to probabilities.
 - a dictionary mapping pairs of states to either a tuple of two states or a dictionary mapping pairs of states to probabilities.
-- a list of :any:`Reaction` objects describing a CRN, which will be parsed into an equivalent population protocol.
+- a list of :class:`ppsim.crn.Reaction` objects describing a CRN, which will be parsed into an equivalent population protocol.
 """
 
 ConvergenceDetector: TypeAlias = Callable[[dict[State, int]], bool]
 
 # TODO: give other option for when the number of reachable states is large or unbounded
 def state_enumeration(init_dist: dict[StateTypeVar, int], rule: Callable[[State, State], Output]) -> set[State]:
-    """Finds all reachable states by breadth-first search.
+    """
+    Finds all reachable states by breadth-first search.
 
     Args:
         init_dist: dictionary mapping states to counts
@@ -102,19 +103,24 @@ class Simulation:
     """Class to simulate a population protocol."""
 
     state_list: list[State]
-    """A sorted list of all reachable states."""
+    """
+    A sorted list of all reachable states.
+    """
 
     state_dict: dict[State, int]
-    """Maps states to their integer index to be used
-            in array representations."""
+    """
+    Maps states to their integer index to be used in array representations.
+    """
 
     simulator: SimulatorMultiBatch | SimulatorSequentialArray
-    """An internal :any:`Simulator` object, whose methods actually
-            perform the steps of the simulation."""
+    """An internal Simulator that performs the simulation steps.
+    
+    This is either a SimulatorMultiBatch or SimulatorSequentialArray instance."""
 
     configs: list[npt.NDArray[np.uint]]
-    """A list of all configurations that have been
-            recorded during the simulation, as integer arrays."""
+    """
+    A list of all configurations that have been recorded during the simulation, as integer arrays.
+    """
 
     time: float
     """The current time."""
@@ -126,32 +132,42 @@ class Simulation:
     """Number of simulated interactions per time unit."""
 
     time_units: str | None
-    """The units that time is in. See https://pandas.pydata.org/docs/reference/api/pandas.to_timedelta.html
-    for options."""
-
+    """
+    The units that time is in. 
+    
+    For options see https://pandas.pydata.org/docs/reference/api/pandas.to_timedelta.html
+    """
     continuous_time: bool
-    """Whether continuous time is used. The regular discrete
-            time model considers :any:`steps_per_time_unit` steps 
-            to be 1 unit of time.
-            The continuous time model is a poisson process, with expected
-            :any:`steps_per_time_unit` steps per 1 unit of time."""
+    """
+    Whether continuous time is used. 
+    The regular discrete time model considers :data:`Simulation.steps_per_time_unit` steps to be 1 unit of time.
+    The continuous time model is a Poisson process, 
+    with expected :data:`Simulation.steps_per_time_unit` steps per 1 unit of time.
+    """
 
     column_names: pd.MultiIndex | list[str]
-    """Columns representing all states for pandas dataframe.
-            If the State is a tuple, NamedTuple, or dataclass, this will be a
-            pandas MultiIndex based on the various fields.
-            Otherwise it is list of str(State) for each State."""
+    """
+    Columns representing all states for pandas dataframe.
+    If the State is a tuple, NamedTuple, or dataclass, this will be a
+    pandas MultiIndex based on the various fields.
+    Otherwise it is list of str(State) for each State.
+    """
 
     snapshots: list[Snapshot]
-    """A list of :any:`Snapshot` objects, which get
-            periodically called during the running of the simulation to give live
-            updates."""
+    """
+    A list of :class:`ppsim.snapshot.Snapshot` objects, which get periodically called during the 
+    running of the simulation to give live updates.
+    """
 
     rng: np.random.Generator
-    """A numpy random generator used to sample random variables outside Rust code."""
+    """
+    A numpy random generator used to sample random variables outside Rust code.
+    """
 
     seed: int | None
-    """The optional integer seed used for rng and inside Rust code."""
+    """
+    The optional integer seed used for rng and inside Rust code.
+    """
 
     _method: type[SimulatorMultiBatch] | type[SimulatorSequentialArray]
 
@@ -170,7 +186,8 @@ class Simulation:
             time_units: str | None = None,
             **kwargs
     ) -> None:
-        """Initialize a Simulation.
+        """
+        Initialize a Simulation.
 
         Args:
             init_config: The starting configuration, as a
@@ -184,20 +201,20 @@ class Simulation:
                 mapping tuples of states to probabilities. Inputs that are not present
                 in the dictionary, or return None from the function, are interpreted as
                 null transitions that return the same pair of states as the output.
-                The third option is a list of :any:`Reaction` objects describing a CRN,
+                The third option is a list of :class:`ppsim.crn.Reaction` objects describing a CRN,
                 which will be parsed into an equivalent population protocol.
             
             simulator_method: Which Simulator method to use, either ``'MultiBatch'``
                 or ``'Sequential'`` or ``'Gillespie'``.
                 - ``'MultiBatch'``:
-                    :any:`SimulatorMultiBatch` does O(sqrt(n)) interaction steps in parallel
+                    :class:`ppsim_rust.SimulatorMultiBatch` does O(sqrt(n)) interaction steps in parallel
                     using batching, and is much faster for large population sizes and
                     relatively small state sets.
                 - ``'Gillespie'``:
                     uncondtionally uses the Gillespie algorithm. Still uses the multibatch 
                     simulator, but instructs it to always use the Gillespie algorithm.
                 - ``'Sequential'``:
-                    :any:`SimulatorSequentialArray` represents the population as an array of
+                    :class:`ppsim_rust.SimulatorSequentialArray` represents the population as an array of
                     agents, and simulates each interaction step by choosing a pair of agents
                     to update. Defaults to 'MultiBatch'.
             
@@ -224,7 +241,7 @@ class Simulation:
             seed: An optional integer used as the seed for all pseudorandom number
                 generation. Defaults to None.
             
-            volume: If a list of :any:`Reaction` objects is given for a CRN, then
+            volume: If a list of :class:`ppsim.crn.Reaction` objects is given for a CRN, then
                 the parameter volume can be passed in here. Defaults to None.
                 If None, the volume will be assumed to be the population size n.
             
@@ -246,7 +263,7 @@ class Simulation:
                         else:
                             return sender, receiver+1
 
-                To use a threshold of 20 in each interaction, in the :any:`Simulation` constructor, use
+                To use a threshold of 20 in each interaction, in the :class:`Simulation` constructor, use
 
                 .. code-block:: python
 
@@ -363,10 +380,11 @@ class Simulation:
             raise TypeError("rule must be either a dict or a callable.")
 
     def initialize_simulator(self, config: npt.NDArray[np.uint]) -> None:
-        """Build the data structures necessary to instantiate the :any:`Simulator` class.
+        """
+        Build the data structures necessary to instantiate the simulator class.
 
         Args:
-            config: The config array to instantiate :any:`Simulator`.
+            config: The config array to instantiate the simulator.
         """
         q = len(self.state_list)
         delta = np.zeros((q, q, 2), dtype=np.uint)
@@ -487,7 +505,7 @@ class Simulation:
             stopping_interval: The length to run the simulator before checking for the stop
                 condition.
             
-            timer: If True, and there are no other snapshot objects, a default :any:`TimeUpdate`
+            timer: If True, and there are no other snapshot objects, a default :class:`ppsim.snapshot.TimeUpdate`
                 snapshot will be created to print updates with the current time.
                 Defaults to True.
         """
@@ -670,7 +688,7 @@ class Simulation:
         Args:
             config: The configuration to change to. This can be a dictionary,
                 mapping states to counts, or an array giving counts in the order
-                of :any:`state_list`.
+                of :data:`Simulation.state_list`.
         """
         if type(config) is dict:
             config_array = self.array_from_dict(config)
@@ -697,14 +715,17 @@ class Simulation:
 
     @property
     def config_dict(self) -> dict[State, int]:
-        """The current configuration, as a dictionary mapping states to counts."""
+        """
+        The current configuration, as a dictionary mapping states to counts.
+        """
         # return {self.state_list[i]: self.simulator.config[i] for i in np.nonzero(self.simulator.config)[0]}
         return {self.state_list[state_idx]: self.simulator.config[state_idx]
                 for state_idx in range(len(self.simulator.config)) if self.simulator.config[state_idx] > 0}
 
     @property
     def config_array(self) -> np.ndarray:
-        """The current configuration in the simulator, as an array of counts.
+        """
+        The current configuration in the simulator, as an array of counts.
 
         The array is given in the same order as self.state_list. The index of state s
         is self.state_dict[s].
@@ -737,7 +758,7 @@ class Simulation:
         return 1 - self.simulator.get_total_propensity() / (n * (n - 1) / 2)
 
     def times_in_units(self, times: Iterable[float]) -> Iterable[Any]:
-        """If :any:`time_units` is defined, convert time list to appropriate units."""
+        """If :data:`Simulation.time_units` is defined, convert time list to appropriate units."""
         if self.time_units is not None:
             if not isinstance(times, list):
                 times = list(times)
@@ -764,7 +785,7 @@ class Simulation:
             snapshot.update(index=index)
 
     def set_snapshot_index(self, index: int) -> None:
-        """Updates all snapshots to the configuration :any:`configs` ``[index]``.
+        """Updates all snapshots to the configuration :data:`Simulation.configs` ``[index]``.
 
         Args:
             index: The index of the configuration.
@@ -773,18 +794,18 @@ class Simulation:
             snapshot.update(index=index)
 
     def add_snapshot(self, snap: Snapshot) -> None:
-        """Add a new :any:`Snapshot` to :any:`snapshots`.
+        """Add a new :class:`ppsim.snapshot.Snapshot` to :data:`Simulation.snapshots`.
 
         Args:
-            snap: The :any:`Snapshot` object to be added.
+            snap: The :class:`ppsim.snapshot.Snapshot` object to be added.
         """
         snap.simulation = self
         snap.initialize()
         snap.update()
         self.snapshots.append(snap)
 
-    def snapshot_slider(self, var: str = 'index') -> "ipywidgets.interactive":  # type: ignore
-        """Returns a slider that updates all :any:`Snapshot` objects.
+    def snapshot_slider(self, var: str = 'index') -> "Any":
+        """Returns a slider that updates all :class:`ppsim.snapshot.Snapshot` objects.
 
         Returns a slider from the ipywidgets library.
 
@@ -864,7 +885,7 @@ def time_trials(
     """Gathers data about the convergence time of a rule.
 
     Args:
-        rule: The rule that is used to generate the :any:`Simulation` object.
+        rule: The rule that is used to generate the :class:`Simulation` object.
         ns: A list of population sizes n to sample from.
             This should be in increasing order.
         initial_conditions: An initial condition is a dict mapping states to counts.
@@ -887,7 +908,7 @@ def time_trials(
             Each value n is given a time budget based on the time remaining, and
             will stop before doing num_trials runs when this time budget runs out.
             Defaults to 60 * 60 * 24 (one day).
-        **kwargs: Other keyword arguments to pass into :any:`Simulation`.
+        **kwargs: Other keyword arguments to pass into :class:`Simulation`.
 
     Returns:
         A pandas dataframe giving the data from each trial, with two columns

@@ -2,33 +2,47 @@
 ppsim: A Python package with Rust backend for simulation
 """
 
-# import ppsim.crn
-# import ppsim.snapshot
-# import ppsim.simulation
-
 # Re-export everything from Python modules
 from ppsim.simulation import *
 from ppsim.snapshot import *
 from ppsim.crn import *
-# from ppsim.crn import Reaction, reactions_to_dict, Specie, Expression
-# from ppsim.snapshot import Snapshot, TimeUpdate
-# from ppsim.simulation import time_trials
 
 import numpy as np
 import numpy.typing as npt
 
 RustState: TypeAlias = int
-
+"""
+Type alias for how states are represented in internally in the Rust simulators, 
+as integers 0,1,...,num_states-1.
+"""
 
 class SimulatorSequentialArray:
+    """
+    Simulator for population protocols using an array to store individual agent states, 
+    and sampling them two at a time to interact using the straightforward sequential
+    simulation method.
+    """
+
     config: list[RustState]
+    """TODO"""
+    
     n: int
+    """TODO"""
+
     t: int
+    """TODO"""
+
     delta: list[list[tuple[RustState, RustState]]]
+    """TODO"""
+
     null_transitions: list[list[bool]]
+    """TODO"""
+
     silent: bool
+    """TODO"""
+
     population: list[RustState]
-    collision_counts: dict[int, int] # XXX: not really but this is just for testing and I want mypy to ignore it
+    """TODO"""
 
     def __init__(
             self,
@@ -40,40 +54,77 @@ class SimulatorSequentialArray:
             transition_probabilities: npt.NDArray[np.float64],
             gillespie: bool = False,
             seed: int | None = None
-    ) -> None: ...
-
-    def make_population(self) -> None: ...
+    ) -> None:
+        """TODO"""
+        ...
 
     def run(
             self,
             t_max: int,
             max_wallclock_time: float = 3600.0
-    ) -> None: ...
+    ) -> None:
+        """TODO"""
+        ...
 
-    def run_until_silent(self) -> None: ...
+    def run_until_silent(self) -> None:
+        """TODO"""
+        ...
 
     def reset(
             self,
             config: npt.NDArray[np.uint],
             t: int = 0
-    ) -> None: ...
-
-    def write_profile(self, filename: str | None = None) -> None: ...
+    ) -> None:
+        """TODO"""
+        ...
 
 
 class SimulatorMultiBatch:
+    """
+    Simulator for population protocols using the MultiBatch algorithm described in 
+    this paper: 
+    
+    Petra Berenbrink, David Hammer, Dominik Kaaser, Ulrich Meyer, Manuel Penschuck, and Hung Tran. 
+    Simulating Population Protocols in Sub-Constant Time per Interaction. 
+    In 28th Annual European Symposium on Algorithms (ESA 2020). 
+    Volume 173, pp. 16:1-16:22, 2020.
+    
+    - https://arxiv.org/abs/2005.03584 
+    - https://doi.org/10.4230/LIPIcs.ESA.2020.16
+    """
+
     config: list[RustState]
+    """TODO"""
+    
     n: int
+    """TODO"""
+    
     t: int
+    """TODO"""
+
     delta: list[list[tuple[RustState, RustState]]]
+    """TODO"""
+
     null_transitions: list[list[bool]]
+    """TODO"""
+
     do_gillespie: bool
+    """TODO"""
+
     silent: bool
+    """TODO"""
+
     reactions: list[list[RustState]]
+    """TODO"""
+
     enabled_reactions: list[int]
+    """TODO"""
+    
     num_enabled_reactions: int
+    """TODO"""
+
     reaction_probabilities: list[float]
-    collision_counts: dict[int, int]
+    """TODO"""
 
     def __init__(
             self,
@@ -85,24 +136,40 @@ class SimulatorMultiBatch:
             transition_probabilities: npt.NDArray[np.float64],
             gillespie: bool = False,
             seed: int | None = None
-    ) -> None: ...
+    ) -> None: 
+        """TODO"""
+        ...
 
     def run(
             self,
             t_max: int,
             max_wallclock_time: float = 3600.0
-    ) -> None: ...
+    ) -> None:
+        """
+        Run the simulation for a specified number of steps or until max time is reached.
+        
+        Args:
+            t_max: Maximum number of simulation steps to execute
+            max_wallclock_time: Maximum wall clock time in seconds before stopping (default: 1 hour)
+        """
+        ...
 
-    def run_until_silent(self) -> None: ...
+    def run_until_silent(self) -> None:
+        """TODO"""
+        ...
 
     def reset(
             self,
             config: npt.NDArray[np.uint],
             t: int = 0
-    ) -> None: ...
+    ) -> None: 
+        """TODO"""
+        ...
 
-    def get_enabled_reactions(self) -> None: ...
+    def get_enabled_reactions(self) -> None:
+        """TODO"""
+        ...
 
-    def get_total_propensity(self) -> float: ...
-
-    def write_profile(self, filename: str | None = None) -> None: ...
+    def get_total_propensity(self) -> float:
+        """TODO"""
+        ...

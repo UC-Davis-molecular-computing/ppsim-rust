@@ -1,5 +1,5 @@
 """
-Module for expression population protocols using CRN notation. Ideas and much code taken from
+Module for expressing population protocols using CRN notation. Ideas and much code taken from
 https://github.com/enricozb/python-crn.
 
 The general syntax is
@@ -17,7 +17,8 @@ The general syntax is
     sim = Simulation(init_config=init_config, rule=approx_majority)
 
 In other words, a list of reactions is treated by the ppsim library just like the other ways of specifying
-population protocol transitions (the `rule` parameter in the constructor for :any:`Simulation`, which also
+population protocol transitions (the `rule` parameter in the constructor for 
+:class:`ppsim.simulation.Simulation`, which also
 accepts a dict or a Python function).
 
 More examples given in https://github.com/UC-Davis-molecular-computing/ppsim/tree/main/examples
@@ -36,7 +37,7 @@ import gpac as gp
 
 def species(sp: str | Iterable[str]) -> tuple[Specie, ...]:
     """
-    Create a list of :any:`Specie` (Single species :any:`Expression`'s),
+    Create a list of :class:`Specie` (Single species :class:`Expression`'s),
     or a single one.
 
     args:
@@ -79,9 +80,9 @@ Output: TypeAlias = SpeciePair | dict[SpeciePair, float]
 def replace_reversible_rxns(rxns: Iterable[Reaction]) -> list[Reaction]:
     """
     Args:
-        rxns: list of :any:`Reaction`'s
+        rxns: list of :class:`Reaction`'s
 
-    Returns: list of :any:`Reaction`'s, where every reversible reaction in `rxns` has been replaced by
+    Returns: list of :class:`Reaction`'s, where every reversible reaction in `rxns` has been replaced by
         two irreversible reactions, and all others have been left as they are
     """
     new_rxns: list[Reaction] = []
@@ -107,11 +108,11 @@ def reactions_to_dict(reactions: Iterable[Reaction], n: int, volume: float) \
         -> tuple[dict[SpeciePair, Output], float]:
     """
     Returns dict representation of `reactions`, transforming unimolecular reactions to bimolecular,
-    and converting rates to probabilities, also returning the max rate so the :any:`Simulation` knows
+    and converting rates to probabilities, also returning the max rate so the :class:`ppsim.simulation.Simulation` knows
     how to scale time.
 
     Args:
-        reactions: list of :any:`Reaction`'s
+        reactions: list of :class:`Reaction`'s
         n: the population size, necessary for rate conversion
         volume: parameter as defined in Gillespie algorithm
 
@@ -652,9 +653,9 @@ class Reaction:
 def species_in_rxns(rxns: Iterable[Reaction]) -> list[Specie]:
     """
     Args:
-        rxns: iterable of :any:`Reaction`'s
+        rxns: iterable of :class:`Reaction`'s
 
-    Returns: list of species (without repetitions) in :any:`Reaction`'s in `rxns`
+    Returns: list of species (without repetitions) in :class:`Reaction`'s in `rxns`
     """
     species_set: set[Specie] = set()
     species_list: list[Specie] = []
@@ -674,7 +675,7 @@ def gpac_format(rxns: Iterable[Reaction], init_config: dict[Specie, int]) -> tup
 
     Args:
         rxns: reactions to translate to gpac
-        init_config: dict mapping each (ppsim) :any:`Specie` to its initial count
+        init_config: dict mapping each (ppsim) :class:`Specie` to its initial count
 
     Returns:
         A tuple of (reactions, config) essentially equivalent to the ppsim init_config and rxns
@@ -707,7 +708,7 @@ def gillespy2_format(init_config: dict[Specie, int], rxns: Iterable[Reaction],
     Create a gillespy2 Model object from a CRN description.
 
     Args:
-        init_config: dict mapping each :any:`Specie` to its initial count
+        init_config: dict mapping each :class:`Specie` to its initial count
         rxns: reactions to translate to StochKit format
         volume: volume in liters
 
@@ -747,7 +748,7 @@ def stochkit_format(rxns: Iterable[Reaction], init_config: dict[Specie, int],
 
     Args:
         rxns: reactions to translate to StochKit format
-        init_config: dict mapping each :any:`Specie` to its initial count
+        init_config: dict mapping each :class:`Specie` to its initial count
         volume: volume in liters
         name: name of the CRN
 
@@ -858,7 +859,7 @@ def write_stochkit_file(filename: str, rxns: Iterable[Reaction], init_config: di
     Args:
         filename: name of file to write
         rxns: reactions to translate to StochKit format
-        init_config: dict mapping each :any:`Specie` to its initial count
+        init_config: dict mapping each :class:`Specie` to its initial count
         volume: volume in liters
         name: name of the CRN
     """

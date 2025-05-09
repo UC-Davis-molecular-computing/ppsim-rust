@@ -36,3 +36,11 @@ module-name = "ppsim.ppsim_rust.ppsim_rust"
 include = ["ppsim/**/*.py", "ppsim/**/*.pyi", "ppsim/py.typed", "MANIFEST.in"]
 # Ignore CONDA_PREFIX environment variable to avoid conflicts with virtual environments
 ignore-conda-prefix = true
+
+[project.optional-dependencies]
+docs = [
+    "sphinx>=7.0.0",
+    "sphinx-rtd-theme",
+    "sphinx-autodoc-typehints",
+    "toml",
+]

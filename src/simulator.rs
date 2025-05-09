@@ -124,10 +124,6 @@ pub struct SimulatorMultiBatch {
     r_constant: usize,
     /// If true, unconditionally use the Gillespie algorithm.
     gillespie_always: bool,
-
-    // Used for testing; not needed for simulation.
-    #[pyo3(get, set)]
-    collision_counts: HashMap<usize, usize>,
 }
 
 #[pymethods]
@@ -325,8 +321,6 @@ impl SimulatorMultiBatch {
         let coll_table_u_values = vec![0.0; 1];
         let r_constant = 0;
 
-        let collision_counts = HashMap::new();
-
         let mut sim = SimulatorMultiBatch {
             n,
             t,
@@ -359,7 +353,6 @@ impl SimulatorMultiBatch {
             coll_table_u_values,
             r_constant,
             gillespie_always,
-            collision_counts,
         };
         sim.set_n_parameters();
         sim.update_enabled_reactions();
@@ -420,7 +413,6 @@ impl SimulatorMultiBatch {
     ///     t: The new value of :any:`t`. Defaults to 0.
     #[pyo3(signature = (config, t=0))]
     pub fn reset(&mut self, config: PyReadonlyArray1<State>, t: usize) -> PyResult<()> {
-        self.collision_counts.clear();
         let config = config.to_vec().unwrap();
         self.urn.reset_config(&config);
         let n: usize = config.iter().sum();
@@ -719,11 +711,6 @@ impl SimulatorMultiBatch {
         if PRINT {
             panic!();
         }
-
-        self.collision_counts
-            .entry(num_collisions)
-            .and_modify(|e| *e += 1)
-            .or_insert(1);
 
         flame::end("process collisions");
 

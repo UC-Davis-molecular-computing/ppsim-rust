@@ -1,21 +1,26 @@
 """
-A module for :any:`Snapshot` objects used to visualize the protocol during or after
+A module for :class:`Snapshot` objects used to visualize the protocol during or after
 the simulation has run.
 
-:any:`Snapshot` is a base class for snapshot objects that get are updated by :any:`Simulation`.
+:class:`Snapshot` is a base class for snapshot objects that get are updated by :class:`ppsim.simulation.Simulation`.
 
-:any:`Plotter` is a subclass of :any:`Snapshot` that creates a matplotlib figure and axis.
+:class:`Plotter` is a subclass of :class:`Snapshot` that creates a matplotlib figure and axis.
 It also gives the option for a state_map function which maps states to the categories which
 will show up in the plot.
 
-:any:`StatePlotter` is a subclass of :any:`Plotter` that creates a barplot of the counts
+:class:`StatePlotter` is a subclass of :class:`Plotter` that creates a barplot of the counts
 in categories.
 
-:any:`HistoryPlotter` is a subclass of :any:`Plotter` that creates a lineplot of the counts
+:class:`HistoryPlotter` is a subclass of :class:`Plotter` that creates a lineplot of the counts
 in categories over time.
 """
 
-from typing import Callable, Hashable, Any, TYPE_CHECKING, Optional
+from typing import Callable, Hashable, Any, TYPE_CHECKING, Optional, ForwardRef
+
+if TYPE_CHECKING:
+    from ppsim.simulation import Simulation
+    from matplotlib.figure import Figure
+    from matplotlib.axes import Axes
 
 import matplotlib.pyplot as plt
 from natsort import natsorted
@@ -25,35 +30,33 @@ from tqdm import tqdm
 from dataclasses import dataclass
 from abc import ABC
 
-if TYPE_CHECKING:
-    from ppsim.simulation import Simulation
-
 
 @dataclass
 class Snapshot(ABC):
     """Abstract base class for snapshot objects."""
 
-    simulation: Optional['Simulation']
+    simulation: Optional["Simulation"]
     """
-    The :any:`Simulation` object that initialized and will update the :any:`Snapshot`.
-    This attribute gets set when the :any:`Simulation` object calls :any:`add_snapshot`.
+    The :class:`ppsim.simulation.Simulation` object that initialized and will update the :class:`Snapshot`.
+    This attribute gets set when the :class:`ppsim.simulation.Simulation` object calls 
+    :meth:`ppsim.simulation.Simulation.add_snapshot`.
     """
 
     update_time: float
     """
     How many seconds will elapse between calls to update while in the 
-    :any:`Simulation.run` method of :any:`Simulation`.
+    :meth:`ppsim.simulation.Simulation.run` method of :class:`ppsim.simulation.Simulation`.
     """
 
     time: float
     """
-    The time at the current snapshot. Changes when :any:`Snapshot.update` is called.
+    The time at the current snapshot. Changes when :meth:`Snapshot.update` is called.
     """
 
     config: np.ndarray | None
     """
     The configuration array at the current snapshot. Changes when
-    :any:`Snapshot.update` is called.
+    :meth:`Snapshot.update` is called.
     """
 
     next_snapshot_time: float
@@ -62,11 +65,12 @@ class Snapshot(ABC):
     """
 
     def __init__(self, update_time: float = 0.1) -> None:
-        """Init constructor for the base class.
+        """
+        Init constructor for the base class.
 
         Parameters can be passed in here, and any attributes that can be defined
-        without the parent :any:`Simulation` object can be instantiated here, such as
-        :any:`update_time`.
+        without the parent :class:`ppsim.simulation.Simulation` object can be instantiated here, 
+        such as :data:`Snapshot.update_time`.
         """
         self.simulation = None
         self.update_time = update_time
@@ -75,8 +79,8 @@ class Snapshot(ABC):
         self.next_snapshot_time = 0.0
 
     def initialize(self) -> None:
-        """Method which is called once during :any:`add_snapshot`. Should only be called after
-        :meth:`Simulation.add_snapshot` is called.
+        """Method which is called once during :meth:`ppsim.simulation.Simulation.add_snapshot`. 
+        Should only be called after :meth:`ppsim.simulation.Simulation.add_snapshot` is called.
 
         Any initialization that requires accessing the data in :data:`Snapshot.simulation`
         should go here.
@@ -85,13 +89,13 @@ class Snapshot(ABC):
             raise ValueError('self.simulation is None, cannot call self.initialize until using sim.add_snapshot')
 
     def update(self, index: int | None = None) -> None:
-        """Method which is called while :any:`Snapshot.simulation` is running.
+        """Method which is called while :data:`Snapshot.simulation` is running.
 
         Args:
             index: An optional integer index. If present, the snapshot will use the
-                data from configuration :any:`configs` ``[index]`` and time
-                :any:`times` ``[index]``. Otherwise, the snapshot will use the current
-                configuration :any:`config_array` and current time.
+                data from configuration :data:`ppsim.simulation.Simulation.configs` ``[index]`` and time
+                :data:`ppsim.simulation.Simulation.times` ``[index]``. Otherwise, the snapshot will use the current
+                configuration :meth:`ppsim.simulation.Simulation.config_array` and current time.
         """
         if self.simulation is None:
             raise ValueError('self.simulation is None, cannot call self.update until using sim.add_snapshot')
@@ -106,10 +110,10 @@ class Snapshot(ABC):
 @dataclass
 class TimeUpdate(Snapshot):
     """
-    Simple :any:`Snapshot` that prints the current time in the :any:`Simulation`.
+    Simple :class:`Snapshot` that prints the current time in the :class:`ppsim.simulation.Simulation`.
 
-    When calling :any:`Simulation.run`, if :any:`snapshots` is empty, then
-    this object will get added to provide a basic progress update.
+    When calling :class:`ppsim.simulation.Simulation.run`, if :data:`ppsim.simulation.Simulation.snapshots` is empty, 
+    then this object will get added to provide a basic progress update.
     """
 
     pbar: tqdm
@@ -141,19 +145,19 @@ class TimeUpdate(Snapshot):
 @dataclass
 class Plotter(Snapshot):
     """
-    Base class for a :any:`Snapshot` which will make a plot.
+    Base class for a :class:`Snapshot` which will make a plot.
 
     Gives the option to map states to categories, for an easy way to visualize
     relevant subsets of the states rather than the whole state set.
     These require an interactive matplotlib backend to work.
     """
 
-    fig: plt.Figure | None
+    fig: Optional["Figure"]
     """
     The matplotlib figure that is created.
     """
 
-    ax: plt.Axes | None
+    ax: Optional["Axes"]
     """
     The matplotlib axis object that is created. Modifying properties
     of this object is the most direct way to modify the plot.
@@ -187,13 +191,13 @@ class Plotter(Snapshot):
 
     def __init__(self, state_map: Callable[[Hashable], Any] | None = None, update_time: float = 0.5,
                  yscale: str = 'linear') -> None:
-        """Initializes the :any:`Plotter`.
+        """Initializes the :class:`Plotter`.
 
         Args:
             state_map: An optional function mapping states to categories.
                 If None, then the state itself will be used as the category.
             update_time: How many seconds will elapse between calls to update while
-                :any:`Simulation.run` method of :any:`simulation`.
+                :class:`ppsim.simulation.Simulation.run` method.
             yscale: The scale used for the yaxis, passed into ax.set_yscale.
                 Defaults to 'linear'.
         """
@@ -204,7 +208,7 @@ class Plotter(Snapshot):
         self.yscale = yscale
 
     def _update_categories_and_matrix(self) -> None:
-        """An internal function called to update :any:`categories` and `_matrix`."""
+        """An internal function called to update :data:`Plotter.categories` and `Plotter._matrix`."""
         self.categories = []
         assert self.simulation is not None
 
@@ -229,13 +233,13 @@ class Plotter(Snapshot):
 
 
 class StatePlotter(Plotter):
-    """:any:`Plotter` which produces a barplot of counts."""
+    """:class:`Plotter` which produces a barplot of counts."""
 
     def initialize(self) -> None:
         """Initializes the barplot.
 
-        If :any:`state_map` gets changed, call :any:`initialize` to update the barplot to
-            show the new set :any:`categories`.
+        If :data:`Plotter.state_map` gets changed, call :meth:`Plotter.initialize` to update the barplot to
+            show the new set :data:`Plotter.categories`.
         """
         super().initialize()
         assert self.simulation is not None
@@ -264,7 +268,7 @@ class StatePlotter(Plotter):
         else:
             heights = self.config
         for i, rect in enumerate(self.ax.patches):
-            rect.set_height(heights[i])
+            rect.set_height(heights[i]) # type: ignore
 
         self.ax.set_title(f'Time {self.time: .3f}')
         self.fig.tight_layout()

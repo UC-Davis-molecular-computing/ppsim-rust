@@ -29,26 +29,8 @@ def main():
     # plt.savefig('examples/approx_majority_plot.png')
     # print("Plot saved to examples/approx_majority_plot.png")
     print(f"history =\n{sim.history}")
-
-
-    num_multibatch_steps = sum(sim.simulator.collision_counts.values())
-    num_collisions = 0
-    digits_steps = 1
-    digits_collisions = 1
-    for collision_count, steps in sim.simulator.collision_counts.items():
-        num_collisions += steps * collision_count
-        digits_collisions = max(digits_collisions, len(str(num_collisions)))
-        digits_steps = max(digits_steps, len(str(steps)))
-    print(f'collision counts = (total: {num_collisions}, num_multibatch_steps: {num_multibatch_steps})')  
-    for steps in sorted(sim.simulator.collision_counts.keys()):
-        print(f'{sim.simulator.collision_counts[steps]:{digits_steps}} multibatch steps with {steps} collisions')
     
-    # for count in sorted(sim.simulator.collision_counts.keys()):
-    #     print(f'  {count}: {count*sim.simulator.collision_counts[count]:{digits_collisions}} collisions')
-    # print('-'*20)
-    
-    
-    sim.simulator.write_profile()
+    sim.simulator.write_profile() # type: ignore
     
 
 def main3():
@@ -84,7 +66,7 @@ def main3():
     # print(f'{sim.simulator.transition_probabilities=}') # type: ignore
     sim.run()
     print(f"history =\n{sim.history}")
-    sim.simulator.write_profile()
+    sim.simulator.write_profile() # type: ignore
 
 
 def dsd_oscillator():
@@ -269,7 +251,7 @@ def dsd_oscillator():
     hours = 12
     sim.run(hours * 3600, 60)  # run for 12 hours, saving every 60 seconds
     print(sim.history)
-    sim.simulator.write_profile()
+    sim.simulator.write_profile() # type: ignore
 
 
 def main2():
@@ -279,7 +261,7 @@ def main2():
         a+u >> 2*a,
         b+u >> 2*b,
     ]
-    n = 10 ** 9
+    n = 10 ** 6
     p = 0.51
     a_init = int(n * p)
     b_init = n - a_init
@@ -294,7 +276,7 @@ def main2():
     # sim.run(100)
     sim.run(20)
     # print(sim.history)
-    sim.simulator.write_profile()
+    sim.simulator.write_profile() # type: ignore
 
 def compare_rebop_sequential():
     trials_exponent = 7
