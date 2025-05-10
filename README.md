@@ -1871,14 +1871,17 @@ bar = widgets.interact(plot_row,
 from ppsim import species
 
 a,b,c,d = species('A B C D')
-crn = [(a+b | 2*c).k(0.5).r(4), (c >> d).k(5)]
+rxns = [
+  (a+b | 2*c).k(0.5).r(4), 
+  (c >> d).k(5),
+]
 ```
 
-First we define `species` objects `a,b,c,d`. We then create `crn`, a list of `reaction` objects, which are created by composing these species. Using the `>>` operator creates an irreversible (one-way) reaction, while using the `|` operator creates a reversible (two-way) reaction. A rate constant can be added with the method `reaction.k(...)`, and the reverse rate constant is added with the method `reaction.r(...)`. If not specified, rate constants are assumed to be 1.
+First we define `species` objects `a,b,c,d`. We then create `rxns`, a list of `reaction` objects, which are created by composing these species. Using the `>>` operator creates an irreversible (one-way) reaction, while using the `|` operator creates a reversible (two-way) reaction. A rate constant can be added with the method `reaction.k(...)`, and the reverse rate constant is added with the method `reaction.r(...)`. If not specified, rate constants are assumed to be 1.
 
 
 ```python
-sim = Simulation({a: 2000, b:1000}, crn)
+sim = Simulation({a: 2000, b:1000}, rxns)
 sim.run()
 p = sim.history.plot()
 ```
