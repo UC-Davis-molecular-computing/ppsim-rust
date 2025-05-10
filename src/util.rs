@@ -195,7 +195,7 @@ pub fn create_log_fact_cache() -> [f64; MAX_FACTORIAL] {
     while i < MAX_FACTORIAL {
         // using the identity ln(k!) = ln((k-1)!) + ln(k)
         ln_fact += (i as f64).ln();
-        cache[i] = ln_fact; // ln(0!)=0 is a special case but we already populated with 0.0
+        cache[i] = ln_fact; // ln(0!) = 0 is a special case but we already populated with 0.0
         i += 1;
     }
     cache
@@ -208,28 +208,15 @@ lazy_static! {
 
 const HALFLN2PI: f64 = 0.9189385332046728;
 
-// pub static mut num_lookup: usize = 0;
-// pub static mut num_stirling: usize = 0;
-
 pub fn log_factorial_manual(k: u64) -> f64 {
-    // for (x, lg) in LOGFACT.iter().enumerate() {
-    //     println!("log_fact({}) = {}", x, lg);
-    //     panic!();
-    // }
     if k < MAX_FACTORIAL as u64 {
-        // unsafe { num_lookup += 1 };
-        // flame::start("log_factorial lookup");
         let ret = LOGFACT[k as usize];
-        // flame::end("log_factorial lookup");
         return ret;
     }
-    // unsafe { num_stirling += 1 };
-    // flame::start("log_factorial stirling");
     // Use the Stirling approximation for large x
     let k = k as f64;
     let ret =
         (k + 0.5) * k.ln() - k + (HALFLN2PI + (1.0 / k) * (1.0 / 12.0 - 1.0 / (360.0 * k * k)));
-    // flame::end("log_factorial stirling");
     ret
 }
 
@@ -265,14 +252,10 @@ pub fn hypergeometric_sample_manual(
     draws: usize,
     rng: &mut SmallRng,
 ) -> Result<usize, String> {
-    // println!("popsize = {popsize}, good = {good}, draws = {draws}");
     let h: usize;
     if draws >= 10 && draws <= good + popsize - 10 {
-        // flame::start("hypergeometric_hrua");
         h = hypergeometric_hrua(popsize, good, draws, rng)?;
-        // flame::end("hypergeometric_hrua");
     } else {
-        // flame::start("hypergeometric_slow");
         // This is the simpler implementation for small samples.
         let hypergeometric_result = Hypergeometric::new(popsize as u64, good as u64, draws as u64);
         if hypergeometric_result.is_err() {
@@ -283,7 +266,6 @@ pub fn hypergeometric_sample_manual(
         }
         let hypergeometric = hypergeometric_result.unwrap();
         let h64: u64 = rng.sample(hypergeometric);
-        // flame::end("hypergeometric_slow");
         h = h64 as usize;
     }
     Ok(h)
@@ -421,8 +403,6 @@ pub fn multinomial_sample_statrs(
     rng: &mut SmallRng,
 ) {
     assert_eq!(pix.len(), result.len());
-    // let multinomial = statrs::distribution::Multinomial::new(pix.clone(), n as u64).unwrap();
-    // let sample: DVector<u64> = rng.sample(multinomial);
     let multinomial = Multinomial::new(pix.clone(), n as u64).unwrap();
     let sample: DVector<u64> = rng.sample(multinomial);
 
@@ -448,16 +428,12 @@ pub fn multinomial_sample_manual(
 ) {
     assert_eq!(pix.len(), result.len());
     let mut remaining_p = 1.0;
-    let d = pix.len(); // in numpy C code, pix is just a pointer so they need the length too
+    let d = pix.len(); // in numpy C code, pix is just a pointer so they need pix's array length too
     let mut dn = n;
     // Original Cython implementation zeroed out the result array initially, but
     // since we are overwriting the array, we only zero out the entries if we break out of the loop early.
     for j in 0..(d - 1) {
         result[j] = binomial_sample(dn as usize, pix[j] / remaining_p, rng);
-        // println!(
-        //     "j: {j}, pix[{j}]: {}, result[j]: {}, dn before: {dn}",
-        //     pix[j], result[j]
-        // );
         dn -= result[j];
         if dn <= 0 {
             // erase old values in remainder of result array

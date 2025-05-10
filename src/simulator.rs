@@ -608,14 +608,8 @@ impl SimulatorMultiBatch {
             let has_bounds = false;
             let pp = true;
             // let has_bounds = true;
-            flame::start("sample_coll");
             let l = self.sample_coll(num_delayed + self.updated_counts.size, u, has_bounds, pp);
-            flame::end("sample_coll");
 
-            // println!(
-            //     "l = {l:7} = sample_col({:8}, {u:.3})",
-            //     num_delayed + self.updated_counts.size
-            // );
             assert!(l > 0, "sample_coll must return at least 1");
 
             // add (l-1) // 2 pairs of delayed agents, the lth agent a was already picked, so has a collision
@@ -628,8 +622,6 @@ impl SimulatorMultiBatch {
                 num_delayed = (t_max - self.t) * 2;
                 break;
             }
-
-            // flame::start("process collision");
 
             /*
             Definitions from paper https://arxiv.org/abs/2005.03584
@@ -699,7 +691,6 @@ impl SimulatorMultiBatch {
             self.t += 1;
             self.updated_counts.add_to_entry(initiator, 1);
             self.updated_counts.add_to_entry(responder, 1);
-            // flame::end("process collision");
 
             if PRINT {
                 println!(
