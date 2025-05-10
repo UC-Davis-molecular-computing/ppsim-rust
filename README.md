@@ -30,14 +30,14 @@ The package can be installed with `pip` via
 pip install ppsim
 ```
 
+## First example protocol
+
 The most important part of the package is the `Simulation` class, which is responsible for parsing a protocol, performing the simulation, and giving data about the simulation.
 
 
 ```python
 from ppsim import Simulation
 ```
-
-## First example protocol
 
 A state can be any hashable Python object. The simplest way to describe a protocol is a dictionary mapping pairs of input states to pairs of output states.
 For example, here is a description of the classic 3-state [approximate majority protocol](http://www.cs.yale.edu/homes/aspnes/papers/approximate-majority-journal.pdf). There are two initial states `A` and `B`, and the protocol converges with high probability to the majority state with the help of a third "undecided" state `U`.
