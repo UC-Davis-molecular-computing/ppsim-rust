@@ -436,7 +436,7 @@ impl SimulatorMultiBatch {
 
         let mut content = String::new();
         content.push_str("Flame Profile Report\n");
-        content.push_str("===================\n");
+        content.push_str("====================\n");
 
         // Process the span tree recursively
         let mut span_data_map: HashMap<String, SpanData> = HashMap::new();
@@ -608,7 +608,9 @@ impl SimulatorMultiBatch {
             let has_bounds = false;
             let pp = true;
             // let has_bounds = true;
+            flame::start("sample_coll");
             let l = self.sample_coll(num_delayed + self.updated_counts.size, u, has_bounds, pp);
+            flame::end("sample_coll");
 
             assert!(l > 0, "sample_coll must return at least 1");
 
@@ -640,6 +642,8 @@ impl SimulatorMultiBatch {
 
             let mut initiator: State; // initiator, called a in Cython implementation
             let mut responder: State; // responder, called b in Cython implementation
+
+            flame::start("process collision");
 
             // sample if initiator was delayed or updated
             u = self.rng.sample(uniform);
@@ -691,6 +695,8 @@ impl SimulatorMultiBatch {
             self.t += 1;
             self.updated_counts.add_to_entry(initiator, 1);
             self.updated_counts.add_to_entry(responder, 1);
+
+            flame::end("process collision");
 
             if PRINT {
                 println!(
@@ -939,13 +945,11 @@ impl SimulatorMultiBatch {
     fn set_n_parameters(&mut self) -> () {
         self.logn = (self.n as f64).ln();
         // theoretical optimum for batch_threshold is Theta(sqrt(n / logn) * q) agents / batch
-        // let batch_constant = 2_i32.pow(10) as usize;
+        // let batch_constant = 2_i32.pow(2) as usize;
         let batch_constant = 1 as usize;
         self.batch_threshold = batch_constant
             * ((self.n as f64 / self.logn).sqrt() * (self.q as f64).min((self.n as f64).powf(0.7)))
                 as usize;
-        // println!("batch_constant = {batch_constant}; n = {}", self.n);
-        // panic!();
         // first rough approximation for probability of successful reaction where we want to do gillespie
         self.gillespie_threshold = 2.0 / (self.n as f64).sqrt();
 
@@ -997,7 +1001,7 @@ impl SimulatorMultiBatch {
 
     /// Sample a collision event from the urn
     /// Returns a sample l ~ coll(n, r) from the collision length distribution.
-    /// See Lemma 3 in the source paper https://arxiv.org/pdf/2005.03584.
+    /// See Section 5.1 in the source paper https://arxiv.org/pdf/2005.03584.
     /// The distribution gives the number of agents needed to pick an agent twice,
     /// when r unique agents have already been selected.
     /// Inversion sampling with binary search is used, based on the formula

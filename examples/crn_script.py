@@ -28,7 +28,7 @@ def main():
     # plt.ylim(0, sum(init.values()))
     # plt.savefig('examples/approx_majority_plot.png')
     # print("Plot saved to examples/approx_majority_plot.png")
-    print(f"history =\n{sim.history}")
+    # print(f"history =\n{sim.history}")
     
     sim.simulator.write_profile() # type: ignore
     
@@ -64,7 +64,7 @@ def main3():
     #     print(f'idx {idx}: ({m[o1]},{m[o2]})', end=', ')
     # print()
     # print(f'{sim.simulator.transition_probabilities=}') # type: ignore
-    sim.run()
+    sim.run(10**4)
     print(f"history =\n{sim.history}")
     sim.simulator.write_profile() # type: ignore
 
@@ -363,7 +363,8 @@ def sample_configs():
     
 
 if __name__ == '__main__':
+    main3()
     # dsd_oscillator()
-    main2()
+    # main2()
     # sample_configs()
     # compare_rebop_sequential()
