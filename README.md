@@ -57,7 +57,7 @@ To instantiate a `Simulation`, we must specify a protocol along with an initial 
 
 ```python
 n = 10 ** 9
-init_config = {a: 0.501 * n, b: 0.499 * n}
+init_config = {a: int(0.501 * n), b: n - int(0.501 * n)}
 sim = Simulation(init_config, approximate_majority)
 ```
 
