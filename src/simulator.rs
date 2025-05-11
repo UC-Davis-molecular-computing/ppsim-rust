@@ -48,7 +48,7 @@ pub struct SimulatorMultiBatch {
     /// otherwise it is 0. `first_idx` gives the starting index to find
     /// the outputs in the array `self.random_outputs` if it is random.
     #[pyo3(get, set)] // XXX: for testing
-    pub random_transitions: Vec<Vec<(State, State)>>,
+    pub random_transitions: Vec<Vec<(usize, usize)>>,
     /// A 1D array of pairs containing all (out1,out2) outputs of random transitions,
     /// whose indexing information is contained in random_transitions.
     /// For example, if there are random transitions
@@ -58,7 +58,7 @@ pub struct SimulatorMultiBatch {
     /// `random_outputs[first_idx+1] = (7,8)`, and
     /// `random_outputs[first_idx+2] = (3,2)`.
     #[pyo3(get, set)] // XXX: for testing
-    pub random_outputs: Vec<(usize, usize)>,
+    pub random_outputs: Vec<(State, State)>,
     /// An array containing all random transition probabilities,
     /// whose indexing matches random_outputs.
     #[pyo3(get, set)] // XXX: for testing
@@ -128,6 +128,26 @@ pub struct SimulatorMultiBatch {
 
 #[pymethods]
 impl SimulatorMultiBatch {
+    /// Initializes the main data structures for SimulatorMultiBatch.
+    /// We take numpy arrays as input because that's how the original Cython implementation
+    /// worked and I wanted to change as little as possible. But this is awkward because
+    /// we don't work the the numpy arrays; we convert them to Rust vectors.
+    /// It would be more straightforward to accept native Python types, but
+    /// for now let's keep it this way to avoid re-writing the code in simulation.py.
+    ///
+    /// Args:
+    ///     init_array: A 2D length-q integer array of counts representing the initial configuration.
+    ///     delta: A 2D q x q x 2 array representing the transition function.
+    ///         Delta[i, j] gives contains the two output states.
+    ///     null_transitions: A 2D q x q boolean array where entry [i, j] says if these states have a null interaction.
+    ///     random_transitions: A 2D q x q x 2 array. Entry [i, j, 0] is the number of possible outputs if
+    ///         transition [i, j] is random, otherwise it is 0. Entry [i, j, 1] gives the starting index to find
+    ///         the outputs in the array random_outputs if it is random.
+    ///     random_outputs: A ? x 2 array containing all (out1,out2) outputs of random transitions,
+    ///         whose indexing information is contained in random_transitions.
+    ///     transition_probabilities: A 1D length-? array containing all random transition probabilities,
+    ///         whose indexing matches random_outputs.
+    ///     seed (optional): An integer seed for the pseudorandom number generator.
     #[new]
     #[pyo3(signature = (init_config, delta, null_transitions, random_transitions, random_outputs, transition_probabilities, gillespie=false, seed=None))]
     pub fn new(
@@ -588,11 +608,13 @@ impl SimulatorMultiBatch {
             );
         }
 
+        println!("**********************\nProcessing collisions");
+
         let mut num_collisions = 0;
         let sqrt_n = (self.n as f64).sqrt() as usize;
         while self.t + num_delayed / 2 < end_step {
-            // loop {
             num_collisions += 1;
+            println!("  num_collisions = {}", num_collisions);
 
             let exp_l = if num_delayed + self.updated_counts.size > sqrt_n {
                 self.n / (num_delayed + self.updated_counts.size)
@@ -605,9 +627,9 @@ impl SimulatorMultiBatch {
 
             let mut u = self.rng.sample(uniform);
 
-            let has_bounds = false;
+            // let has_bounds = false;
             let pp = true;
-            // let has_bounds = true;
+            let has_bounds = true;
             flame::start("sample_coll");
             let l = self.sample_coll(num_delayed + self.updated_counts.size, u, has_bounds, pp);
             flame::end("sample_coll");
@@ -955,7 +977,8 @@ impl SimulatorMultiBatch {
 
         // build table for precomputed coll(n, r, u) values
         // Note num_attempted_r_values may be too large; we break early if r >= n.
-        let mut num_r_values = (10.0 * self.logn) as usize;
+        // let mut num_r_values = (10.0 * self.logn) as usize;
+        let mut num_r_values = (5.0 * self.logn) as usize;
         let num_u_values = num_r_values;
 
         self.r_constant = (((1.5 * self.batch_threshold as f64) as usize)
@@ -1031,7 +1054,7 @@ impl SimulatorMultiBatch {
     ///         who are guaranteed to be distinct.
     /// Returns:
     ///     The number of sampled agents to get the first collision (including the collided agent).
-    fn sample_coll(&self, r: usize, u: f64, has_bounds: bool, pp: bool) -> usize {
+    pub fn sample_coll(&self, r: usize, u: f64, has_bounds: bool, pp: bool) -> usize {
         let mut t_lo: usize;
         let mut t_hi: usize;
         let logu = u.ln();
@@ -1046,9 +1069,31 @@ impl SimulatorMultiBatch {
         //     lhs < lgamma(n - r - t + 1) + t * log(n)
 
         if has_bounds {
+            use stybulate::{Cell, Headers, Style, Table};
+            let mut headers: Vec<String> = vec!["".to_string()];
+            let mut first_row = vec![Cell::from(" r\\u")];
+            for i in 0..self.coll_table_u_values.len() {
+                // headers.push(format!("{:.2}", self.coll_table_u_values[i]));
+                headers.push(i.to_string());
+                first_row.push(Cell::from(&format!("{:.2}", self.coll_table_u_values[i])));
+            }
+            let mut table_data: Vec<Vec<Cell>> = vec![first_row];
+            for i in 0..self.coll_table.len() {
+                let first = format!("{i:2}:{}", self.coll_table_r_values[i].to_string());
+                let mut row = vec![Cell::from(&first)];
+                for j in 0..self.coll_table[i].len() {
+                    let entry = format!("{}", self.coll_table[i][j]);
+                    row.push(Cell::from(&entry));
+                }
+                table_data.push(row);
+            }
+            let headers_ref: Vec<&str> = headers.iter().map(|s| s.as_str()).collect();
+            let table = Table::new(Style::Plain, table_data, Some(Headers::from(headers_ref)));
+            println!("coll_table:\n{}", table.tabulate());
+
             // Look up bounds from coll_table.
             // For r values, we invert the definition of self.coll_table_r_values:
-            //   np.array([2 + self.r_constant * (i ** 2) for i in range(self.num_r_values - 1)] + [self.n])
+            //   [2 + self.r_constant * (i ** 2) for i in range(self.num_r_values - 1)] + [self.n]
             let i = (((r - 2) as f64) / self.r_constant as f64).sqrt() as usize;
             let i = i.min(self.coll_table_r_values.len() - 2);
 
@@ -1061,6 +1106,29 @@ impl SimulatorMultiBatch {
             assert!(u <= self.coll_table_u_values[j + 1]);
             t_lo = self.coll_table[i + 1][j + 1];
             t_hi = self.coll_table[i][j].min(self.n - r + 1);
+
+            println!(
+                "self.coll_table_u_values.len()={}, self.coll_table_r_values.len()={}",
+                self.coll_table_u_values.len(),
+                self.coll_table_r_values.len(),
+            );
+            println!(
+                "self.r_constant={}, u={u:.3}, r={r} i={i} j={j} t_lo={t_lo}, t_hi={t_hi} (((r - 2) as f64) / self.r_constant as f64).sqrt()={:.3}",
+                self.r_constant,
+                (((r - 2) as f64) / self.r_constant as f64).sqrt()
+            );
+            println!(
+                "lhs = {lhs:.1}, logn={}, (t_lo-1)*logn={:.1}, t_lo*logn={:.1}, (t_lo+1)*logn={:.1}, log_factorial(n-r-t_lo+1)={:.1}, log_factorial(n-r-t_lo+1) + t_lo*logn={:.1}",
+                self.logn,
+                (t_lo - 1) as f64 * self.logn,
+                t_lo as f64 * self.logn,
+                (t_lo + 1) as f64 * self.logn,
+                log_factorial(self.n - r - t_lo + 1),
+                log_factorial(self.n - r - t_lo + 1) + (t_lo as f64 * self.logn)
+            );
+
+            assert!(lhs >= log_factorial(self.n - r - t_lo + 1) + (t_lo as f64 * self.logn));
+            assert!(lhs < log_factorial(self.n - r - t_hi + 1) + (t_hi as f64 * self.logn));
         } else {
             // When building the table, we start with bounds that always hold.
             if r >= self.n {
@@ -1103,5 +1171,249 @@ impl SimulatorMultiBatch {
         }
 
         t_hi
+    }
+
+    ///     init_array: A 2D length-q integer array of counts representing the initial configuration.
+    ///     delta: A 2D q x q x 2 array representing the transition function.
+    ///         Delta[i, j] gives contains the two output states.
+    ///     null_transitions: A 2D q x q boolean array where entry [i, j] says if these states have a null interaction.
+    ///     random_transitions: A 2D q x q x 2 array. Entry [i, j, 0] is the number of possible outputs if
+    ///         transition [i, j] is random, otherwise it is 0. Entry [i, j, 1] gives the starting index to find
+    ///         the outputs in the array random_outputs if it is random.
+    ///     random_outputs: A ? x 2 array containing all (out1,out2) outputs of random transitions,
+    ///         whose indexing information is contained in random_transitions.
+    ///     transition_probabilities: A 1D length-? array containing all random transition probabilities,
+    ///         whose indexing matches random_outputs.
+    ///     seed (optional): An integer seed for the pseudorandom number generator.
+
+    /*  pub null_transitions: Vec<Vec<bool>>,
+    /// A q x q array of pairs random_transitions[i][j] = (`num_outputs`, `first_idx`).
+    /// `num_outputs` is the number of possible outputs if transition i,j --> ... is random,
+    /// otherwise it is 0. `first_idx` gives the starting index to find
+    /// the outputs in the array `self.random_outputs` if it is random.
+    #[pyo3(get, set)] // XXX: for testing
+    pub random_transitions: Vec<Vec<(usize, usize)>>,
+    /// A 1D array of pairs containing all (out1,out2) outputs of random transitions,
+    /// whose indexing information is contained in random_transitions.
+    /// For example, if there are random transitions
+    /// 3,4 --> 5,6 and 3,4 --> 7,8 and 3,4 --> 3,2, then
+    /// `random_transitions[3][4] = (3, first_idx)` for some `first_idx`, and
+    /// `random_outputs[first_idx]   = (5,6)`,
+    /// `random_outputs[first_idx+1] = (7,8)`, and
+    /// `random_outputs[first_idx+2] = (3,2)`.
+    #[pyo3(get, set)] // XXX: for testing
+    pub random_outputs: Vec<(State, State)>, */
+
+    /// This is an easier to use constructor taking native Rust types instead of numpy arrays,
+    /// but otherwise it works similarly to the `new` constructor.
+    pub fn from_delta_random(
+        delta: Vec<Vec<(State, State)>>,
+        init_config: Vec<usize>,
+        random_transitions: Vec<Vec<(usize, usize)>>,
+        random_outputs: Vec<(State, State)>,
+        transition_probabilities: Vec<f64>,
+        gillespie: bool,
+        seed: Option<u64>,
+    ) -> Self {
+        let config = init_config.clone();
+        let n = config.iter().sum();
+        let q = config.len() as State;
+
+        assert_eq!(delta.len(), q, "delta shape mismatch");
+        assert_eq!(delta[0].len(), q, "delta shape mismatch");
+
+        let mut null_transitions = vec![vec![false; q]; q];
+        for i1 in 0..q {
+            for i2 in 0..q {
+                let (o1, o2) = delta[i1][i2];
+                null_transitions[i1][i2] = i1 == o1 && i2 == o2;
+            }
+        }
+
+        // is_random is true if any num in pair (num, idx) in random_transitions is non-zero
+        let mut is_random = false;
+        // random_depth is the maximum number of outputs for any randomized transition
+        let mut random_depth = 1;
+        for random_transitions_inner in &random_transitions {
+            for &(num, _) in random_transitions_inner {
+                if num != 0 {
+                    is_random = true;
+                    random_depth = random_depth.max(num);
+                }
+            }
+        }
+
+        if is_random {
+            assert_eq!(
+                random_outputs.len(),
+                transition_probabilities.len(),
+                "random_outputs and transition_probabilities length mismatch"
+            );
+        }
+
+        let t = 0;
+        let rng = if let Some(s) = seed {
+            SmallRng::seed_from_u64(s)
+        } else {
+            SmallRng::from_entropy()
+        };
+
+        let urn = Urn::new(config.clone(), seed);
+        let updated_counts = Urn::new(vec![0; q], seed);
+        let row_sums = vec![0; q];
+        let row = vec![0; q];
+        let m = vec![0; random_depth];
+        let silent = false;
+        let do_gillespie = false; // this changes during run
+        let gillespie_always = gillespie; // this never changes; if True we always do Gillespie steps
+
+        let mut reactions: Vec<(usize, usize, usize, usize)> = vec![];
+        let mut reaction_probabilities = vec![];
+        for i in 0..q {
+            for j in 0..=i {
+                // check if interaction is symmetric
+                let mut symmetric = false;
+                // Check that entries in delta array match
+                let (mut o1, mut o2) = delta[i][j];
+                if o1 > o2 {
+                    (o1, o2) = (o2, o1);
+                }
+                let (mut o1_p, mut o2_p) = delta[j][i];
+                if o1_p > o2_p {
+                    (o1_p, o2_p) = (o2_p, o1_p);
+                }
+                if o1 == o1_p && o2 == o2_p {
+                    // Check if those really were matching deterministic transitions
+                    if !is_random
+                        || (random_transitions[i][j].0 == 0 && random_transitions[j][i].0 == 0)
+                    {
+                        symmetric = true;
+                    } else if is_random
+                        && random_transitions[i][j].0 == random_transitions[j][i].0
+                        && random_transitions[i][j].0 > 0
+                    {
+                        let (a, b) = (random_transitions[i][j].1, random_transitions[j][i].1);
+                        symmetric = true;
+                        for k in 0..random_transitions[i][j].0 {
+                            let (mut o1, mut o2) = random_outputs[a + k];
+                            if o1 > o2 {
+                                (o1, o2) = (o2, o1);
+                            }
+                            let (mut o1_p, mut o2_p) = random_outputs[b + k];
+                            if o1_p > o2_p {
+                                (o1_p, o2_p) = (o2_p, o1_p);
+                            }
+                            if o1 != o1_p || o2 != o2_p {
+                                symmetric = false;
+                                // break;
+                            }
+                        }
+                    }
+                }
+                // Other cases are not symmetric, such as a different number of random outputs based on order
+                let indices = if symmetric {
+                    vec![(i, j, 1.0)]
+                } else {
+                    // if interaction is not symmetric, each distinct order gets added as reactions with half probability
+                    vec![(i, j, 0.5), (j, i, 0.5)]
+                };
+                for (a, b, p) in indices.iter() {
+                    let a = *a;
+                    let b = *b;
+                    let p = *p;
+                    if !null_transitions[a][b] {
+                        let (num_outputs, start_idx) = random_transitions[a][b];
+                        if is_random && num_outputs > 0 {
+                            for k in 0..num_outputs {
+                                let output = random_outputs[start_idx + k];
+                                if output != (a, b) {
+                                    reactions.push((a, b, output.0, output.1));
+                                    reaction_probabilities
+                                        .push(transition_probabilities[start_idx + k] * p);
+                                }
+                            }
+                        } else {
+                            reactions.push((a, b, o1, o2));
+                            reaction_probabilities.push(p);
+                        }
+                    }
+                }
+            }
+        }
+
+        // next three fields are only used with Gillespie steps;
+        // they will be set accordingly if we switch to Gillespie
+        let propensities = vec![0.0; reactions.len()];
+        let enabled_reactions = vec![0; reactions.len()];
+        let num_enabled_reactions = 0;
+
+        // below here we give meaningless default values to the other fields and rely on
+        // set_n_parameters and get_enabled_reactions to set them to the correct values
+        let logn = 0.0;
+        let batch_threshold = 0;
+        let gillespie_threshold = 0.0;
+        let coll_table = vec![vec![0; 1]; 1];
+        let coll_table_r_values = vec![0; 1];
+        let coll_table_u_values = vec![0.0; 1];
+        let r_constant = 0;
+
+        let mut sim = SimulatorMultiBatch {
+            n,
+            t,
+            q,
+            delta,
+            null_transitions,
+            is_random,
+            random_transitions,
+            random_outputs,
+            transition_probabilities,
+            random_depth,
+            rng,
+            urn,
+            updated_counts,
+            logn,
+            batch_threshold,
+            row_sums,
+            row,
+            m,
+            do_gillespie,
+            silent,
+            reactions,
+            enabled_reactions,
+            num_enabled_reactions,
+            propensities,
+            reaction_probabilities,
+            gillespie_threshold,
+            coll_table,
+            coll_table_r_values,
+            coll_table_u_values,
+            r_constant,
+            gillespie_always,
+        };
+        sim.set_n_parameters();
+        sim.update_enabled_reactions();
+        sim
+    }
+
+    /// This one especially is easier since it assumes a deterministic transition function.
+    pub fn from_delta_deterministic(
+        delta: Vec<Vec<(State, State)>>,
+        init_config: Vec<usize>,
+        gillespie: bool,
+        seed: Option<u64>,
+    ) -> Self {
+        let random_transitions: Vec<Vec<(usize, usize)>> =
+            vec![vec![(0, 0); delta.len()]; delta.len()];
+        let random_outputs: Vec<(State, State)> = vec![(0, 0); 1];
+        let transition_probabilities: Vec<f64> = vec![0.0; 1];
+        SimulatorMultiBatch::from_delta_random(
+            delta,
+            init_config,
+            random_transitions,
+            random_outputs,
+            transition_probabilities,
+            gillespie,
+            seed,
+        )
     }
 }

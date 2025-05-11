@@ -3,35 +3,6 @@ import numpy as np
 from matplotlib import pyplot as plt
 import ppsim as pp
 
-def main():
-    a, b, u = pp.species('A B U')
-    approx_majority = [
-        a + b >> 2 * u,
-        a + u >> 2 * a,
-        b + u >> 2 * b,
-    ]
-    # init = {a: 50_001_000, b: 49_990_000}
-    n = 10**9
-    a_init = int(n * 0.51)
-    b_init = n - a_init
-    init = {a: a_init, b: b_init}
-    # init = {a: 6, b: 4}
-    sim = pp.Simulation(init, approx_majority, seed=1)
-    # i, = species('I')
-    # epidemic = [ i+u >> 2*i ]
-    # init = { i:1, u:9 }
-    # sim = Simulation(init, epidemic, seed=0)
-    sim.run(10)
-    # sim.history.plot()
-    # plt.title('approximate majority protocol')
-    # plt.xlim(0, sim.times[-1])
-    # plt.ylim(0, sum(init.values()))
-    # plt.savefig('examples/approx_majority_plot.png')
-    # print("Plot saved to examples/approx_majority_plot.png")
-    # print(f"history =\n{sim.history}")
-    
-    sim.simulator.write_profile() # type: ignore
-    
 
 def main3():
     # derived rate constants of the formal reaction simulated by DNA strand displacement (units of /M/s)
@@ -362,8 +333,38 @@ def sample_configs():
     plt.show()
     
 
+def main():
+    a, b, u = pp.species('A B U')
+    approx_majority = [
+        a + b >> 2 * u,
+        a + u >> 2 * a,
+        b + u >> 2 * b,
+    ]
+    # init = {a: 50_001_000, b: 49_990_000}
+    n = 10**2
+    a_init = int(n * 0.51)
+    b_init = n - a_init
+    init = {a: a_init, b: b_init}
+    # init = {a: 6, b: 4}
+    sim = pp.Simulation(init, approx_majority, seed=1)
+    # i, = species('I')
+    # epidemic = [ i+u >> 2*i ]
+    # init = { i:1, u:9 }
+    # sim = Simulation(init, epidemic, seed=0)
+    sim.run(10)
+    # sim.history.plot()
+    # plt.title('approximate majority protocol')
+    # plt.xlim(0, sim.times[-1])
+    # plt.ylim(0, sum(init.values()))
+    # plt.savefig('examples/approx_majority_plot.png')
+    # print("Plot saved to examples/approx_majority_plot.png")
+    # print(f"history =\n{sim.history}")
+    
+    sim.simulator.write_profile() # type: ignore
+    
+
 if __name__ == '__main__':
-    main3()
+    main()
     # dsd_oscillator()
     # main2()
     # sample_configs()
