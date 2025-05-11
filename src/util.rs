@@ -19,15 +19,15 @@ pub fn ln_gamma(x: usize) -> f64 {
 }
 
 #[cfg(feature = "ue")]
-pub fn log_factorial(x: usize) -> f64 {
+pub fn ln_factorial(x: usize) -> f64 {
     // println!("ue version called");
-    log_factorial_statrs(x as u64)
+    ln_factorial_statrs(x as u64)
 }
 
 #[cfg(not(feature = "ue"))]
-pub fn log_factorial(x: usize) -> f64 {
+pub fn ln_factorial(x: usize) -> f64 {
     // println!("non ue version called");
-    log_factorial_manual(x as u64)
+    ln_factorial_manual(x as u64)
 }
 
 #[cfg(feature = "ue")]
@@ -172,7 +172,7 @@ fn chebyshev_eval(x: f64) -> f64 {
 /////////////////////////////////////////////////////////////////////////////////
 // log_factorial
 
-pub fn log_factorial_statrs(k: u64) -> f64 {
+pub fn ln_factorial_statrs(k: u64) -> f64 {
     statrs::function::factorial::ln_factorial(k)
 }
 
@@ -208,7 +208,7 @@ lazy_static! {
 
 const HALFLN2PI: f64 = 0.9189385332046728;
 
-pub fn log_factorial_manual(k: u64) -> f64 {
+pub fn ln_factorial_manual(k: u64) -> f64 {
     if k < MAX_FACTORIAL as u64 {
         let ret = LOGFACT[k as usize];
         return ret;
@@ -323,10 +323,10 @@ pub fn hypergeometric_hrua(
     let m =
         ((computed_sample + 1) as f64 * (mingoodbad + 1) as f64 / (popsize + 2) as f64) as usize;
 
-    let g = log_factorial(m)
-        + log_factorial(mingoodbad - m)
-        + log_factorial(computed_sample - m)
-        + log_factorial(maxgoodbad + m - computed_sample);
+    let g = ln_factorial(m)
+        + ln_factorial(mingoodbad - m)
+        + ln_factorial(computed_sample - m)
+        + ln_factorial(maxgoodbad + m - computed_sample);
 
     /*
      *  b is the upper bound for random samples:
@@ -356,10 +356,10 @@ pub fn hypergeometric_hrua(
 
         k = x.floor() as usize;
 
-        let gp = log_factorial(k)
-            + log_factorial(mingoodbad - k)
-            + log_factorial(computed_sample - k)
-            + log_factorial(maxgoodbad + k - computed_sample);
+        let gp = ln_factorial(k)
+            + ln_factorial(mingoodbad - k)
+            + ln_factorial(computed_sample - k)
+            + ln_factorial(maxgoodbad + k - computed_sample);
 
         let t = g - gp;
 

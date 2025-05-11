@@ -17,7 +17,7 @@ use statrs::distribution::{Geometric, Uniform};
 
 use crate::urn::Urn;
 #[allow(unused_imports)]
-use crate::util::{ln_gamma, log_factorial, multinomial_sample};
+use crate::util::{ln_factorial, ln_gamma, multinomial_sample};
 
 type State = usize;
 
@@ -813,6 +813,8 @@ impl SimulatorMultiBatch {
         self.batch_threshold = batch_constant
             * ((self.n as f64 / self.logn).sqrt() * (self.q as f64).min((self.n as f64).powf(0.7)))
                 as usize;
+        println!("batch_threshold = {}", self.batch_threshold);
+        self.batch_threshold = self.n / 2;
         // first rough approximation for probability of successful reaction where we want to do gillespie
         self.gillespie_threshold = 2.0 / (self.n as f64).sqrt();
 
@@ -869,13 +871,18 @@ impl SimulatorMultiBatch {
     /// The distribution gives the number of agents needed to pick an agent twice,
     /// when r unique agents have already been selected.
     /// Inversion sampling with binary search is used, based on the formula
-    ///     P(l > t) = (n - r)! / (n - r - t)! / (n^t).
+    ///     P(l > t) = (n-r)! / (n-r-t)! * n^-t. (slightly incorrect PDF from paper)
+    /// NOTE: actually the correct PDF, accounting for the sequential scheduler never picking
+    /// the same agent for interactions i,i+1 for odd i (assuming first interaction is i=1), is
+    ///     P(l > t) = (n-r)! / (n-r-t)! * n^-ceil(t/2) * (n-1)^-floor(t/2)
     /// We sample a uniform random variable u, and find the value t such that
     ///     P(l > t) < U < P(l > t - 1).
-    /// Taking logarithms and using the lgamma function, this required formula becomes
+    /// Taking logarithms and using the ln_factorial function, this required formula becomes
     ///     P(l > t) < U
-    ///      <-->
-    ///     lgamma(n - r + 1) - lgamma(n - r - t + 1) - t * log(n) < log(u).
+    ///       <-->
+    ///     ln_factorial(n-r) - ln_factorial(n-r-t) - t*log(n) < log(u). (still incorrect PDF from paper)
+    /// (correcting for correct PDF)
+    ///     ln_factorial(n-r) - ln_factorial(n-r-t) - (ceil(t/2)*log(n) + floor(t/2)*log(n-1)) < log(u).
     /// We will do binary search with bounds t_lo, t_hi that maintain the invariant
     ///     P(l > t_hi) < U and P(l > t_lo) >= U.
     /// Once we get t_lo = t_hi - 1, we can then return t = t_hi as the output.
@@ -903,13 +910,14 @@ impl SimulatorMultiBatch {
         let diff = self.n + 1 - r;
 
         // let ln_gamma_diff = ln_gamma(diff);
-        let ln_gamma_diff = log_factorial(diff - 1);
+        let ln_gamma_diff = ln_factorial(diff - 1);
 
         let lhs = ln_gamma_diff - logu;
         // The condition P(l < t) < U becomes
         //     lhs < lgamma(n - r - t + 1) + t * log(n)
 
         const PRINT: bool = false;
+        let logn_minus_1 = ((self.n - 1) as f64).ln();
 
         if has_bounds {
             if PRINT {
@@ -954,29 +962,22 @@ impl SimulatorMultiBatch {
 
             if PRINT {
                 println!(
-                    "self.coll_table_u_values.len()={}, self.coll_table_r_values.len()={}",
-                    self.coll_table_u_values.len(),
-                    self.coll_table_r_values.len(),
-                );
-                println!(
                     "self.r_constant={}, u={u:.3}, r={r} i={i} j={j} t_lo={t_lo}, t_hi={t_hi} (((r - 2) as f64) / self.r_constant as f64).sqrt()={:.3}",
                     self.r_constant,
                     (((r - 2) as f64) / self.r_constant as f64).sqrt()
                 );
                 println!(
-                    "lhs = {lhs:.1}, logn={:.1}, (t_lo-1)*logn={:.1}, t_lo*logn={:.1}, (t_lo+1)*logn={:.1}, log_factorial(n-r-t_lo+1)={:.1}, log_factorial(n-r-t_lo+1) + t_lo*logn={:.1}",
+                    "lhs = {lhs}, logn={:.1}, t_lo*logn={:.1}, log_factorial(n-r-t_lo)={:.1}, log_factorial(n-r-t_lo) + t_lo*logn={}",
                     self.logn,
-                    (t_lo - 1) as f64 * self.logn,
                     t_lo as f64 * self.logn,
-                    (t_lo + 1) as f64 * self.logn,
-                    log_factorial(self.n - r - t_lo + 1),
-                    log_factorial(self.n - r - t_lo + 1) + (t_lo as f64 * self.logn)
+                    ln_factorial(self.n - r - t_lo),
+                    ln_factorial(self.n - r - t_lo) + (t_lo as f64 * self.logn)
                 );
             }
 
             if t_lo < t_hi - 1 {
-                assert!(lhs >= log_factorial(self.n - r - t_lo + 1) + (t_lo as f64 * self.logn));
-                assert!(lhs < log_factorial(self.n - r - t_hi + 1) + (t_hi as f64 * self.logn));
+                assert!(lhs >= ln_factorial(self.n - r - t_lo - 1) + (t_lo as f64 * logn_minus_1));
+                assert!(lhs < ln_factorial(self.n - r - t_hi) + (t_hi as f64 * self.logn));
             }
         } else {
             // When building the table, we start with bounds that always hold.
@@ -987,16 +988,19 @@ impl SimulatorMultiBatch {
             t_hi = self.n - r;
         }
 
-        let logn_minus_1 = ((self.n - 1) as f64).ln();
-
         // We maintain the invariant that P(l > t_lo) >= u and P(l > t_hi) < u
-        // Equivalently, lhs >= lgamma(n - r - t_lo + 1) + t_lo * logn and
-        //               lhs <  lgamma(n - r - t_hi + 1) + t_hi * logn
+        // Equivalently, lhs >= lgamma(n-r-t_lo+1) + t_lo*logn and
+        //               lhs <  lgamma(n-r-t_hi+1) + t_hi*logn
+        // Equivalently, lhs >= ln_factorial(n-r-t_lo) + t_lo*logn and
+        //               lhs <  ln_factorial(n-r-t_hi) + t_hi*logn
+        // Correcting for PDF,
+        //               lhs >= ln_factorial(n-r-t_lo) + t_lo*logn and
+        //               lhs <  ln_factorial(n-r-t_hi) + t_hi*logn
         while t_lo < t_hi - 1 {
             let t_mid = (t_lo + t_hi) / 2;
 
             // let ln_gamma_nr1 = ln_gamma(self.n - r + 1 - t_mid);
-            let ln_gamma_nr1 = log_factorial(self.n - r - t_mid);
+            let ln_gamma_nr1 = ln_factorial(self.n - r - t_mid);
 
             let rhs: f64;
             if pp {

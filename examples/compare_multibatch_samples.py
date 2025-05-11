@@ -41,12 +41,13 @@ def generate_ppsim_samples(pop_exponent: int, trials_exponent: int, end_time: in
     results_ppsim = sim.sample_future_configuration(end_time, num_samples = trials)
     
     df = pl.DataFrame(results_ppsim)
-    fn = f'{dir}/ppsim_samples_n10e{pop_exponent}_trials10e{trials_exponent}_bt-n-over-2.parquet'
-    df.write_parquet(fn, compression="zstd")
+    # fn = f'{dir}/ppsim_samples_n10e{pop_exponent}_trials10e{trials_exponent}_bt-n-over-2.parquet'
+    # df.write_parquet(fn, compression="zstd")
 
     return df
 
 def main():
+    import json
     compare_to, pop_exponent, trials_exponent = cl_args()
     
     dir = 'examples'
@@ -54,20 +55,26 @@ def main():
     
     print(f'Comparing multibatch to {compare_to} samples with population size '
           f'10^{pop_exponent} and 10^{trials_exponent} trials at time {end_time}.')
-
     
-    fn_noext = f'{compare_to}_samples_n10e{pop_exponent}_trials10e{trials_exponent}'
-    fn = f'{fn_noext}.parquet'
-    results_other = pl.read_parquet(f'{dir}/{fn}')
-    results_ppsim = generate_ppsim_samples(pop_exponent, trials_exponent, end_time, dir)
-    
-    fig, ax = plt.subplots(figsize = (10,4))
     state = 'A'
     # state = 'B'
     # state = 'U'
 
-    min_other = results_other[state].min()
-    max_other = results_other[state].max()
+    
+    fn_noext = f'{compare_to}_samples_n10e{pop_exponent}_trials10e{trials_exponent}'
+    fn = f'{fn_noext}.json'
+    results_other = json.load(open(f'{dir}/{fn}'))
+    counts_other = []
+    for amount, count in results_other[state].items():
+        counts_other.extend([amount] * count)
+    counts_other = np.array(counts_other, dtype=np.uint64)
+    
+    results_ppsim = generate_ppsim_samples(pop_exponent, trials_exponent, end_time, dir)
+    
+    fig, ax = plt.subplots(figsize = (10,4))
+    
+    min_other = counts_other.min()
+    max_other = counts_other.max()
     min_ppsim = results_ppsim[state].min()
     max_ppsim = results_ppsim[state].max()
     minimum = min(min_other, min_ppsim) # type: ignore
@@ -84,7 +91,7 @@ def main():
     print(f'minimum: {minimum}, maximum: {maximum}')
     bins = np.linspace(minimum, maximum, 20) # type: ignore
 
-    ax.hist([results_ppsim[state], results_other[state]], 
+    ax.hist([results_ppsim[state], counts_other], 
             # bins = np.linspace(int(n*0.32), int(n*.43), 20), # type: ignore
             bins = bins, # type: ignore
             alpha = 1, label=['multibatch', compare_to]) #, density=True, edgecolor = 'k', linewidth = 0.5)
