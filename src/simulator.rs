@@ -813,7 +813,7 @@ impl SimulatorMultiBatch {
         self.batch_threshold = batch_constant
             * ((self.n as f64 / self.logn).sqrt() * (self.q as f64).min((self.n as f64).powf(0.7)))
                 as usize;
-        println!("batch_threshold = {}", self.batch_threshold);
+        // println!("batch_threshold = {}", self.batch_threshold);
         self.batch_threshold = self.n / 2;
         // first rough approximation for probability of successful reaction where we want to do gillespie
         self.gillespie_threshold = 2.0 / (self.n as f64).sqrt();
@@ -914,9 +914,10 @@ impl SimulatorMultiBatch {
 
         let lhs = ln_gamma_diff - logu;
         // The condition P(l < t) < U becomes
-        //     lhs < lgamma(n - r - t + 1) + t * log(n)
+        //     lhs <     lgamma(n-r-t+1) + t*log(n)
+        //     lhs < ln_factorial(n-r-t) + t*log(n)
 
-        const PRINT: bool = false;
+        const PRINT: bool = true;
         let logn_minus_1 = ((self.n - 1) as f64).ln();
 
         if has_bounds {
@@ -940,8 +941,8 @@ impl SimulatorMultiBatch {
                     table_data.push(row);
                 }
                 let headers_ref: Vec<&str> = headers.iter().map(|s| s.as_str()).collect();
-                let table = Table::new(Style::Plain, table_data, Some(Headers::from(headers_ref)));
-                println!("coll_table:\n{}", table.tabulate());
+                let _table = Table::new(Style::Plain, table_data, Some(Headers::from(headers_ref)));
+                println!("coll_table:\n{}", _table.tabulate());
             }
 
             // Look up bounds from coll_table.
@@ -953,27 +954,34 @@ impl SimulatorMultiBatch {
             // for u values we similarly invert the definition: np.linspace(0, 1, num_u_values)
             let j = (u * (self.coll_table_u_values.len() - 1) as f64) as usize;
 
-            assert!(self.coll_table_r_values[i] <= r);
-            assert!(r <= self.coll_table_r_values[i + 1]);
-            assert!(self.coll_table_u_values[j] <= u);
-            assert!(u <= self.coll_table_u_values[j + 1]);
             t_lo = self.coll_table[i + 1][j + 1];
-            t_hi = self.coll_table[i][j].min(self.n - r + 1);
+            t_hi = self.coll_table[i][j];
+            t_hi = t_hi.min(self.n - r + 1);
+            if t_lo == 1 && t_hi == 1 {
+                t_lo = 1;
+                t_hi = 2;
+            }
 
             if PRINT {
                 println!(
-                    "self.r_constant={}, u={u:.3}, r={r} i={i} j={j} t_lo={t_lo}, t_hi={t_hi} (((r - 2) as f64) / self.r_constant as f64).sqrt()={:.3}",
+                    "n = {}, self.r_constant={}, u={u:.3}, r={r} i={i} j={j} t_lo={t_lo}, t_hi={t_hi} (((r - 2) as f64) / self.r_constant as f64).sqrt()={:.3}",
+                    self.n,
                     self.r_constant,
                     (((r - 2) as f64) / self.r_constant as f64).sqrt()
                 );
                 println!(
-                    "lhs = {lhs}, logn={:.1}, t_lo*logn={:.1}, log_factorial(n-r-t_lo)={:.1}, log_factorial(n-r-t_lo) + t_lo*logn={}",
+                    "lhs = {lhs:.3}, logn={:.1}, t_lo*logn={:.1}, log_factorial(n-r-t_lo)={:.1}, log_factorial(n-r-t_lo) + t_lo*logn={:.3}",
                     self.logn,
                     t_lo as f64 * self.logn,
                     ln_factorial(self.n - r - t_lo),
                     ln_factorial(self.n - r - t_lo) + (t_lo as f64 * self.logn)
                 );
             }
+            assert!(t_lo < t_hi);
+            assert!(self.coll_table_r_values[i] <= r);
+            assert!(r <= self.coll_table_r_values[i + 1]);
+            assert!(self.coll_table_u_values[j] <= u);
+            assert!(u <= self.coll_table_u_values[j + 1]);
 
             if t_lo < t_hi - 1 {
                 assert!(lhs >= ln_factorial(self.n - r - t_lo - 1) + (t_lo as f64 * logn_minus_1));
@@ -994,8 +1002,8 @@ impl SimulatorMultiBatch {
         // Equivalently, lhs >= ln_factorial(n-r-t_lo) + t_lo*logn and
         //               lhs <  ln_factorial(n-r-t_hi) + t_hi*logn
         // Correcting for PDF,
-        //               lhs >= ln_factorial(n-r-t_lo) + t_lo*logn and
-        //               lhs <  ln_factorial(n-r-t_hi) + t_hi*logn
+        //               lhs >= ln_factorial(n-r-t_lo) + ceil(t_lo/2)*logn + floor(t_hi/2)*log(n-1), and
+        //               lhs <  ln_factorial(n-r-t_hi) + ceil(t_lo/2)*logn + floor(t_hi/2)*log(n-1)
         while t_lo < t_hi - 1 {
             let t_mid = (t_lo + t_hi) / 2;
 
