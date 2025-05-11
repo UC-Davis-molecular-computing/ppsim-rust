@@ -352,7 +352,7 @@ def main():
     # init = { i:1, u:9 }
     # sim = Simulation(init, epidemic, seed=0)
     sim.run(10)
-    # sim.history.plot()
+    print(sim.history)
     # plt.title('approximate majority protocol')
     # plt.xlim(0, sim.times[-1])
     # plt.ylim(0, sum(init.values()))

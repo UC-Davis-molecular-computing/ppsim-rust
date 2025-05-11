@@ -48,10 +48,10 @@ class SimulatorSequentialArray:
             self,
             init_config: npt.NDArray[np.uint],
             delta: npt.NDArray[np.uint],
-            null_transitions: npt.NDArray[np.bool_],
             random_transitions: npt.NDArray[np.uint],
             random_outputs: npt.NDArray[np.uint],
             transition_probabilities: npt.NDArray[np.float64],
+            transition_order: str,
             gillespie: bool = False,
             seed: int | None = None
     ) -> None:
@@ -130,10 +130,10 @@ class SimulatorMultiBatch:
             self,
             init_config: npt.NDArray[np.uint],
             delta: npt.NDArray[np.uint],
-            null_transitions: npt.NDArray[np.bool_],
             random_transitions: npt.NDArray[np.uint],
             random_outputs: npt.NDArray[np.uint],
             transition_probabilities: npt.NDArray[np.float64],
+            transition_order: str,
             gillespie: bool = False,
             seed: int | None = None
     ) -> None: 

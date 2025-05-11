@@ -447,11 +447,10 @@ class Simulation:
                                             {b, a} -> {self.rule(b, a)}''')
 
         gillespie = self.simulator_method.lower() == 'gillespie'
-        # print(f"{self.simulator_method.lower()=}, {gillespie=}")
         self.simulator = self._method(
-        # self.simulator = SimulatorSequentialArray(
-            config, delta, null_transitions,  # type: ignore
+            config, delta, # null_transitions,  # type: ignore
             random_transitions, random_outputs_arr, transition_probabilities, 
+            transition_order=self._transition_order,
             gillespie=gillespie, seed=self.seed
         )
 
