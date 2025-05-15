@@ -871,7 +871,7 @@ impl SimulatorMultiBatch {
     /// The distribution gives the number of agents needed to pick an agent twice,
     /// when r unique agents have already been selected.
     /// Inversion sampling with binary search is used, based on the formula
-    ///     P(l > t) = (n-r)! / (n-r-t)! * n^-t. (slightly incorrect PDF from paper)
+    ///     P(l > t) = (n-r)! / (n-r-t)! * n^-t. (slightly incorrect CDF from paper)
     /// NOTE: actually the correct PDF, accounting for the sequential scheduler never picking
     /// the same agent for interactions i,i+1 for odd i (assuming first interaction is i=1), is
     ///     P(l > t) = (n-r)! / (n-r-t)! * n^-ceil(t/2) * (n-1)^-floor(t/2)
