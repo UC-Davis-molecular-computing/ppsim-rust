@@ -342,7 +342,7 @@ impl SimulatorMultiBatch {
         let mut seen = HashSet::new();
         assert!(r < n, "r must be less than n");
         assert!(n < usize::MAX, "n must be less than usize::MAX");
-        let mut most_recent_sample = usize::MAX;
+        let mut prev_sample = usize::MAX;
         loop {
             idx += 1;
             let sample = self.rng.gen_range(0..n);
@@ -350,12 +350,12 @@ impl SimulatorMultiBatch {
                 return idx;
             }
             if seen.contains(&sample) {
-                if !pp || idx % 2 == 1 || sample != most_recent_sample {
+                if !pp || idx % 2 == 1 || sample != prev_sample {
                     return idx;
                 }
             }
             seen.insert(sample);
-            most_recent_sample = sample;
+            prev_sample = sample;
         }
     }
 }
