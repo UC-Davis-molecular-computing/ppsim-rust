@@ -413,11 +413,10 @@ fn process_span(span_data_map: &mut HashMap<String, SpanData>, span: &flame::Spa
 }
 
 const CAP_BATCH_THRESHOLD: bool = true;
-// const CAP_BATCH_THRESHOLD: bool = false;
 
 impl SimulatorMultiBatch {
     fn multibatch_step(&mut self, t_max: usize) -> () {
-        let max_batch_threshold = self.n / 4; //TODO: FIX
+        let max_batch_threshold = self.n / 4;
         if CAP_BATCH_THRESHOLD && self.batch_threshold > max_batch_threshold {
             self.batch_threshold = max_batch_threshold;
         }
@@ -430,8 +429,8 @@ impl SimulatorMultiBatch {
         // start with count 2 of delayed agents (guaranteed for the next interaction)
         let mut num_delayed: usize = 2;
 
-        let now = Instant::now();
-        let t1 = now.elapsed().as_secs_f64();
+        // let now = Instant::now();
+        // let t1 = now.elapsed().as_secs_f64();
 
         // batch will go for at least batch_threshold interactions, unless passing t_max
         let mut end_step = self.t + self.batch_threshold;
@@ -443,33 +442,10 @@ impl SimulatorMultiBatch {
 
         flame::start("process collisions");
 
-        const PRINT: bool = false;
-
-        if PRINT {
-            println!(
-                "*********************\nProcessing collisions\nbatch_threshold = {}                               sqrt(n) = {}",
-                self.batch_threshold, (self.n as f64).sqrt() as usize
-            );
-        }
-
-        let mut num_collisions = 0;
-        let sqrt_n = (self.n as f64).sqrt() as usize;
         while self.t + num_delayed / 2 < end_step {
-            num_collisions += 1;
-
-            let exp_l = if num_delayed + self.updated_counts.size > sqrt_n {
-                self.n / (num_delayed + self.updated_counts.size)
-            } else {
-                sqrt_n
-            };
-            if PRINT {
-                println!("exp_l = {exp_l:7}");
-            }
-
             let mut u = self.rng.sample(uniform);
 
             let pp = true;
-            // let has_bounds = true;
             let has_bounds = false;
             flame::start("sample_coll");
             let l = self.sample_coll(num_delayed + self.updated_counts.size, u, has_bounds, pp);
@@ -560,21 +536,9 @@ impl SimulatorMultiBatch {
             self.updated_counts.add_to_entry(responder, 1);
 
             flame::end("process collision");
-
-            if PRINT {
-                println!(
-                    "    l = {l:7}, collisions: {num_collisions:7}, num_delayed = {num_delayed:7}, num_updated = {:5}, initiator_delayed = {initiator_delayed:5}, self.urn.size = {:12}, self.urn.config: {:?}, self.t + num_delayed / 2: {} end_step: {}",
-                    self.updated_counts.size, self.urn.size, self.urn.config, self.t + num_delayed / 2, end_step
-                );
-            }
-        }
-        if PRINT {
-            panic!();
         }
 
         flame::end("process collisions");
-
-        let t2 = now.elapsed().as_secs_f64();
 
         flame::start("process batch");
 
@@ -638,62 +602,24 @@ impl SimulatorMultiBatch {
 
         flame::end("process batch");
 
-        let t3 = now.elapsed().as_secs_f64();
-
-        const TIMING_PRINTS: bool = false;
-
-        if TIMING_PRINTS {
-            println!(
-                "********\nself.batch_threshold before: {}",
-                self.batch_threshold
-            );
-        }
-
-        // Dynamically update batch threshold, by comparing the times t2 - t1 of the collision sampling and
-        //   the time t_3 - t_2 of the batch processing. Batch_threshold is adjusted to try to ensure
-        //   t_2 - t_1 = t_3 - t_2
-        // self.batch_threshold = ((t3 - t2) / (t2 - t1)).powf(0.1) as usize * self.batch_threshold;
-        // Keep the batch threshold within some fixed bounds.
-        if CAP_BATCH_THRESHOLD {
-            self.batch_threshold = self.batch_threshold.min(max_batch_threshold);
-        }
-        self.batch_threshold = self.batch_threshold.max(3);
-
-        if TIMING_PRINTS {
-            println!(
-            "ratio: {:.1}, batching time: {:.1} us; collision time: {:.1} us, self.batch_threshold after: {}",
-            (t3 - t2) / (t2 - t1),
-            (t3 - t2) * 1_000_000.0,
-            (t2 - t1) * 1_000_000.0,
-            self.batch_threshold
-        );
-
-            if self.t > 1_000_000 {
-                panic!();
-            }
-        }
-
         self.urn.sort();
-
-        // update enabled_reactions if switching to gillespie
-
         self.update_enabled_reactions();
     }
 
     /// Chooses sender/receiver, then applies delta to input states a, b.
-    fn unordered_delta(&mut self, a_p: State, b_p: State) -> (State, State) {
+    fn unordered_delta(&mut self, a: State, b: State) -> (State, State) {
         let heads = self.rng.gen_bool(0.5); // fair coin flip
-        let mut a = a_p;
-        let mut b = b_p;
+        let mut i1 = a;
+        let mut i2 = b;
         // swap roles of a, b and swap return order if heads is true
         if heads {
-            (b, a) = (a, b);
+            (i2, i1) = (i1, i2);
         }
         let o1: State;
         let o2: State;
-        if self.is_random && self.random_transitions[a][b].0 > 0 {
+        if self.is_random && self.random_transitions[i1][i2].0 > 0 {
             // find the appropriate random output by linear search
-            let mut k = self.random_transitions[a][b].1;
+            let mut k = self.random_transitions[i1][i2].1;
             let uniform = Uniform::standard();
             let mut u = self.rng.sample(uniform) - self.transition_probabilities[k];
             while u > 0.0 {
@@ -702,7 +628,7 @@ impl SimulatorMultiBatch {
             }
             (o1, o2) = self.random_outputs[k];
         } else {
-            (o1, o2) = self.delta[a][b];
+            (o1, o2) = self.delta[i1][i2];
         }
         // swap outputs if heads is true
         if heads {

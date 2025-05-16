@@ -221,7 +221,6 @@ impl SimulatorSequentialArray {
 
     #[getter]
     pub fn silent(&self) -> bool {
-        // Use .copied() to convert &usize to usize when collecting
         let mut states_present: Vec<State> = vec![];
         for i in 0..self.q {
             if self.config[i] > 0 {
