@@ -97,6 +97,37 @@ def state_enumeration(init_dist: dict[StateTypeVar, int], rule: Callable[[State,
                         unchecked_states.add(new_state)
     return checked_states
 
+def states_producible_directly_from(existing_states: Iterable[State], rule: Callable[[State, State], Output]) -> set[State]:
+    """
+    Finds all states that can be produced directly from existing states, meaning that
+    if a,b are in existing_states, and if (c,d) in rule(a,b), c and d will be 
+    added to the returned set. So the return value always contains `existing_states`
+    as a subset, but any state producible in one step from any pair of those states
+    is also included.
+
+    Args:
+        existing_states: a set of states
+        rule: function mapping a pair of states to either a pair of states
+            or to a dictionary mapping pairs of states to probabilities
+
+    Returns:
+        a set of all states producible from existing_states in one step
+    """
+    new_states = set(existing_states)
+    for s1 in existing_states:
+        for s2 in existing_states:
+            new_states_s1s2 = rule(s1, s2)
+            if isinstance(new_states_s1s2, dict):
+                # if the output is a distribution
+                for new_state1, new_state2 in new_states_s1s2.keys():
+                    new_states.add(new_state1)
+                    new_states.add(new_state2)
+            else:
+                assert isinstance(new_states_s1s2, tuple)
+                assert len(new_states_s1s2) == 2
+                new_states.add(new_states_s1s2[0])
+                new_states.add(new_states_s1s2[1])
+    return new_states
 
 @dataclass
 class Simulation:
@@ -120,6 +151,11 @@ class Simulation:
     configs: list[npt.NDArray[np.uint]]
     """
     A list of all configurations that have been recorded during the simulation, as integer arrays.
+    """
+
+    bounded: bool
+    """
+    Whether the number of producible states in bounded (and small enough to enumerate).
     """
 
     time: float
@@ -180,6 +216,7 @@ class Simulation:
             *,
             simulator_method: str = "MultiBatch",
             transition_order: str = "symmetric", 
+            bounded: bool = False,
             seed: int | None = None,
             volume: float | None = None, 
             continuous_time: bool = False, 
@@ -237,6 +274,16 @@ class Simulation:
                     The same as symmetric, except that if rule(a, b)
                     and rule(b, a) are non-null and do not give the same set of outputs,
                     a ValueError is raised.
+
+            bounded: Ignored if `rule` is a dict or a CRN. Otherwise `rule` is a callable.
+                If `bounded` is True, this indicates that the 
+                total number of producible states is bounded (and sufficiently small
+                that they can be enumerated in a reasonable time). If True, `rule` will
+                be called repeatedly before starting the search, in order to discover 
+                new produicible states until all states are found. In particular, if `bound`
+                is set to True and the number of producible states is very large or infinite,
+                then this will cause the constructor to hang. If False, then `rule` will be 
+                called intermittently during the search to produce new states as needed.
             
             seed: An optional integer used as the seed for all pseudorandom number
                 generation. Defaults to None.
@@ -270,6 +317,7 @@ class Simulation:
                     sim = Simulation(init_config, rule, threshold=20)
 
         """
+        self.bounded = bounded
         self.simulator_method = simulator_method
         self.seed = seed
         self.rng = np.random.default_rng(seed)
@@ -299,7 +347,7 @@ class Simulation:
         self._rule = rule
         self._rule_kwargs = kwargs
 
-        # Get a list of all reachable states, use the natsort library to put in a nice order.
+        # Get a list of all producible states, use the natsort library to put in a nice order.
         if isinstance(self._rule, dict):
             self._rule = cast(dict[tuple[State, State], Output], self._rule)
             # If the rule is a dict, we can loop over the entries to get all states
@@ -313,8 +361,14 @@ class Simulation:
                     states.extend(output)
             state_list = list(set(states))
         else:
-            # Otherwise, we use breadth-first search to find all reachable states
-            state_list = list(state_enumeration(init_config, self.rule))
+            # Otherwise, we use breadth-first search to find all producible states if bounded
+            # is set to True. If bounded is set to False, we will call the rule function
+            # intermittently to find new states as needed.
+            if self.bounded:
+                state_list = list(state_enumeration(init_config, self.rule))
+            else:
+                initial_states = list(init_config.keys())
+                state_list = list(states_producible_directly_from(initial_states, self.rule))
         # We use the natsorted library to put state_list in a reasonable order
         self.state_list = natsorted(state_list, key=lambda x: repr(x))
         self.state_dict = {state: i for i, state in enumerate(self.state_list)}
