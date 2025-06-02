@@ -40,7 +40,7 @@ from tqdm.auto import tqdm
 
 from ppsim.crn import Reaction, reactions_to_dict
 from ppsim.snapshot import Snapshot, TimeUpdate
-from ppsim.ppsim_rust import SimulatorSequentialArray, SimulatorMultiBatch
+from ppsim.ppsim_rust import Simulator, SimulatorSequentialArray, SimulatorMultiBatch, SimulatorCRNMultiBatch
 
 # TODO: these names are not showing up in the mouseover information
 State: TypeAlias = Hashable
@@ -112,7 +112,7 @@ class Simulation:
     Maps states to their integer index to be used in array representations.
     """
 
-    simulator: SimulatorMultiBatch | SimulatorSequentialArray
+    simulator: Simulator
     """An internal Simulator that performs the simulation steps.
     
     This is either a SimulatorMultiBatch or SimulatorSequentialArray instance."""
@@ -169,7 +169,7 @@ class Simulation:
     The optional integer seed used for rng and inside Rust code.
     """
 
-    _method: type[SimulatorMultiBatch] | type[SimulatorSequentialArray]
+    _method: type[SimulatorMultiBatch] | type[SimulatorSequentialArray] | type[SimulatorCRNMultiBatch]
 
     simulator_method: str
 
@@ -323,8 +323,10 @@ class Simulation:
             self._method = SimulatorMultiBatch
         elif simulator_method.lower() == 'sequential':
             self._method = SimulatorSequentialArray
+        elif simulator_method.lower() == 'crn':
+            self._method = SimulatorCRNMultiBatch
         else:
-            raise ValueError('simulator_method must be multibatch, sequential, or gillespie.')
+            raise ValueError('simulator_method must be multibatch, sequential, crn, or gillespie.')
         self._transition_order = transition_order
         self.initialize_simulator(self.array_from_dict(init_config))
 

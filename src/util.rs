@@ -7,13 +7,13 @@ use rand_distr::Distribution;
 use crate::flame;
 
 #[cfg(feature = "ue")]
-pub fn ln_gamma(x: usize) -> f64 {
+pub fn ln_gamma(x: f64) -> f64 {
     // println!("ue version called");
     ln_gamma_special(x)
 }
 
 #[cfg(not(feature = "ue"))]
-pub fn ln_gamma(x: usize) -> f64 {
+pub fn ln_gamma(x: f64) -> f64 {
     // println!("non ue version called");
     ln_gamma_manual(x)
 }
@@ -73,12 +73,12 @@ pub fn multinomial_sample(n: usize, pix: &Vec<f64>, result: &mut Vec<usize>, rng
 // UPDATE: The custom implementation below, adapted from R, is slight faster, maybe 10-20%,
 // than the implementation in the special crate.
 
-pub fn ln_gamma_special(x: usize) -> f64 {
+pub fn ln_gamma_special(x: f64) -> f64 {
     // special implements these as methods that can be called on f64's if we use special::Gamma,
     // but that gives a Rust warning about possibly the method name being used in Rust in the future.
     // We can call the method directly like this, but for some reason it returns a pair,
     // and the output of ln_gamma is the first element.
-    special::Gamma::ln_gamma(x as f64).0
+    special::Gamma::ln_gamma(x).0
 }
 
 // adapted from C source for R standard library
@@ -88,24 +88,23 @@ pub fn ln_gamma_special(x: usize) -> f64 {
 const M_LN_SQRT_2PI: f64 = 0.918938533204672741780329736406; // log(sqrt(2*pi)) == log(2*pi)/2
 const XMAX_LN_GAMMA: f64 = 2.5327372760800758e+305;
 
-pub fn ln_gamma_manual(x: usize) -> f64 {
+pub fn ln_gamma_manual(x: f64) -> f64 {
     let ret: f64;
-    if x <= 10 {
+    if x <= 10.0 {
         return special::Gamma::gamma(x as f64).ln();
     }
-    let y = x as f64;
-    if y > XMAX_LN_GAMMA {
+    if x > XMAX_LN_GAMMA {
         return f64::INFINITY;
     }
-    let lny = y.ln();
+    let lnx = x.ln();
     // In C code this only happens if x > 0, but since our x is usize,
     // we do this unconditionally.
-    if y > 1e17 {
-        ret = y * (lny - 1.0);
-    } else if y > 4934720.0 {
-        ret = M_LN_SQRT_2PI + (y - 0.5) * lny - y;
+    if x > 1e17 {
+        ret = x * (lnx - 1.0);
+    } else if x > 4934720.0 {
+        ret = M_LN_SQRT_2PI + (x - 0.5) * lnx - x;
     } else {
-        ret = M_LN_SQRT_2PI + (y - 0.5) * lny - y + lgammacor(y);
+        ret = M_LN_SQRT_2PI + (x - 0.5) * lnx - x + lgammacor(x);
     }
     ret
 }

@@ -12,8 +12,8 @@ def main():
         b+u >> 2*b,
     ]
 
-    trials_exponent = 2
-    pop_exponent = 4
+    trials_exponent = 7
+    pop_exponent = 5
     n = 10 ** pop_exponent
     p = 0.51 
     a_init = int(n * p)
@@ -21,8 +21,9 @@ def main():
     inits = {a: a_init, b: b_init}
     trials = 10 ** trials_exponent
 
-    sim = pp.Simulation(inits, rxns)
+    sim = pp.Simulation(inits, rxns, simulator_method="crn")
 
+    sim.simulator.g = 0# type: ignore
     # r = math.ceil(math.sqrt(n))
     r = 0
     print(f'{n=}, {r=}')
@@ -30,25 +31,29 @@ def main():
     ls_pp = []
     ls_dir = []
     import time
-    omit_pp_collision = True
+    
     for i in tqdm(range(trials)):
-        # t1 = time.perf_counter()
+        t1 = time.perf_counter()
 
-        l_dir = sim.simulator.sample_collision_directly(n, r, pp=omit_pp_collision) # type: ignore
+        l_dir = sim.simulator.sample_collision_directly(n, r) # type: ignore
         ls_dir.append(l_dir)
 
-        # t2 = time.perf_counter()
+        t2 = time.perf_counter()
         
         u = random.random()
-        l_pp = sim.simulator.sample_collision(r, u, has_bounds=False, pp=omit_pp_collision) # type: ignore
+        l_pp = sim.simulator.sample_collision(r, u, has_bounds=False) # type: ignore
         ls_pp.append(l_pp)
 
-        # t3 = time.perf_counter()
+        t3 = time.perf_counter()
 
         # print(f'time to sample directly: {1000*(t2-t1):.6f}ms time to sample with pp: {1000*(t3-t2):.6f}ms')
         
     ls_pp = np.array(ls_pp)
     ls_dir = np.array(ls_dir)
+    print(ls_pp)
+    print(ls_dir)
+    print(sim.simulator.o)# type: ignore
+    print(sim.simulator.g)# type: ignore
     # print(f'fast:   { ls_pp.mean():7.2f}, stddev: { ls_pp.std():6.2f}')
     # print(f'direct: {ls_dir.mean():7.2f}, stddev: {ls_dir.std():6.2f}')
     print(f'fast:   { ls_pp.mean():7.2f}')

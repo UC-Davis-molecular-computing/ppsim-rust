@@ -1,4 +1,4 @@
-use ppsim_rust::simulator::SimulatorMultiBatch;
+use ppsim_rust::simulator_pp_multibatch::SimulatorMultiBatch;
 
 fn main() {
     let delta = vec![

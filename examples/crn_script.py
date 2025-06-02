@@ -364,8 +364,8 @@ def main():
     
 
 if __name__ == '__main__':
-    main()
+    # main()
     # dsd_oscillator()
-    # main2()
+    main2()
     # sample_configs()
     # compare_rebop_sequential()

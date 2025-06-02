@@ -1,18 +1,24 @@
 use pyo3::prelude::*;
 
-pub mod simulator;
+pub mod simulator_abstract;
+pub mod simulator_pp_multibatch;
+pub mod simulator_crn;
 pub mod simulator_sequential;
 pub mod urn;
 pub mod util;
 
-use simulator::SimulatorMultiBatch;
+use simulator_abstract::Simulator;
+use simulator_pp_multibatch::SimulatorMultiBatch;
+use simulator_crn::SimulatorCRNMultiBatch;
 use simulator_sequential::SimulatorSequentialArray;
 
 /// A Python module implemented in Rust.
 #[pymodule]
 fn ppsim_rust(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<Simulator>()?;
     m.add_class::<SimulatorSequentialArray>()?;
     m.add_class::<SimulatorMultiBatch>()?;
+    m.add_class::<SimulatorCRNMultiBatch>()?;
     Ok(())
 }
 

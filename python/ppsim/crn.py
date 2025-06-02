@@ -214,6 +214,7 @@ def convert_unimolecular_to_bimolecular_and_flip_reactant_order(reactions: Itera
 @dataclass(frozen=True)
 class Specie:
     name: str
+    is_special_specie: bool = False
 
     def __add__(self, other: Specie | Expression) -> Expression:
         if isinstance(other, Expression):
@@ -257,7 +258,7 @@ class Specie:
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Specie):
             return NotImplemented
-        return self.name == other.name
+        return self.name == other.name and self.is_special_specie == other.is_special_specie
 
     __req__ = __eq__
 
@@ -508,6 +509,12 @@ class Reaction:
         p1, p2 = self.products_if_exactly_two()
         return p1.name, p2.name
 
+    def generativity(self) -> int:
+        """
+        Returns: number of products minus number of reactants
+        """
+        return self.num_products() - self.num_reactants()
+
     def __str__(self) -> str:
         rev_rate_str = f'({self.rate_constant_reverse})<' if self.reversible else ''
         return f"{self.reactants} {rev_rate_str}-->({self.rate_constant}) {self.products}"
@@ -564,7 +571,7 @@ class Reaction:
 
     def r(self, coeff: float, units: RateConstantUnits = RateConstantUnits.stochastic) -> Reaction:
         """
-        Changes the reverse reactionn reaction rate constant to `coeff` and returns `self`.
+        Changes the reverse reaction reaction rate constant to `coeff` and returns `self`.
 
         This is useful for including the rate constant during the construction
         of a reaction. For example
@@ -605,6 +612,60 @@ class Reaction:
                 all_species.append(s)
                 all_species_set.add(s)
         return tuple(all_species)
+
+@dataclass
+class CRN:
+    """
+    Representation of a CRN, a set of reactions.
+    """
+
+    reactions: list[Reaction]
+    """The reactions comprising the CRN."""
+
+    def __str__(self) -> str:
+        return str([str(rxn) for rxn in self.reactions])
+
+
+    def order(self) -> int:
+        """
+        Returns: the order of the CRN, the greatest number of reactants in any reaction
+        """
+        return max(rxn.num_reactants() for rxn in self.reactions)
+
+    def generativity(self) -> int:
+        """
+        Returns: the generativity of the CRN, the greatest number of
+        products minus reactants in any reaction
+        """
+        return max(rxn.generativity() for rxn in self.reactions)
+
+
+def convert_to_uniform(crn:CRN, K_count:int) -> CRN:
+    """
+    Convert a CRN to an equivalent uniform CRN.
+    The new CRN will have two new species, K (catalyst) and W (waste).
+
+    Args:
+        crn: a CRN to be converted. Can be arbitrary.
+        K_count: count of K to include in the configuration of the transformed CRN.
+    """
+    max_generativity = crn.generativity()
+    max_order = crn.order()
+    new_reactions:list[Reaction] = []
+    K = Specie(name="K",is_special_specie=True)
+    W = Specie(name="W",is_special_specie=True)
+    for reaction in replace_reversible_rxns(crn.reactions):
+        reaction_order = reaction.num_reactants()
+        reaction_generativity = reaction.generativity()
+        K_to_add = max_order - reaction_order
+        W_to_add = max_generativity - reaction_generativity
+        new_reactants = reaction.reactants + (K_to_add * K)
+        new_products = reaction.products + (K_to_add * K) + (W_to_add * W)
+        new_k = reaction.rate_constant / (float(K_count) ** K_to_add)
+        new_reactions.append(Reaction(reactants=new_reactants, products=new_products, k=new_k))
+
+
+    return CRN(reactions=new_reactions)
 
 
 # example of StochKit format:

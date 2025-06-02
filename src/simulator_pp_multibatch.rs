@@ -15,6 +15,8 @@ use rand::Rng;
 use rand::SeedableRng;
 use statrs::distribution::{Geometric, Uniform};
 
+use crate::simulator_abstract::Simulator;
+
 use crate::urn::Urn;
 #[allow(unused_imports)]
 use crate::util::{ln_factorial, ln_gamma, multinomial_sample};
@@ -23,7 +25,7 @@ type State = usize;
 
 //TODO: consider using ndarrays instead of multi-dimensional vectors
 // I think native Rust arrays won't work because their size needs to be known at compile time.
-#[pyclass]
+#[pyclass(extends = Simulator)]
 pub struct SimulatorMultiBatch {
     /// The population size (sum of values in urn.config).
     #[pyo3(get, set)]
@@ -159,7 +161,7 @@ impl SimulatorMultiBatch {
         transition_order: String,
         gillespie: bool,
         seed: Option<u64>,
-    ) -> Self {
+    ) -> (Self, Simulator) {
         let init_config = init_config.to_vec().unwrap();
         let q: usize = init_config.len() as State;
 
@@ -211,7 +213,7 @@ impl SimulatorMultiBatch {
             "random_outputs and transition_probabilities length mismatch"
         );
 
-        SimulatorMultiBatch::from_delta_random(
+        (SimulatorMultiBatch::from_delta_random(
             delta,
             init_config,
             random_transitions,
@@ -220,7 +222,7 @@ impl SimulatorMultiBatch {
             transition_order,
             gillespie,
             seed,
-        )
+        ), Simulator::default())
     }
 
     #[getter]

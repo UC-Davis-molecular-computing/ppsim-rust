@@ -12,9 +12,11 @@ use statrs::distribution::Uniform;
 
 use crate::urn::sample_discrete_uniform;
 
+use crate::simulator_abstract::Simulator;
+
 type State = usize;
 
-#[pyclass]
+#[pyclass(extends = Simulator)]
 pub struct SimulatorSequentialArray {
     #[pyo3(get, set)]
     pub config: Vec<State>,
@@ -50,7 +52,7 @@ impl SimulatorSequentialArray {
         transition_probabilities: PyReadonlyArray1<f64>,
         gillespie: bool,
         seed: Option<u64>,
-    ) -> Self {
+    ) -> (Self, Simulator) {
         assert!(
             gillespie == false,
             "gillespie = True is not supported for SimulatorSequentialArray"
@@ -152,7 +154,7 @@ impl SimulatorSequentialArray {
             population: vec![0; n],
         };
         sim.make_population();
-        sim
+        (sim, Simulator::default())
     }
 
     pub fn make_population(&mut self) -> () {
