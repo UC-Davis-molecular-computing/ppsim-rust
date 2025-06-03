@@ -12,8 +12,8 @@ def main():
         b+u >> 2*b,
     ]
 
-    trials_exponent = 7
-    pop_exponent = 5
+    trials_exponent = 5
+    pop_exponent = 7
     n = 10 ** pop_exponent
     p = 0.51 
     a_init = int(n * p)
@@ -23,7 +23,8 @@ def main():
 
     sim = pp.Simulation(inits, rxns, simulator_method="crn")
 
-    sim.simulator.g = 0# type: ignore
+    sim.simulator.g = 2# type: ignore
+    sim.simulator.o = 3# type: ignore
     # r = math.ceil(math.sqrt(n))
     r = 0
     print(f'{n=}, {r=}')

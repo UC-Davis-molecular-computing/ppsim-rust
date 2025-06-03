@@ -42,7 +42,7 @@ pub struct SimulatorCRNMultiBatch {
     pub o: usize,
     /// The generativity of reactions, i.e. the number of products minus the number of reactants.
     #[pyo3(get, set)]
-    pub g: isize,
+    pub g: usize,
     /// An (o + 1)-dimensional array. The first o dimensions represent reactants. After indexing through
     /// the first o dimensions, the last dimension always has size two, with elements (`num_outputs`, `first_idx`).
     /// `num_outputs` is the number of possible outputs if transition i,j --> ... is random,
@@ -334,11 +334,6 @@ impl SimulatorCRNMultiBatch {
         assert!(n < usize::MAX, "n must be less than usize::MAX");
         let mut num_seen = r;
         let mut pop_size = n;
-        if r == 0 && self.o.wrapping_add(self.g as usize) == 0 {
-            // Super duper edge case: this means that the CRN only consumes things, no reaction
-            // has anything on the right-hand side. In this case, there are never any collisions.
-            return n / self.o;
-        }
         loop {
             for _ in 0..self.o {
                 let sample = self.rng.gen_range(0..pop_size);
@@ -348,8 +343,8 @@ impl SimulatorCRNMultiBatch {
                 pop_size -= 1;
             }
             idx += 1;
-            pop_size += self.o.wrapping_add(self.g as usize);
-            num_seen += self.o.wrapping_add(self.g as usize);
+            pop_size += self.o + self.g;
+            num_seen += self.o + self.g;
         }
     }
 }
@@ -808,7 +803,7 @@ impl SimulatorCRNMultiBatch {
     /// See TODO: add reference to paper once it's on arxiv.
     /// The distribution gives the number of reactions that will occur before a collision.
     /// Inversion sampling with binary search is used, based on the formula
-    ///     P(l >= t) = (n-r)! / (n-r-to)! * prod_{j=0}^{o-1} [(n-g-j)!(g) / (n+g(t-1)-j)!(g)].
+    ///     P(l >= t) = (n-r)! / (n-r-t*o)! * prod_{j=0}^{o-1} [(n-g-j)!(g) / (n+g(t-1)-j)!(g)].
     /// !(g) denotes a multifactorial: n!(g) = n * (n - g) * (n - 2g) * ..., until these terms become nonpositive. 
     /// This is the formula when g > 0; when g = 0 or g < 0, the formulas are slightly different 
     /// (see the full formula for coll(n,r,o,g) in the paper), but the method is the same:
@@ -817,13 +812,13 @@ impl SimulatorCRNMultiBatch {
     /// Taking logarithms and using the ln_gamma function, this required formula becomes
     ///     P(l >= t) < U
     ///       <-->
-    ///     ln_gamma(n-r+1) - ln_gamma(n-r-to+1) + sum_{j=0}^{o-1} [log((n-g-j)!(g)) - log((n+g(t-1)-j)!(g))] < log(U).
+    ///     ln_gamma(n-r+1) - ln_gamma(n-r-t*o+1) + sum_{j=0}^{o-1} [log((n-g-j)!(g)) - log((n+g(t-1)-j)!(g))] < log(U).
     /// which can be rewritten by using the fact that gamma(x) = (x - 1) * gamma(x-1) even for non-integer x,
     /// by factoring out a factor of g from every term in the multifactorial. 
     /// To this end, if we let a and b denote the number of terms in these multifactorial products,
     /// that is, let a = ceil((n-g-j)/g) and b = ceil((n+g(t-1)-j)/g),
-    ///     ln_gamma(n-r+1) - ln_gamma(n-r-to+1) + sum_{j=0}^{o-1} [log(g^a * gamma((n-j)/g) / gamma((n-ag-j)/g)) - log(g^b * gamma((n+gt-j)/g) / gamma((n+g(t-b)-j)/g))] < log(U).
-    ///     ln_gamma(n-r+1) - ln_gamma(n-r-to+1) + sum_{j=0}^{o-1} [a*log(g) + ln_gamma((n-j)/g) - ln_gamma((n-ag-j)/g) - b*log(g) - ln_gamma((n+gt-j)/g) + ln_gamma((n+g(t-b)-j)/g)] < log(U).
+    ///     ln_gamma(n-r+1) - ln_gamma(n-r-t*o+1) + sum_{j=0}^{o-1} [log(g^a * gamma((n-j)/g) / gamma((n-ag-j)/g)) - log(g^b * gamma((n+gt-j)/g) / gamma((n+g(t-b)-j)/g))] < log(U).
+    ///     ln_gamma(n-r+1) - ln_gamma(n-r-t*o+1) + sum_{j=0}^{o-1} [a*log(g) + ln_gamma((n-j)/g) - ln_gamma((n-ag-j)/g) - b*log(g) - ln_gamma((n+gt-j)/g) + ln_gamma((n+g(t-b)-j)/g)] < log(U).
     /// We will do binary search with bounds t_lo, t_hi that maintain the invariant
     ///     P(l > t_hi) < U and P(l > t_lo) >= U.
     /// Once we get t_lo = t_hi - 1, we can then return t = t_hi as the output.
@@ -862,15 +857,6 @@ impl SimulatorCRNMultiBatch {
                 lhs += num_static_terms * (self.g as f64).ln();
                 lhs += ln_gamma((self.n - j) as f64 / self.g as f64);
                 lhs -= ln_gamma((self.n as f64 - (num_static_terms * self.g as f64) - j as f64) / self.g as f64);
-            }
-        } else if self.g < 0 {
-            let unsigned_g = (-1 * self.g) as usize;
-            for j in 0..self.o {
-                // Calculates a = ceil((n-j)/|g|)
-                let num_static_terms: f64 = ((self.n - j) as f64 / unsigned_g as f64).ceil();
-                lhs -= num_static_terms * (unsigned_g as f64).ln();
-                lhs -= ln_gamma((self.n + unsigned_g - j) as f64 / unsigned_g as f64);
-                lhs += ln_gamma((self.n as f64 - ((num_static_terms - 1.0) * unsigned_g as f64) - j as f64) / unsigned_g as f64);
             }
         } else {
             // Nothing to do here. There are no other static terms in the g = 0 case.
@@ -976,19 +962,6 @@ impl SimulatorCRNMultiBatch {
                     rhs += ln_gamma((self.n + (self.g as usize * t_mid) - j) as f64 / self.g as f64);
                     rhs -= ln_gamma((self.n as f64 + (self.g as f64 * (t_mid as f64 - num_dynamic_terms)) - j as f64) / self.g as f64);
                 } 
-            } else if self.g < 0 {
-                let unsigned_g = (-1 * self.g) as usize;
-                for j in 0..self.o {
-                    // Calculates b = ceil((n+|g|t-j)/|g|)
-                    let num_dynamic_terms = (((self.n + (unsigned_g as usize * t_mid) - j) as f64) / unsigned_g as f64).ceil();
-                    // println!("At point 1, {rhs}");
-                    rhs -= num_dynamic_terms * (unsigned_g as f64).ln();
-                    // println!("At point 2, {rhs}");
-                    rhs -= ln_gamma((self.n + (unsigned_g as usize * (t_mid + 1)) - j) as f64 / unsigned_g as f64);
-                    // println!("At point 3, {rhs}");
-                    rhs += ln_gamma((self.n as f64 + (unsigned_g as f64 * (t_mid as f64 - num_dynamic_terms + 1.0)) - j as f64) / unsigned_g as f64);
-                    // println!("At point 4, {rhs}");
-                } 
             } else {
                 // g = 0 case is much simpler.
                 for j in 0..self.o {
@@ -1043,8 +1016,9 @@ impl SimulatorCRNMultiBatch {
         // let v = random_transitions[[3,4,5]];
         // let w = [3,4,5];
         let o = random_transitions.shape().len() - 1;
-        // TODO Techncially g can be negative, so shouldn't be usize. 
-        let g = random_transitions.shape()[o] as isize - o as isize;
+        assert!(random_transitions.shape()[o] >= o, 
+            "Reactions should not have negative generativity when passed into simulator");
+        let g = random_transitions.shape()[o] - o;
         let reaction_indices = all_reaction_indices(q, o);
 
         // random_depth is the maximum number of outputs for any randomized transition
