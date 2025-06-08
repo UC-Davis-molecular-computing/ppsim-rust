@@ -1,1 +1,1 @@
-jupyter notebook gamma.ipynb
+jupyter lab gamma.ipynb
