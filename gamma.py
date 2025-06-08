@@ -9,13 +9,14 @@ def main():
     n = 10 ** 8
     k = round(sqrt(n))
     c = 2
+    g = 1
     trials = 10 ** 6
     seed = 0
 
     rng = np.random.default_rng(seed)
 
-    gammas = gammas_matching_hypo(n, k, c, 10)
-    gammas_samples = sample_gammas_sum(rng, gammas, trials)
+    gammas_params = gammas_params_matching_hypo(n, k, c, g, 10)
+    gammas_samples = sample_gammas_sum(rng, gammas_params, trials)
     hypo_samples = sample_hypo(rng, n, k, c, trials)
     print(f'gammas_samples: {gammas_samples}')
     print(f'hypo_samples: {hypo_samples}')
@@ -51,7 +52,7 @@ def sample_hypo(rng: np.random.Generator, n: int, k: int, c: int, size: int) -> 
     return samples
 
 
-def gammas_matching_hypo(n: int, k: int, o: int, g: int, num_gammas: int) -> npt.NDArray[np.float64]:
+def gammas_params_matching_hypo(n: int, k: int, o: int, g: int, num_gammas: int) -> npt.NDArray[np.float64]:
     """
     Compute the parameters of `num_gammas` Gamma distributions, whose sum matches the mean and variance of a
     hypoexponential distribution summing exponentials having scales (expected values of individual
