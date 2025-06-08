@@ -1,6 +1,8 @@
 use std::collections::{HashMap};
 use std::io::Write;
 use std::time::{Duration, Instant};
+use std::vec;
+use std::ops::Range;
 
 use crate::flame;
 
@@ -9,13 +11,14 @@ use numpy::PyUntypedArrayMethods;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 // use ndarray::prelude::*;
-use ndarray::ArrayD;
+use ndarray::{ArrayD, s, Axis};
 
 use numpy::{PyReadonlyArray1, PyReadonlyArray2, PyReadonlyArrayDyn};
 use rand::rngs::SmallRng;
 use rand::Rng;
 use rand::SeedableRng;
-// use statrs::distribution::{Geometric, Uniform};
+use rand::seq::SliceRandom;
+use statrs::distribution::{Geometric, Uniform};
 
 use crate::simulator_abstract::Simulator;
 
@@ -83,10 +86,8 @@ pub struct SimulatorCRNMultiBatch {
     /// interaction steps, then all non-colliding pairs of 'delayed agents' are
     /// processed in parallel.
     batch_threshold: usize,
-    /// Array which stores sampled counts of initiator agents
-    /// (row sums of the 'D' matrix from the paper).
-    #[allow(dead_code)]
-    row_sums: Vec<usize>,
+    /// Struct which stores the result of hypergeometric sampling.
+    array_sums: NDBatchResult,
     /// Array which stores the counts of responder agents for each type of
     /// initiator agent (one row of the 'D' matrix from the paper).
     #[allow(dead_code)]
@@ -414,6 +415,89 @@ fn process_span(span_data_map: &mut HashMap<String, SpanData>, span: &flame::Spa
     }
 }
 
+// A struct for holding the q^o results of multidimensional hypergeometric sampling from an urn.
+// Recursive because of unknown nesting depth. To efficiently sample the k reactions of a batch,
+// we first need to sample all the codimension-1 sums, that is, how many reactions have each species
+// as its first reactant. Then, for each of those, we need to sample the codimension-2 sums, e.g.,
+// how many reactions with A as their first reactant have each reactant as their second. And so on,
+// recursively down to o dimensions. 
+// When sampling, the each struct will store its codimension-1 sums in values. Then, for each
+// of those values, it will recursively sample that many subreactions into its subresults.
+// This could be implemented in a more memory-efficient way where the subresult is just a single
+// NDBatchResult instead of a Vec, and only one result is stored at a time during the recursion.
+// I'm not sure if it's a better implementation; it's definitely better if we expect q^o to
+// potentially be large enough that we couldn't store it all at once, though at that point
+// it's unlikely that this is the right algorithm for simulation.
+struct NDBatchResult {
+    // Tells you what level of recursion you're on. 
+    // For the top level, dimensions = o (number of reactants). 
+    // For the bottom level, dimensions = 1.
+    dimensions: usize, 
+    // q
+    length: usize,
+    // For iterating over results
+    cur_idx: usize,
+    // Initialized to 0, then sampled into via urn.sample_vector().
+    pub values: Vec<usize>,
+    // If dimensions > 1, this is a vector of subresults. If dimensions = 1, it is empty.
+    pub subresults: Vec<NDBatchResult>,
+}
+
+impl NDBatchResult {
+    fn populate_empty(&mut self) {
+        if self.dimensions > 1 {
+            for _ in 0..self.length {
+                let mut subresult = NDBatchResult{
+                    dimensions: self.dimensions - 1, 
+                    length: self.length, 
+                    cur_idx: 0,
+                    values: vec![0; self.length], 
+                    subresults: {if self.dimensions == 2 {Vec::new()} else {Vec::with_capacity(self.length)}}};
+                subresult.populate_empty();
+                self.subresults.push(subresult);
+            }
+        }
+    }
+    fn sample_batch_result(&mut self, reactions: usize, urn: &mut Urn) {
+        urn.sample_vector(reactions, &mut self.values);
+        self.cur_idx = 0;
+        if self.dimensions > 1 {
+            for i in 0..self.length {
+                self.subresults[i].sample_batch_result(self.values[i], urn);
+            }
+        }
+    }
+    fn get_next(&mut self) -> (Vec<usize>, usize, bool) {
+        let mut done = false;
+        if self.dimensions == 1 {
+            self.cur_idx += 1;
+            return (vec![self.cur_idx - 1], self.values[self.cur_idx - 1], self.cur_idx == self.length);
+        } else {
+            let (mut subindices, value, subresult_done) = self.subresults[self.cur_idx].get_next();
+            if subresult_done {
+                self.cur_idx += 1;
+                if self.cur_idx == self.length {
+                    done = true;
+                }
+            }
+            subindices.push(self.cur_idx - 1);
+            return (subindices, value, done);
+        }
+    }
+}
+
+fn make_batch_result(dimensions: usize, length: usize) -> NDBatchResult {
+    let mut result = NDBatchResult {
+        dimensions: dimensions, 
+        length: length, 
+        cur_idx: 0,
+        values: vec![0;length], 
+        subresults: Vec::with_capacity(length)};
+    result.populate_empty();
+    result
+}
+
+
 // const CAP_BATCH_THRESHOLD: bool = true;
 
 impl SimulatorCRNMultiBatch {
@@ -607,6 +691,115 @@ impl SimulatorCRNMultiBatch {
 
         // self.urn.sort();
         // self.update_enabled_reactions();
+    }
+
+    fn batch_step(&mut self, t_max: usize) -> () {
+        self.updated_counts.reset();
+        let uniform = Uniform::standard();
+
+        flame::start("sample batch");
+
+        let u = self.rng.sample(uniform);
+
+        let has_bounds = false;
+        flame::start("sample_coll");
+        let l = self.sample_coll(0, u, has_bounds);
+        let mut rxns_before_coll = l;
+        flame::end("sample_coll");
+
+        assert!(l > 0, "sample_coll must return at least 1 for batching");
+
+        // If the sampled collision happens after t_max, then include delayed agents up until t_max
+        //   and do not perform the collision.
+        if t_max > 0 && self.t + l >= t_max {
+            assert!(t_max > self.t);
+            rxns_before_coll = t_max - self.t;
+        }
+
+
+        flame::end("sample batch");
+
+        flame::start("process batch");
+
+        self.do_gillespie = true; // if entire batch are null reactions, stays true and switches to gillspie
+
+        // The idea here is to iterate through random_transitions and array_sums together; they should
+        // both be indexed by q^o-tuples when iterated through this way, and the iteration order should
+        // be lexicographic for both of them.
+        self.array_sums.sample_batch_result(l, &mut self.urn);
+        let mut done = false;
+        for random_transition in self.random_transitions.lanes(Axis(self.o)).into_iter() {
+            assert!(!done, "self.array_sums finished iterating before self.random_transitions");
+            let next_array_sum = self.array_sums.get_next();
+            // TODO maybe add an assert check that the two structures are iterated through
+            // in the same order, i.e. reactants match
+            let (_reactants, quantity) = (next_array_sum.0, next_array_sum.1);
+            done = next_array_sum.2;
+            let (num_outputs, first_idx) = (random_transition[0], random_transition[1]);
+            let probabilities = self.transition_probabilities[first_idx..first_idx + num_outputs].to_vec();
+            flame::start("multinomial sample");
+            multinomial_sample(quantity, &probabilities, &mut self.m, &mut self.rng);
+            flame::end("multinomial sample");
+            assert_eq!(
+                self.m.iter().sum::<usize>(),
+                quantity,
+                "sample sum mismatch"
+            );
+            for c in 0..num_outputs {
+                let idx = first_idx + c;
+                let outputs = &self.random_outputs[idx];
+                for output in outputs {
+                    self.updated_counts.add_to_entry(output.clone(), self.m[c] as i64);
+                }
+            }
+        }
+        assert!(done, "self.random_transitions finished iterating before self.array_sums");
+
+        self.t += l;
+        self.urn.add_vector(&self.updated_counts.config);
+
+        flame::end("process batch");
+        flame::start("sample collision");
+        // We need to sample a collision. It could involve as few as 1 already-used molecule,
+        // or as many as o. So we need to decide how many are involved.
+        // TODO: I'm going to use u128 here because I'm pretty worried about fitting things 
+        // into anything smaller. In fact I'm a little worried about u128; on population size
+        // 10^12 which is about 2^40, if we have 4 reactants, then the denominator for the
+        // relevant probability distribution will be too large to store. 
+        let mut collision_count_num_ways: Vec<u128> = Vec::with_capacity(self.o);
+        let num_new_molecules = (self.o + self.g) * l;
+        let num_old_molecules = self.n - (self.o * l);
+        for i in 0..self.o + 1 {
+            collision_count_num_ways.push(
+                (num_old_molecules as u128).pow((self.o - i).try_into().unwrap()) 
+                * (num_new_molecules as u128).pow(i.try_into().unwrap()));
+        }
+        let total_ways: u128 = (num_new_molecules as u128 + num_old_molecules as u128).pow(self.o.try_into().unwrap());
+        let u2 = self.rng.sample(uniform);
+        let mut num_colliding_molecules = 0;
+        for i in 0..self.o {
+            if (collision_count_num_ways[i] as f64) / (total_ways as f64) < u2 {
+                num_colliding_molecules = i + 1;
+                break;
+            }
+        }
+        assert!(num_colliding_molecules > 0, "Failed to sample collision size");
+        let mut collision: Vec<usize> = Vec::with_capacity(self.o);
+        for _ in 0..num_colliding_molecules {
+            collision.push(self.updated_counts.sample_one().unwrap());
+        }
+        for _ in num_colliding_molecules..self.o {
+            collision.push(self.urn.sample_one().unwrap());
+        }
+        // TODO: no need to shuffle if the implementation doesn't care about reactant order.
+        // I'm not sure if it will at this point.
+        collision.shuffle(&mut self.rng);
+        // TODO do the collision.
+        flame::end("sample collision");
+
+        self.n += self.g * (l + 1);
+        self.urn.sort();
+        //self.update_enabled_reactions();
     }
 
     /// Chooses sender/receiver, then applies delta to input states a, b.
@@ -1044,7 +1237,7 @@ impl SimulatorCRNMultiBatch {
 
         let urn = Urn::new(config.clone(), seed);
         let updated_counts = Urn::new(vec![0; q], seed);
-        let row_sums = vec![0; q];
+        let array_sums = make_batch_result(o, q);
         let row = vec![0; q];
         let m = vec![0; random_depth];
         let silent = false;
@@ -1082,7 +1275,7 @@ impl SimulatorCRNMultiBatch {
             updated_counts,
             logn,
             batch_threshold,
-            row_sums,
+            array_sums,
             row,
             m,
             do_gillespie,
