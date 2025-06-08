@@ -1,6 +1,7 @@
 from math import comb
-from mpmath import hyp3f2, mpf, mp, binomial, psi
+from mpmath import hyp3f2, mpf, binomial, psi
 import numpy as np
+import numpy.typing as npt
 from scipy.special import binom, gammaln, polygamma
 
 def main():
@@ -8,19 +9,20 @@ def main():
     n = 10 ** 8
     k = round(sqrt(n))
     c = 2
+    g = 1
     trials = 10 ** 6
     seed = 0
 
     rng = np.random.default_rng(seed)
 
-    gammas = gammas_matching_hypo(n, k, c, 10)
-    gammas_samples = sample_gammas_sum(rng, gammas, trials)
+    gammas_params = gammas_params_matching_hypo(n, k, c, g, 10)
+    gammas_samples = sample_gammas_sum(rng, gammas_params, trials)
     hypo_samples = sample_hypo(rng, n, k, c, trials)
     print(f'gammas_samples: {gammas_samples}')
     print(f'hypo_samples: {hypo_samples}')
 
 
-def sample_gammas_sum(rng: np.random.Generator, gammas: np.ndarray, size: int) -> np.ndarray:
+def sample_gammas_sum(rng: np.random.Generator, gammas: np.ndarray, size: int) -> npt.NDArray[np.float64]:
     """
     Sample from a list of gamma distributions with parameters (shape, scale), given as a 2D numpy array,
     and then return their sum. Do this `size` times, and return the result as a 1D numpy array.
@@ -36,7 +38,7 @@ def sample_gammas_sum(rng: np.random.Generator, gammas: np.ndarray, size: int) -
     return s
 
 
-def sample_hypo(rng: np.random.Generator, n: int, k: int, c: int, size: int) -> np.ndarray:
+def sample_hypo(rng: np.random.Generator, n: int, k: int, c: int, size: int) -> npt.NDArray[np.float64]:
     """
     Sample from a hypoexponential distribution summing exponentials having rates
     n choose c, n+1 choose c, n+2 choose c, ..., n+k-1 choose c.
@@ -50,12 +52,12 @@ def sample_hypo(rng: np.random.Generator, n: int, k: int, c: int, size: int) -> 
     return samples
 
 
-def gammas_matching_hypo(n: int, k: int, c: int, num_gammas: int) -> np.ndarray:
+def gammas_params_matching_hypo(n: int, k: int, o: int, g: int, num_gammas: int) -> npt.NDArray[np.float64]:
     """
     Compute the parameters of `num_gammas` Gamma distributions, whose sum matches the mean and variance of a
     hypoexponential distribution summing exponentials having scales (expected values of individual
     exponentials) n choose c, n+1 choose c, n+2 choose c, ..., n+k-1 choose c.
-    The parameters are returned as a list of tuples (shape, scale).
+    The parameters for the gammas are returned as a 2D ndarray representing pairs (shape, scale).
 
     If `num_gammas` evenly divides `k`, so that `k` / `num_gammas` is a integer `s`, each gamma distribution
     is chosen to match a hypoexponential distribution with `s` exponentials. The i'th such
@@ -77,16 +79,16 @@ def gammas_matching_hypo(n: int, k: int, c: int, num_gammas: int) -> np.ndarray:
     gammas_f: list[tuple[float, float]] = []
     for i in range(num_gammas):
         # print(f'Block {i}: n={n+i*block_size}, k={block_size}')
-        shape, scale = gamma_matching_hypo(n + i * block_size, block_size, c)
-        gammas_f.append((float(shape), float(scale)))
+        shape, rate = gamma_matching_hypo(n + i * block_size, block_size, o, g)
+        gammas_f.append((float(shape), float(rate)))
 
     if remainder > 0:
         # Handle the last block with the remainder
         # print(f'Block {num_gammas}: n={n+num_gammas*block_size}, k={remainder}')
-        shape, scale = gamma_matching_hypo(n + num_gammas * block_size, remainder, c)
-        gammas_f.append((shape, scale))
+        shape, rate = gamma_matching_hypo(n + num_gammas * block_size, remainder, o, g)
+        gammas_f.append((shape, rate))
 
-    gammas: np.ndarray = np.array(gammas_f)
+    gammas = np.array(gammas_f)
 
     if np.min(gammas) < 0:
         raise ValueError("Shape and scale parameters must be positive, "
@@ -95,74 +97,77 @@ def gammas_matching_hypo(n: int, k: int, c: int, num_gammas: int) -> np.ndarray:
 
     return gammas
 
-
-def gamma_matching_hypo(n: int, k: int, c: int) -> tuple[mpf, mpf]:
+#XXX: many of the return types here should be `mpf` instead of `float`, but
+# mpmath does not appear to support using mpf as a type,, despite calling it a "type"
+# in their documentation: https://mpmath.org/doc/current/basics.html#number-types
+def gamma_matching_hypo(n: int, k: int, o: int, g: int) -> tuple[float, float]:
     """
-    Compute the parameters of an Gamma distribution that matches the mean and variance of a hypoexponential
-    distribution summing exponentials having rates
-    n choose c, n+1 choose c, n+2 choose c, ..., n+k-1 choose c.
+    Compute the parameters (shape, rate) of a Gamma distribution that matches the 
+    mean and variance of a hypoexponential distribution summing exponentials with rates
+    n choose c, n+g choose c, n+2*g choose c, ..., n+k-1 choose c.
     """
-    mean = mean_hypo(n, k, c)
-    var = var_hypo(n, k, c)
+    mean = mean_hypo(n, k, o, g)
+    var = var_hypo(n, k, o, g)
     shape = mean ** 2 / var
-    scale = var / mean
-    return shape, scale
+    rate = mean / var
+    return shape, rate
 
 
-def mean_hypo(n: int, k: int, c: int, special: bool = True) -> mpf:
-    if c == 1:  # need this special case unconditionally to avoid div by 0
-        return mean_hypo1(n, k)
+def mean_hypo(n: int, k: int, o: int, g: int, special: bool = True) -> float:
+    if o == 1:  # need this special case unconditionally to avoid div by 0
+        return mean_hypo_o1(n, k, g)
     if special:  # slightly faster for c=2,3; not a huge difference
-        if c == 2:
-            return mean_hypo2(n, k)
-        elif c == 3:
-            return mean_hypo3(n, k)
+        if o == 2:
+            return mean_hypo_o2(n, k, g)
+        elif o == 3:
+            return mean_hypo_o3(n, k, g)
     # return (n / comb(n, c) - (n + k) / comb(n + k, c)) / (c - 1)
     n = mpf(n)
     k = mpf(k)
-    c = mpf(c)
-    return (n / binomial(n, c) - (n + k) / binomial(n + k, c)) / (c - 1)
+    o = mpf(o)
+    return (n / binomial(n, o) - (n + k) / binomial(n + k, o)) / (o - 1)
 
 
-def var_hypo(n: int, k: int, c: int, special: bool = True) -> mpf:
+def var_hypo(n: int, k: int, o: int, g: int, special: bool = True) -> float:
     if special:  # faster for constants c=1,2,3,4 than calling hyp3f2 for general c
-        if c == 1:
+        if o == 1:
             return var_hypo1(n, k)
-        elif c == 2:
+        elif o == 2:
             return var_hypo2(n, k)
-        elif c == 3:
+        elif o == 3:
             return var_hypo3(n, k)
-        elif c == 4:
+        elif o == 4:
             return var_hypo4(n, k)
-    n_choose_c = binomial(n, c)
-    n_plus_k_choose_c = binomial(n + k, c)
-    return hyp3f2(1, n - c + 1, n - c + 1, n + 1, n + 1, 1) / n_choose_c ** 2 \
-        - hyp3f2(1, n + k - c + 1, n + k - c + 1, n + k + 1, n + k + 1, 1) / n_plus_k_choose_c ** 2
+    n_choose_c = binomial(n, o)
+    n_plus_k_choose_c = binomial(n + k, o)
+    return hyp3f2(1, n - o + 1, n - o + 1, n + 1, n + 1, 1) / n_choose_c ** 2 \
+        - hyp3f2(1, n + k - o + 1, n + k - o + 1, n + k + 1, n + k + 1, 1) / n_plus_k_choose_c ** 2
 
 
-def mean_hypo1(n: int, k: int) -> mpf:
+def mean_hypo_o1(n: int, k: int, g: int) -> float:
     # return float(polygamma(0, n + k) - polygamma(0, n))
-    return psi(0, n + k) - psi(0, n)
+    # return psi(0, n + k) - psi(0, n)
+    return (2*n + k - 1) * k / 2
 
 
-def mean_hypo2(n: int, k: int) -> mpf:
+def mean_hypo_o2(n: int, k: int, g: int) -> float:
     n = mpf(n)
     k = mpf(k)
     return 2 * k / ((n + k - 1) * (n - 1))
 
 
-def mean_hypo3(n: int, k: int) -> mpf:
+def mean_hypo_o3(n: int, k: int, g: int) -> float:
     n = mpf(n)
     k = mpf(k)
     return (3 * k * (2 * n + k - 3)) / ((n - 2) * (n - 1) * (n + k - 2) * (n + k - 1))
 
 
-def var_hypo1(n: int, k: int) -> mpf:
+def var_hypo1(n: int, k: int) -> float:
     # return float(polygamma(1, n) - polygamma(1, n + k))
     return psi(1, n) - psi(1, n + k)
 
 
-def var_hypo2(n: int, k: int) -> mpf:
+def var_hypo2(n: int, k: int) -> float:
     # return mpf(4) * k * (k - 2 * k * n - 2 * n * (n - 1)) / ((n - 1) * (n + k - 1)) ** 2 + \
     #     8 * (polygamma(1, n - 1) - polygamma(1, n + k - 1))
     n = mpf(n)
@@ -171,7 +176,7 @@ def var_hypo2(n: int, k: int) -> mpf:
         8 * (psi(1, n - 1) - psi(1, n + k - 1))
 
 
-def var_hypo3(n: int, k: int) -> mpf:
+def var_hypo3(n: int, k: int) -> float:
     n = mpf(n)
     k = mpf(k)
     return (mpf(9) * (6 * (n ** 2 - 3 * n + 2) ** 2 * (
@@ -185,7 +190,7 @@ def var_hypo3(n: int, k: int) -> mpf:
             (n - 2) ** 2 * (n - 1) ** 2 * (k + n - 2) ** 2 * (k + n - 1) ** 2)
 
 
-def var_hypo4(n: int, k: int) -> mpf:
+def var_hypo4(n: int, k: int) -> float:
     # TODO: precompute shared subexpressions here (e.g., n**3, n**2, (n ** 3 - 6 * n ** 2 + 11 * n - 6))
     n = mpf(n)
     k = mpf(k)
@@ -228,13 +233,13 @@ def var_hypo4(n: int, k: int) -> mpf:
 ## more direct ways to compute; used to verify faster ways give same answer
 
 
-def reciprocals(n: int, k: int, c: int) -> np.ndarray:
+def reciprocals(n: int, k: int, c: int) -> npt.NDArray[np.float64]:
     indices = np.arange(k)
     binomial_values = binom(n + indices, c)
     return 1.0 / binomial_values
 
 
-def reciprocals_gamma(n: int, k: int, c: int, square: bool) -> np.ndarray:
+def reciprocals_gamma(n: int, k: int, c: int, square: bool) -> npt.NDArray[np.float64]:
     indices = np.arange(k)
     log_binom = (gammaln(n + indices + 1) - gammaln(c + 1) -
                  gammaln(n + indices - c + 1))
