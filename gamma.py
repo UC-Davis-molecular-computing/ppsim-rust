@@ -470,8 +470,6 @@ def general_mean_hypo_hypergeometric(n: int, k: int, o: int, g: int) -> float:
     # g=2: https://www.wolframalpha.com/input?i=sum_%7Bi%3D0%7D%5E%7Bk-1%7D+1%2Fbinomial%28n+%2B+2*i%2C+o%29
     # g=3: https://www.wolframalpha.com/input?i=sum_%7Bi%3D0%7D%5E%7Bk-1%7D+1%2Fbinomial%28n+%2B+3*i%2C+o%29
     # XXX: This is VERY slow, it can take over a second to compute for example, for n=10**8, k=10**4, o=4, g=4
-    # So we may just want to write out the special cases for larger o
-    # and raise an exception if o is larger than that.
 
     as1 = [1.0]
     bs1 = []
