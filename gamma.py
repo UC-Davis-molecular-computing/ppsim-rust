@@ -493,265 +493,95 @@ def general_mean_hypo_hypergeometric(n: int, k: int, o: int, g: int) -> float:
     return num1 / den1 - num2 / den2
 
 
-# I don't know what happened here, but going from o=5 to o=6 seems to be qualitatively more complex,
-# and also its slow to compute, no better than calling mpmath.hyper (which is too slow for us).
-# I don't know why Wolfram alpha did not continue with the Pascal's triangle pattern,
-# but this seems strictly worse than `mean_hypo_o6` above.
-def mean_hypo_o6_wolfram(n: int, k: int, g: int) -> float:
-    # sum_{i=0}^{k-1} 1 / binomial(n + g*i, 6)
-    # https://www.wolframalpha.com/input?i=sum_%7Bi%3D0%7D%5E%7Bk-1%7D+1+%2F+binomial%28n+%2B+g*i%2C+6%29
-    assert g >= 1, "g must be at least 1"
-    # print(f'mean_hypo_o5_wolfram: n={n}, k={k}, g={g}')
-    return (
-        (
-            (
-                g**6 * k**6
-                + 3 * g**5 * k**5 * (2 * n - 5)
-                + 5 * g**4 * k**4 * (3 * n**2 - 15 * n + 17)
-                + 5 * g**3 * k**3 * (4 * n**3 - 30 * n**2 + 68 * n - 45)
-                + g**2 * k**2 * (15 * n**4 - 150 * n**3 + 510 * n**2 - 675 * n + 274)
-                + g
-                * k
-                * (6 * n**5 - 75 * n**4 + 340 * n**3 - 675 * n**2 + 548 * n - 120)
-                + n * (n**5 - 15 * n**4 + 85 * n**3 - 225 * n**2 + 274 * n - 120)
-            )
-            * (
-                polygamma(0, k + (n - 5) / g)
-                - 5 * polygamma(0, k + (n - 4) / g)
-                + 10 * polygamma(0, k + (n - 3) / g)
-                - 10 * polygamma(0, k + (n - 2) / g)
-                + 5 * polygamma(0, k + (n - 1) / g)
-                - polygamma(0, k + n / g)
-            )
-        )
-        / binomial(g * k + n, 6)
-        - (
-            n
-            * (n**5 - 15 * n**4 + 85 * n**3 - 225 * n**2 + 274 * n - 120)
-            * (
-                polygamma(0, (n - 5) / g)
-                - 5 * polygamma(0, (n - 4) / g)
-                + 10 * polygamma(0, (n - 3) / g)
-                - 10 * polygamma(0, (n - 2) / g)
-                + 5 * polygamma(0, (n - 1) / g)
-                - polygamma(0, n / g)
-            )
-        )
-        / binomial(n, 6)
-    ) / (120 * g)
 
 
-def mean_hypo_g1(n: int, k: int, o: int) -> float:
-    # sum_{i=0}^{k-1} 1/binomial(n + i, o)
-    # https://www.wolframalpha.com/input?i=sum_%7Bi%3D0%7D%5E%7Bk-1%7D+1%2Fbinomial%28n+%2B+i%2C+o%29
-    assert o >= 1, "o must be at least 1"
-    return (n / binomial(n, o) - (k + n) / binomial(k + n, o)) / (o - 1)
-
-
-def mean_hypo_g2(n: int, k: int, o: int) -> float:
-    # sum_{i=0}^{k-1} 1/binomial(n + 2*i, o)
-    # https://www.wolframalpha.com/input?i=sum_%7Bi%3D0%7D%5E%7Bk-1%7D+1%2Fbinomial%28n+%2B+2*i%2C+o%29
-    assert o >= 1, "o must be at least 1"
-    return hyp3f2(
-        1, n / 2 - o / 2 + 1 / 2, n / 2 - o / 2 + 1, n / 2 + 1 / 2, n / 2 + 1, 1
-    ) / binomial(n, o) - hyp3f2(
-        1,
-        k + n / 2 - o / 2 + 1 / 2,
-        k + n / 2 - o / 2 + 1,
-        k + n / 2 + 1 / 2,
-        k + n / 2 + 1,
-        1,
-    ) / binomial(
-        2 * k + n, o
-    )
 
 
 def var_hypo(n: int, k: int, o: int, g: int, special: bool = True) -> float:
     if special:  # faster for constants c=1,2,3,4 than calling hyp3f2 for general c
         if o == 1:
-            return var_hypo1(n, k)
+            return var_hypo_o1(n, k, g)
         elif o == 2:
-            return var_hypo2(n, k)
+            return var_hypo_o2(n, k, g)
         elif o == 3:
-            return var_hypo3(n, k)
+            return var_hypo_o3(n, k, g)
         elif o == 4:
-            return var_hypo4(n, k)
-    n_choose_c = binomial(n, o)
-    n_plus_k_choose_c = binomial(n + k, o)
-    return (
-        hyp3f2(1, n - o + 1, n - o + 1, n + 1, n + 1, 1) / n_choose_c**2
-        - hyp3f2(1, n + k - o + 1, n + k - o + 1, n + k + 1, n + k + 1, 1)
-        / n_plus_k_choose_c**2
-    )
+            return var_hypo_o4(n, k, g)
+        elif o == 4:
+            return var_hypo_o5(n, k, g)
+    raise NotImplementedError
 
 
-def var_hypo1(n: int, k: int) -> float:
-    # return float(polygamma(1, n) - polygamma(1, n + k))
-    return polygamma(1, n) - polygamma(1, n + k)
+def var_hypo_o1(n: int, k: int, g: int) -> float:
+    return (polygamma(1, n/g) - polygamma(1, k + n/g)) / g**2
 
 
-def var_hypo2(n: int, k: int) -> float:
-    # return mpf(4) * k * (k - 2 * k * n - 2 * n * (n - 1)) / ((n - 1) * (n + k - 1)) ** 2 + \
-    #     8 * (polygamma(1, n - 1) - polygamma(1, n + k - 1))
-    n = mpf(n)
-    k = mpf(k)
-    return mpf(4) * k * (k - 2 * k * n - 2 * n * (n - 1)) / (
-        (n - 1) * (n + k - 1)
-    ) ** 2 + 8 * (polygamma(1, n - 1) - polygamma(1, n + k - 1))
-
-
-def var_hypo3(n: int, k: int) -> float:
-    n = mpf(n)
-    k = mpf(k)
-    return (
-        mpf(9)
-        * (
-            6
-            * (n**2 - 3 * n + 2) ** 2
-            * (k**2 + k * (2 * n - 3) + n**2 - 3 * n + 2) ** 2
-            * polygamma(1, n - 2)
-            - 6
-            * (n**2 - 3 * n + 2) ** 2
-            * (k**2 + k * (2 * n - 3) + n**2 - 3 * n + 2) ** 2
-            * polygamma(1, k + n - 2)
-            - k
-            * (
-                k**3 * (6 * n**3 - 21 * n**2 + 25 * n - 9)
-                + 2 * k**2 * (9 * n**4 - 42 * n**3 + 74 * n**2 - 57 * n + 15)
-                + k * (18 * n**5 - 105 * n**4 + 246 * n**3 - 288 * n**2 + 163 * n - 33)
-                + 6 * n**6
-                - 42 * n**5
-                + 123 * n**4
-                - 192 * n**3
-                + 163 * n**2
-                - 66 * n
-                + 8
+def var_hypo_o2(n: int, k: int, g: int) -> float:
+    return \
+        (
+            4 * 
+            (
+                2 * g * 
+                (
+                    polygamma(0, k + n/g) 
+                    - polygamma(0, (g * k + n - 1)/g) 
+                    + polygamma(0, (n - 1)/g) 
+                    - polygamma(0, n/g) 
+                )
+                - 
+                (
+                    polygamma(1, k + n/g)
+                    + polygamma(1, (g * k + n - 1)/g) 
+                    + polygamma(1, (n - 1)/g) 
+                    + polygamma(1, n/g)
+                )
             )
-        )
-    ) / ((n - 2) ** 2 * (n - 1) ** 2 * (k + n - 2) ** 2 * (k + n - 1) ** 2)
+        ) / g**2 
 
 
-def var_hypo4(n: int, k: int) -> float:
-    # TODO: precompute shared subexpressions here (e.g., n**3, n**2, (n ** 3 - 6 * n ** 2 + 11 * n - 6))
-    n = mpf(n)
-    k = mpf(k)
-    numerator = mpf(32) * (
-        30
-        * (n**3 - 6 * n**2 + 11 * n - 6) ** 2
-        * (
-            k**3
-            + 3 * k**2 * (n - 2)
-            + k * (3 * n**2 - 12 * n + 11)
-            + n**3
-            - 6 * n**2
-            + 11 * n
-            - 6
-        )
-        ** 2
-        * polygamma(1, n - 3)
-        - 30
-        * (n**3 - 6 * n**2 + 11 * n - 6) ** 2
-        * (
-            k**3
-            + 3 * k**2 * (n - 2)
-            + k * (3 * n**2 - 12 * n + 11)
-            + n**3
-            - 6 * n**2
-            + 11 * n
-            - 6
-        )
-        ** 2
-        * polygamma(1, k + n - 3)
-        - k
-        * (
-            k**5 * (30 * n**5 - 255 * n**4 + 845 * n**3 - 1350 * n**2 + 1039 * n - 303)
-            + 6
-            * k**4
-            * (
-                25 * n**6
-                - 255 * n**5
-                + 1065 * n**4
-                - 2320 * n**3
-                + 2774 * n**2
-                - 1721 * n
-                + 426
+def var_hypo_o3(n: int, k: int, g: int) -> float:
+    return \
+        (
+            9 * 
+            (
+                3 * g * 
+                (
+                    polygamma(0, k + n/g) 
+                    - polygamma(0, (g * k + n - 2)/g) 
+                    + polygamma(0, (n - 2)/g) 
+                    - polygamma(0, n/g)
+                )
+                 - polygamma(1, (g * k + n - 2)/g) 
+                 - 4 * polygamma(1, (g * k + n - 1)/g) 
+                 - polygamma(1, k + n/g) 
+                 + polygamma(1, (n - 2)/g) 
+                 + 4 * polygamma(1, (n - 1)/g) 
+                 + polygamma(1, n/g)
             )
-            + k**3
-            * (
-                300 * n**7
-                - 3570 * n**6
-                + 17955 * n**5
-                - 49350 * n**4
-                + 79925 * n**3
-                - 76170 * n**2
-                + 39382 * n
-                - 8394
-            )
-            + k**2
-            * (
-                300 * n**8
-                - 4080 * n**7
-                + 23975 * n**6
-                - 79380 * n**5
-                + 161750 * n**4
-                - 207480 * n**3
-                + 163283 * n**2
-                - 71652 * n
-                + 13212
-            )
-            + k
-            * (
-                150 * n**9
-                - 2295 * n**8
-                + 15420 * n**7
-                - 59640 * n**6
-                + 146145 * n**5
-                - 235050 * n**4
-                + 247802 * n**3
-                - 164592 * n**2
-                + 61963 * n
-                - 9879
-            )
-            + 30 * n**10
-            - 510 * n**9
-            + 3855 * n**8
-            - 17040 * n**7
-            + 48715 * n**6
-            - 94020 * n**5
-            + 123901 * n**4
-            - 109728 * n**3
-            + 61963 * n**2
-            - 19758 * n
-            + 2592
-        )
-    )
+        ) / g**2
 
-    denominator = (
-        mpf(3)
-        * (n - 3) ** 2
-        * (n - 2) ** 2
-        * (n - 1) ** 2
-        * (k + n - 3) ** 2
-        * (k + n - 2) ** 2
-        * (k + n - 1) ** 2
-    )
 
-    return numerator / denominator
+def var_hypo_o4(n: int, k: int, g: int) -> float:
+    raise NotImplementedError
 
+
+def var_hypo_o5(n: int, k: int, g: int) -> float:
+    raise NotImplementedError
 
 ###################################################
 ## more direct ways to compute; used to verify faster ways give same answer
+## these assume g = 1; rewrite for general g
 
 
-def reciprocals(n: int, k: int, c: int) -> npt.NDArray[np.float64]:
+def reciprocals(n: int, k: int, o: int) -> npt.NDArray[np.float64]:
     indices = np.arange(k)
-    binomial_values = binom(n + indices, c)
+    binomial_values = binom(n + indices, o)
     return 1.0 / binomial_values
 
 
-def reciprocals_gamma(n: int, k: int, c: int, square: bool) -> npt.NDArray[np.float64]:
+def reciprocals_gamma(n: int, k: int, o: int, square: bool) -> npt.NDArray[np.float64]:
     indices = np.arange(k)
-    log_binom = gammaln(n + indices + 1) - gammaln(c + 1) - gammaln(n + indices - c + 1)
+    log_binom = gammaln(n + indices + 1) - gammaln(o + 1) - gammaln(n + indices - o + 1)
     coef = -2 if square else -1
     return np.exp(coef * log_binom)
 
@@ -784,6 +614,80 @@ def var_direct(n: int, k: int, c: int) -> float:
     for i in range(k):
         s += 1 / comb(n + i, c) ** 2
     return s
+
+
+# # I don't know what happened here, but going from o=5 to o=6 seems to be qualitatively more complex,
+# # and also its slow to compute, no better than calling mpmath.hyper (which is too slow for us).
+# # I don't know why Wolfram alpha did not continue with the Pascal's triangle pattern,
+# # but this seems strictly worse than `mean_hypo_o6` above.
+# def mean_hypo_o6_wolfram(n: int, k: int, g: int) -> float:
+#     # sum_{i=0}^{k-1} 1 / binomial(n + g*i, 6)
+#     # https://www.wolframalpha.com/input?i=sum_%7Bi%3D0%7D%5E%7Bk-1%7D+1+%2F+binomial%28n+%2B+g*i%2C+6%29
+#     assert g >= 1, "g must be at least 1"
+#     # print(f'mean_hypo_o5_wolfram: n={n}, k={k}, g={g}')
+#     return (
+#         (
+#             (
+#                 g**6 * k**6
+#                 + 3 * g**5 * k**5 * (2 * n - 5)
+#                 + 5 * g**4 * k**4 * (3 * n**2 - 15 * n + 17)
+#                 + 5 * g**3 * k**3 * (4 * n**3 - 30 * n**2 + 68 * n - 45)
+#                 + g**2 * k**2 * (15 * n**4 - 150 * n**3 + 510 * n**2 - 675 * n + 274)
+#                 + g
+#                 * k
+#                 * (6 * n**5 - 75 * n**4 + 340 * n**3 - 675 * n**2 + 548 * n - 120)
+#                 + n * (n**5 - 15 * n**4 + 85 * n**3 - 225 * n**2 + 274 * n - 120)
+#             )
+#             * (
+#                 polygamma(0, k + (n - 5) / g)
+#                 - 5 * polygamma(0, k + (n - 4) / g)
+#                 + 10 * polygamma(0, k + (n - 3) / g)
+#                 - 10 * polygamma(0, k + (n - 2) / g)
+#                 + 5 * polygamma(0, k + (n - 1) / g)
+#                 - polygamma(0, k + n / g)
+#             )
+#         )
+#         / binomial(g * k + n, 6)
+#         - (
+#             n
+#             * (n**5 - 15 * n**4 + 85 * n**3 - 225 * n**2 + 274 * n - 120)
+#             * (
+#                 polygamma(0, (n - 5) / g)
+#                 - 5 * polygamma(0, (n - 4) / g)
+#                 + 10 * polygamma(0, (n - 3) / g)
+#                 - 10 * polygamma(0, (n - 2) / g)
+#                 + 5 * polygamma(0, (n - 1) / g)
+#                 - polygamma(0, n / g)
+#             )
+#         )
+#         / binomial(n, 6)
+#     ) / (120 * g)
+
+
+# def mean_hypo_g1(n: int, k: int, o: int) -> float:
+#     # sum_{i=0}^{k-1} 1/binomial(n + i, o)
+#     # https://www.wolframalpha.com/input?i=sum_%7Bi%3D0%7D%5E%7Bk-1%7D+1%2Fbinomial%28n+%2B+i%2C+o%29
+#     assert o >= 1, "o must be at least 1"
+#     return (n / binomial(n, o) - (k + n) / binomial(k + n, o)) / (o - 1)
+
+
+# def mean_hypo_g2(n: int, k: int, o: int) -> float:
+#     # sum_{i=0}^{k-1} 1/binomial(n + 2*i, o)
+#     # https://www.wolframalpha.com/input?i=sum_%7Bi%3D0%7D%5E%7Bk-1%7D+1%2Fbinomial%28n+%2B+2*i%2C+o%29
+#     assert o >= 1, "o must be at least 1"
+#     return hyp3f2(
+#         1, n / 2 - o / 2 + 1 / 2, n / 2 - o / 2 + 1, n / 2 + 1 / 2, n / 2 + 1, 1
+#     ) / binomial(n, o) - hyp3f2(
+#         1,
+#         k + n / 2 - o / 2 + 1 / 2,
+#         k + n / 2 - o / 2 + 1,
+#         k + n / 2 + 1 / 2,
+#         k + n / 2 + 1,
+#         1,
+#     ) / binomial(
+#         2 * k + n, o
+#     )
+
 
 
 if __name__ == "__main__":
