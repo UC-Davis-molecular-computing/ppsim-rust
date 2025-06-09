@@ -523,15 +523,15 @@ def var_hypo_o2(n: int, k: int, g: int) -> float:
             (
                 2 * g * 
                 (
-                    polygamma(0, k + n/g) 
-                    - polygamma(0, (g * k + n - 1)/g) 
+                      polygamma(0, k + n/g) 
+                    - polygamma(0, k + (n - 1)/g) 
                     + polygamma(0, (n - 1)/g) 
                     - polygamma(0, n/g) 
                 )
                 - 
                 (
-                    polygamma(1, k + n/g)
-                    + polygamma(1, (g * k + n - 1)/g) 
+                      polygamma(1, k + n/g)
+                    + polygamma(1, k + (n - 1)/g) 
                     + polygamma(1, (n - 1)/g) 
                     + polygamma(1, n/g)
                 )
@@ -546,17 +546,23 @@ def var_hypo_o3(n: int, k: int, g: int) -> float:
             (
                 3 * g * 
                 (
-                    polygamma(0, k + n/g) 
-                    - polygamma(0, (g * k + n - 2)/g) 
+                      polygamma(0, k + n/g) 
+                    - polygamma(0, k + (n - 2)/g) 
                     + polygamma(0, (n - 2)/g) 
                     - polygamma(0, n/g)
                 )
-                 - polygamma(1, (g * k + n - 2)/g) 
-                 - 4 * polygamma(1, (g * k + n - 1)/g) 
-                 - polygamma(1, k + n/g) 
-                 + polygamma(1, (n - 2)/g) 
-                 + 4 * polygamma(1, (n - 1)/g) 
-                 + polygamma(1, n/g)
+                - 
+                (
+                    polygamma(1, k + (g * n - 2)/g) 
+                    + 4 * polygamma(1, k + (n - 1)/g) 
+                    + polygamma(1, k + n/g)
+                )
+                + 
+                (
+                    polygamma(1, (n - 2)/g) 
+                    + 4 * polygamma(1, (n - 1)/g) 
+                    + polygamma(1, n/g)
+                )
             )
         ) / g**2
 
