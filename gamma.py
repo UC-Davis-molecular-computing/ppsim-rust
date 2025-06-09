@@ -438,23 +438,23 @@ def mean_hypo_o8(n: int, k: int, g: int) -> float:
     return (
         8
         * (
-            psi(0, k + (n - 7) / g)
-            - 7 * psi(0, k + (n - 6) / g)
+            psi(0,        k + (n - 7) / g)
+            - 7 * psi(0,  k + (n - 6) / g)
             + 21 * psi(0, k + (n - 5) / g)
             - 35 * psi(0, k + (n - 4) / g)
             + 35 * psi(0, k + (n - 3) / g)
             - 21 * psi(0, k + (n - 2) / g)
-            + 7 * psi(0, k + (n - 1) / g)
-            - psi(0, k + n / g)
+            + 7 * psi(0,  k + (n - 1) / g)
+            - psi(0,      k +       n / g)
             - (
-                psi(0, (n - 7) / g)
-                - 7 * psi(0, (n - 6) / g)
+                psi(0,        (n - 7) / g)
+                - 7 * psi(0,  (n - 6) / g)
                 + 21 * psi(0, (n - 5) / g)
                 - 35 * psi(0, (n - 4) / g)
                 + 35 * psi(0, (n - 3) / g)
                 - 21 * psi(0, (n - 2) / g)
-                + 7 * psi(0, (n - 1) / g)
-                - psi(0, n / g)
+                + 7 * psi(0,  (n - 1) / g)
+                - psi(0,            n / g)
             )
         )
     ) / g
