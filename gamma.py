@@ -1,9 +1,9 @@
 from math import comb
 from mpmath import hyp3f2, mpf, binomial, hyper, mp
-from mpmath import psi as polygamma
+from mpmath import psi
 import numpy as np
 import numpy.typing as npt
-from scipy.special import binom, gammaln  # , polygamma
+from scipy.special import binom, gammaln
 
 mp.dps = 15  # set decimal places for mpmath calculations
 # print(mp)
@@ -258,7 +258,7 @@ def mean_hypo_general(n: int, k: int, o: int, g: int) -> float:
 
     This is a general implementation that works for any value of o, using the pattern
     observed in mean_hypo_o1 through mean_hypo_o8. The formula computes two weighted
-    sums of polygamma function calls, where the weights are binomial coefficients
+    sums of polygamma/psi function calls, where the weights are binomial coefficients
     from the o'th row of Pascal's triangle with alternating signs.
 
     Args:
@@ -282,12 +282,12 @@ def mean_hypo_general(n: int, k: int, o: int, g: int) -> float:
         sign = -1 if m % 2 == 1 else 1
         coeff = sign * binomial(o-1, m)
 
-        # Arguments for polygamma function
+        # Arguments for psi function
         arg1 = k + (n - (o - 1 - m)) / g
         arg2 = (n - (o - 1 - m)) / g
 
-        sum1 += coeff * polygamma(0, arg1)
-        sum2 += coeff * polygamma(0, arg2)
+        sum1 += coeff * psi(0, arg1)
+        sum2 += coeff * psi(0, arg2)
 
     # print(f'mean_hypo_general {sum1=}')
     # print(f'mean_hypo_general {sum2=}')
@@ -298,8 +298,8 @@ def mean_hypo_o1(n: int, k: int, g: int) -> float:
     # sum_{i=0}^{k-1} 1/binomial(n + g*i, 1)
     # https://www.wolframalpha.com/input?i=sum_%7Bi%3D0%7D%5E%7Bk-1%7D+1%2Fbinomial%28n+%2B+g*i%2C+1%29
     assert g >= 1, "g must be at least 1"
-    sum1 = polygamma(0, n / g + k)
-    sum2 = polygamma(0, n / g)
+    sum1 = psi(0, n / g + k)
+    sum2 = psi(0, n / g)
     diff = sum1 - sum2
     return diff / g
 
@@ -311,8 +311,8 @@ def mean_hypo_o2(n: int, k: int, g: int) -> float:
     arg12 = k + n / g
     arg21 = (n - 1) / g
     arg22 = n / g
-    sum1 = polygamma(0, arg11) - polygamma(0, arg12)
-    sum2 = polygamma(0, arg21) - polygamma(0, arg22)
+    sum1 = psi(0, arg11) - psi(0, arg12)
+    sum2 = psi(0, arg21) - psi(0, arg22)
     # print(f'mean_hypo_o2 {sum1=}')
     # print(f'mean_hypo_o2 {sum2=}')
     return 2 * (sum1 - sum2) / g
@@ -324,13 +324,13 @@ def mean_hypo_o3(n: int, k: int, g: int) -> float:
     return (
         3
         * (
-            polygamma(0, k + (n - 2) / g)
-            - 2 * polygamma(0, k + (n - 1) / g)
-            + polygamma(0, k + n / g)
+            psi(0, k + (n - 2) / g)
+            - 2 * psi(0, k + (n - 1) / g)
+            + psi(0, k + n / g)
             - (
-                polygamma(0, (n - 2) / g)
-                - 2 * polygamma(0, (n - 1) / g)
-                + polygamma(0, n / g)
+                psi(0, (n - 2) / g)
+                - 2 * psi(0, (n - 1) / g)
+                + psi(0, n / g)
             )
         )
     ) / g
@@ -342,15 +342,15 @@ def mean_hypo_o4(n: int, k: int, g: int) -> float:
     return (
         4
         * (
-            polygamma(0, k + (n - 3) / g)
-            - 3 * polygamma(0, k + (n - 2) / g)
-            + 3 * polygamma(0, k + (n - 1) / g)
-            - polygamma(0, k + n / g)
+            psi(0, k + (n - 3) / g)
+            - 3 * psi(0, k + (n - 2) / g)
+            + 3 * psi(0, k + (n - 1) / g)
+            - psi(0, k + n / g)
             - (
-                polygamma(0, (n - 3) / g)
-                - 3 * polygamma(0, (n - 2) / g)
-                + 3 * polygamma(0, (n - 1) / g)
-                - polygamma(0, n / g)
+                psi(0, (n - 3) / g)
+                - 3 * psi(0, (n - 2) / g)
+                + 3 * psi(0, (n - 1) / g)
+                - psi(0, n / g)
             )
         )
     ) / g
@@ -364,17 +364,17 @@ def mean_hypo_o5(n: int, k: int, g: int) -> float:
     return (
         5
         * (
-            polygamma(0, k + (n - 4) / g)
-            - 4 * polygamma(0, k + (n - 3) / g)
-            + 6 * polygamma(0, k + (n - 2) / g)
-            - 4 * polygamma(0, k + (n - 1) / g)
-            + polygamma(0, k + n / g)
+            psi(0, k + (n - 4) / g)
+            - 4 * psi(0, k + (n - 3) / g)
+            + 6 * psi(0, k + (n - 2) / g)
+            - 4 * psi(0, k + (n - 1) / g)
+            + psi(0, k + n / g)
             - (
-                polygamma(0, (n - 4) / g)
-                - 4 * polygamma(0, (n - 3) / g)
-                + 6 * polygamma(0, (n - 2) / g)
-                - 4 * polygamma(0, (n - 1) / g)
-                + polygamma(0, n / g)
+                psi(0, (n - 4) / g)
+                - 4 * psi(0, (n - 3) / g)
+                + 6 * psi(0, (n - 2) / g)
+                - 4 * psi(0, (n - 1) / g)
+                + psi(0, n / g)
             )
         )
     ) / g
@@ -388,19 +388,19 @@ def mean_hypo_o6(n: int, k: int, g: int) -> float:
     return (
         6
         * (
-            polygamma(0, k + (n - 5) / g)
-            - 5 * polygamma(0, k + (n - 4) / g)
-            + 10 * polygamma(0, k + (n - 3) / g)
-            - 10 * polygamma(0, k + (n - 2) / g)
-            + 5 * polygamma(0, k + (n - 1) / g)
-            - polygamma(0, k + n / g)
+            psi(0, k + (n - 5) / g)
+            - 5 * psi(0, k + (n - 4) / g)
+            + 10 * psi(0, k + (n - 3) / g)
+            - 10 * psi(0, k + (n - 2) / g)
+            + 5 * psi(0, k + (n - 1) / g)
+            - psi(0, k + n / g)
             - (
-                polygamma(0, (n - 5) / g)
-                - 5 * polygamma(0, (n - 4) / g)
-                + 10 * polygamma(0, (n - 3) / g)
-                - 10 * polygamma(0, (n - 2) / g)
-                + 5 * polygamma(0, (n - 1) / g)
-                - polygamma(0, n / g)
+                psi(0, (n - 5) / g)
+                - 5 * psi(0, (n - 4) / g)
+                + 10 * psi(0, (n - 3) / g)
+                - 10 * psi(0, (n - 2) / g)
+                + 5 * psi(0, (n - 1) / g)
+                - psi(0, n / g)
             )
         )
     ) / g
@@ -412,21 +412,21 @@ def mean_hypo_o7(n: int, k: int, g: int) -> float:
     return (
         7
         * (
-            polygamma(0, k + (n - 6) / g)
-            - 6 * polygamma(0, k + (n - 5) / g)
-            + 15 * polygamma(0, k + (n - 4) / g)
-            - 20 * polygamma(0, k + (n - 3) / g)
-            + 15 * polygamma(0, k + (n - 2) / g)
-            - 6 * polygamma(0, k + (n - 1) / g)
-            + polygamma(0, k + n / g)
+            psi(0, k + (n - 6) / g)
+            - 6 * psi(0, k + (n - 5) / g)
+            + 15 * psi(0, k + (n - 4) / g)
+            - 20 * psi(0, k + (n - 3) / g)
+            + 15 * psi(0, k + (n - 2) / g)
+            - 6 * psi(0, k + (n - 1) / g)
+            + psi(0, k + n / g)
             - (
-                polygamma(0, (n - 6) / g)
-                - 6 * polygamma(0, (n - 5) / g)
-                + 15 * polygamma(0, (n - 4) / g)
-                - 20 * polygamma(0, (n - 3) / g)
-                + 15 * polygamma(0, (n - 2) / g)
-                - 6 * polygamma(0, (n - 1) / g)
-                + polygamma(0, n / g)
+                psi(0, (n - 6) / g)
+                - 6 * psi(0, (n - 5) / g)
+                + 15 * psi(0, (n - 4) / g)
+                - 20 * psi(0, (n - 3) / g)
+                + 15 * psi(0, (n - 2) / g)
+                - 6 * psi(0, (n - 1) / g)
+                + psi(0, n / g)
             )
         )
     ) / g
@@ -438,23 +438,23 @@ def mean_hypo_o8(n: int, k: int, g: int) -> float:
     return (
         8
         * (
-            polygamma(0, k + (n - 7) / g)
-            - 7 * polygamma(0, k + (n - 6) / g)
-            + 21 * polygamma(0, k + (n - 5) / g)
-            - 35 * polygamma(0, k + (n - 4) / g)
-            + 35 * polygamma(0, k + (n - 3) / g)
-            - 21 * polygamma(0, k + (n - 2) / g)
-            + 7 * polygamma(0, k + (n - 1) / g)
-            - polygamma(0, k + n / g)
+            psi(0, k + (n - 7) / g)
+            - 7 * psi(0, k + (n - 6) / g)
+            + 21 * psi(0, k + (n - 5) / g)
+            - 35 * psi(0, k + (n - 4) / g)
+            + 35 * psi(0, k + (n - 3) / g)
+            - 21 * psi(0, k + (n - 2) / g)
+            + 7 * psi(0, k + (n - 1) / g)
+            - psi(0, k + n / g)
             - (
-                polygamma(0, (n - 7) / g)
-                - 7 * polygamma(0, (n - 6) / g)
-                + 21 * polygamma(0, (n - 5) / g)
-                - 35 * polygamma(0, (n - 4) / g)
-                + 35 * polygamma(0, (n - 3) / g)
-                - 21 * polygamma(0, (n - 2) / g)
-                + 7 * polygamma(0, (n - 1) / g)
-                - polygamma(0, n / g)
+                psi(0, (n - 7) / g)
+                - 7 * psi(0, (n - 6) / g)
+                + 21 * psi(0, (n - 5) / g)
+                - 35 * psi(0, (n - 4) / g)
+                + 35 * psi(0, (n - 3) / g)
+                - 21 * psi(0, (n - 2) / g)
+                + 7 * psi(0, (n - 1) / g)
+                - psi(0, n / g)
             )
         )
     ) / g
@@ -492,11 +492,7 @@ def general_mean_hypo_hypergeometric(n: int, k: int, o: int, g: int) -> float:
 
     return num1 / den1 - num2 / den2
 
-
-
-
-
-
+@adaptive_precision
 def var_hypo(n: int, k: int, o: int, g: int, special: bool = True) -> float:
     if special:  # faster for constants c=1,2,3,4 than calling hyp3f2 for general c
         if o == 1:
@@ -514,7 +510,7 @@ def var_hypo(n: int, k: int, o: int, g: int, special: bool = True) -> float:
 
 def var_hypo_o1(n: int, k: int, g: int) -> float:
     # https://www.wolframalpha.com/input?i=sum_%7Bi%3D0%7D%5E%7Bk-1%7D+1%2Fbinomial%28n+%2B+g*i%2C+1%29%5E2
-    return (polygamma(1, n/g) - polygamma(1, k + n/g)) / g**2
+    return (psi(1, n/g) - psi(1, k + n/g)) / g**2
 
 
 def var_hypo_o2(n: int, k: int, g: int) -> float:
@@ -525,17 +521,17 @@ def var_hypo_o2(n: int, k: int, g: int) -> float:
             (
                 2 * g * 
                 (
-                      polygamma(0, k + n/g) 
-                    - polygamma(0, k + (n - 1)/g) 
-                    + polygamma(0, (n - 1)/g) 
-                    - polygamma(0, n/g) 
+                      psi(0, k + n/g) 
+                    - psi(0, k + (n - 1)/g) 
+                    + psi(0, (n - 1)/g) 
+                    - psi(0, n/g) 
                 )
                 - 
                 (
-                      polygamma(1, k + n/g)
-                    + polygamma(1, k + (n - 1)/g) 
-                    + polygamma(1, (n - 1)/g) 
-                    + polygamma(1, n/g)
+                      psi(1, k + n/g)
+                    + psi(1, k + (n - 1)/g) 
+                    + psi(1, (n - 1)/g) 
+                    + psi(1, n/g)
                 )
             )
         ) / g**2 
@@ -549,22 +545,22 @@ def var_hypo_o3(n: int, k: int, g: int) -> float:
             (
                 3 * g * 
                 (
-                      polygamma(0, n/g + k)
-                    - polygamma(0, (n - 2)/g + k) 
-                    + polygamma(0, (n - 2)/g) 
-                    - polygamma(0, n/g)
+                      psi(0, n/g + k)
+                    - psi(0, (n - 2)/g + k) 
+                    + psi(0, (n - 2)/g) 
+                    - psi(0, n/g)
                 )
                 - 
                 (
-                    + polygamma(1, (g * n - 2)/g + k) 
-                    + 4 * polygamma(1, k + (n - 1)/g) 
-                    + polygamma(1, n/g + k)
+                    + psi(1, (g * n - 2)/g + k) 
+                    + 4 * psi(1, k + (n - 1)/g) 
+                    + psi(1, n/g + k)
                 )
                 + 
                 (
-                    polygamma(1, (n - 2)/g) 
-                    + 4 * polygamma(1, (n - 1)/g) 
-                    + polygamma(1, n/g)
+                    psi(1, (n - 2)/g) 
+                    + 4 * psi(1, (n - 1)/g) 
+                    + psi(1, n/g)
                 )
             )
         ) / g**2
@@ -580,32 +576,32 @@ def var_hypo_o4(n: int, k: int, g: int) -> float:
                 (
                     9 * 
                     (
-                        - polygamma(0, (n - 2)/g + k) 
-                        + polygamma(0, (n - 1)/g + k) 
-                        + polygamma(0, (n - 2)/g) 
-                        - polygamma(0, (n - 1)/g) 
+                        - psi(0, (n - 2)/g + k) 
+                        + psi(0, (n - 1)/g + k) 
+                        + psi(0, (n - 2)/g) 
+                        - psi(0, (n - 1)/g) 
                     )
                     - (11/3) * 
                     (
-                        + polygamma(0, (n - 3)/g + k) 
-                        - polygamma(0, (n - 3)/g) 
-                        - polygamma(0, n/g + k) 
-                        + polygamma(0, n/g)
+                        + psi(0, (n - 3)/g + k) 
+                        - psi(0, (n - 3)/g) 
+                        - psi(0, n/g + k) 
+                        + psi(0, n/g)
                     )
                 )
                 - (9 * 
                     (
-                        + polygamma(1, (n - 2)/g + k) 
-                        + polygamma(1, (n - 1)/g + k)
-                        - polygamma(1, (n - 2)/g) 
-                        - polygamma(1, (n - 1)/g) 
+                        + psi(1, (n - 2)/g + k) 
+                        + psi(1, (n - 1)/g + k)
+                        - psi(1, (n - 2)/g) 
+                        - psi(1, (n - 1)/g) 
                     )
                     +
                     (
-                        + polygamma(1, (n - 3)/g + k)
-                        + polygamma(1, n/g + k)
-                        - polygamma(1, (n - 3)/g) 
-                        - polygamma(1, n/g)
+                        + psi(1, (n - 3)/g + k)
+                        + psi(1, n/g + k)
+                        - psi(1, (n - 3)/g) 
+                        - psi(1, n/g)
                     )
                 )
             )
@@ -687,12 +683,12 @@ def var_direct(n: int, k: int, c: int) -> float:
 #                 + n * (n**5 - 15 * n**4 + 85 * n**3 - 225 * n**2 + 274 * n - 120)
 #             )
 #             * (
-#                 polygamma(0, k + (n - 5) / g)
-#                 - 5 * polygamma(0, k + (n - 4) / g)
-#                 + 10 * polygamma(0, k + (n - 3) / g)
-#                 - 10 * polygamma(0, k + (n - 2) / g)
-#                 + 5 * polygamma(0, k + (n - 1) / g)
-#                 - polygamma(0, k + n / g)
+#                 psi(0, k + (n - 5) / g)
+#                 - 5 * psi(0, k + (n - 4) / g)
+#                 + 10 * psi(0, k + (n - 3) / g)
+#                 - 10 * psi(0, k + (n - 2) / g)
+#                 + 5 * psi(0, k + (n - 1) / g)
+#                 - psi(0, k + n / g)
 #             )
 #         )
 #         / binomial(g * k + n, 6)
@@ -700,12 +696,12 @@ def var_direct(n: int, k: int, c: int) -> float:
 #             n
 #             * (n**5 - 15 * n**4 + 85 * n**3 - 225 * n**2 + 274 * n - 120)
 #             * (
-#                 polygamma(0, (n - 5) / g)
-#                 - 5 * polygamma(0, (n - 4) / g)
-#                 + 10 * polygamma(0, (n - 3) / g)
-#                 - 10 * polygamma(0, (n - 2) / g)
-#                 + 5 * polygamma(0, (n - 1) / g)
-#                 - polygamma(0, n / g)
+#                 psi(0, (n - 5) / g)
+#                 - 5 * psi(0, (n - 4) / g)
+#                 + 10 * psi(0, (n - 3) / g)
+#                 - 10 * psi(0, (n - 2) / g)
+#                 + 5 * psi(0, (n - 1) / g)
+#                 - psi(0, n / g)
 #             )
 #         )
 #         / binomial(n, 6)
