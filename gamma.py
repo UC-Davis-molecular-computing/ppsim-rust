@@ -508,7 +508,7 @@ def var_hypo(n: int, k: int, o: int, g: int, special: bool = True) -> float:
 
 def var_hypo_o1(n: int, k: int, g: int) -> float:
     # https://www.wolframalpha.com/input?i=sum_%7Bi%3D0%7D%5E%7Bk-1%7D+1%2Fbinomial%28n+%2B+g*i%2C+1%29%5E2
-    return (psi(1, n/g) - psi(1, k + n/g)) / g**2
+    return (psi(1, n/g) - psi(1, n/g + k)) / g**2
 
 
 def var_hypo_o2(n: int, k: int, g: int) -> float:
@@ -519,16 +519,16 @@ def var_hypo_o2(n: int, k: int, g: int) -> float:
             (
                 2 * g * 
                 (
-                      psi(0, k + n/g) 
-                    - psi(0, k + (n - 1)/g) 
-                    + psi(0, (n - 1)/g) 
-                    - psi(0, n/g) 
+                    - psi(0, (n - 1)/g + k)
+                    + psi(0, n/g + k)
+                    + psi(0, (n - 1)/g)
+                    - psi(0, n/g)
                 )
                 - 
                 (
-                      psi(1, k + n/g)
-                    + psi(1, k + (n - 1)/g) 
-                    + psi(1, (n - 1)/g) 
+                    + psi(1, n/g + k)
+                    + psi(1, (n - 1)/g + k)
+                    + psi(1, (n - 1)/g)
                     + psi(1, n/g)
                 )
             )
@@ -543,21 +543,21 @@ def var_hypo_o3(n: int, k: int, g: int) -> float:
             (
                 3 * g * 
                 (
-                      psi(0, n/g + k)
                     - psi(0, (n - 2)/g + k) 
+                    + psi(0, n/g + k)
                     + psi(0, (n - 2)/g) 
                     - psi(0, n/g)
                 )
-                - 
+                - 4 *
                 (
-                    + psi(1, (g * n - 2)/g + k) 
-                    + 4 * psi(1, k + (n - 1)/g) 
-                    + psi(1, n/g + k)
+                    + psi(1, (n - 1)/g + k) 
+                    - psi(1, (n - 1)/g) 
                 )
                 + 
                 (
-                    psi(1, (n - 2)/g) 
-                    + 4 * psi(1, (n - 1)/g) 
+                    - psi(1, (g * n - 2)/g + k) 
+                    - psi(1, n/g + k)
+                    + psi(1, (n - 2)/g) 
                     + psi(1, n/g)
                 )
             )
@@ -581,9 +581,9 @@ def var_hypo_o4(n: int, k: int, g: int) -> float:
                     )
                     - (11/3) * 
                     (
-                        + psi(0, (n - 3)/g + k) 
-                        - psi(0, (n - 3)/g) 
-                        - psi(0, n/g + k) 
+                        + psi(0, (n - 3)/g + k)
+                        - psi(0, n/g + k)
+                        - psi(0, (n - 3)/g)
                         + psi(0, n/g)
                     )
                 )
