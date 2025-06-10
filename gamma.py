@@ -555,7 +555,7 @@ def var_hypo_o3(n: int, k: int, g: int) -> float:
                 )
                 + 
                 (
-                    - psi(1, (g * n - 2)/g + k) 
+                    - psi(1, (n - 2)/g + k) 
                     - psi(1, n/g + k)
                     + psi(1, (n - 2)/g) 
                     + psi(1, n/g)
@@ -615,46 +615,46 @@ def var_hypo_o5(n: int, k: int, g: int) -> float:
 ## these assume g = 1; rewrite for general g
 
 
-def reciprocals(n: int, k: int, o: int) -> npt.NDArray[np.float64]:
-    indices = np.arange(k)
+def reciprocals(n: int, k: int, o: int, g: int) -> npt.NDArray[np.float64]:
+    indices = np.arange(k)*g
     binomial_values = binom(n + indices, o)
     return 1.0 / binomial_values
 
 
-def reciprocals_gamma(n: int, k: int, o: int, square: bool) -> npt.NDArray[np.float64]:
-    indices = np.arange(k)
+def reciprocals_gamma(n: int, k: int, o: int, g: int, square: bool) -> npt.NDArray[np.float64]:
+    indices = np.arange(k)*g
     log_binom = gammaln(n + indices + 1) - gammaln(o + 1) - gammaln(n + indices - o + 1)
     coef = -2 if square else -1
     return np.exp(coef * log_binom)
 
 
-def mean_direct_np_gamma(n: int, k: int, c: int) -> float:
-    return np.sum(reciprocals_gamma(n, k, c, False))
+def mean_direct_np_gamma(n: int, k: int, o: int, g: int) -> float:
+    return np.sum(reciprocals_gamma(n, k, o, g, False))
 
 
-def var_direct_np_gamma(n: int, k: int, c: int) -> float:
-    return np.sum(reciprocals_gamma(n, k, c, True))
+def var_direct_np_gamma(n: int, k: int, o: int, g: int) -> float:
+    return np.sum(reciprocals_gamma(n, k, o, g, True))
 
 
-def mean_direct_np(n: int, k: int, c: int) -> float:
-    return np.sum(reciprocals(n, k, c))
+def mean_direct_np(n: int, k: int, o: int, g: int) -> float:
+    return np.sum(reciprocals(n, k, o, g))
 
 
-def var_direct_np(n: int, k: int, c: int) -> float:
-    return np.sum(reciprocals(n, k, c) ** 2)  # type: ignore
+def var_direct_np(n: int, k: int, o: int, g: int) -> float:
+    return np.sum(reciprocals(n, k, o, g) ** 2)  # type: ignore
 
 
-def mean_direct(n: int, k: int, c: int) -> float:
+def mean_direct(n: int, k: int, o: int, g: int) -> float:
     s = 0
     for i in range(k):
-        s += 1 / comb(n + i, c)
+        s += 1 / comb(n + i*g, o)
     return s
 
 
-def var_direct(n: int, k: int, c: int) -> float:
+def var_direct(n: int, k: int, o: int, g: int) -> float:
     s = 0
     for i in range(k):
-        s += 1 / comb(n + i, c) ** 2
+        s += 1 / comb(n + i*g, o) ** 2
     return s
 
 
