@@ -2,7 +2,6 @@ use std::collections::{HashMap};
 use std::io::Write;
 use std::time::{Duration, Instant};
 use std::vec;
-use std::ops::Range;
 
 use crate::flame;
 
@@ -11,19 +10,19 @@ use numpy::PyUntypedArrayMethods;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 // use ndarray::prelude::*;
-use ndarray::{ArrayD, s, Axis};
+use ndarray::{ArrayD, Axis};
 
 use numpy::{PyReadonlyArray1, PyReadonlyArray2, PyReadonlyArrayDyn};
 use rand::rngs::SmallRng;
 use rand::Rng;
 use rand::SeedableRng;
 use rand::seq::SliceRandom;
+#[allow(unused_imports)]
 use statrs::distribution::{Geometric, Uniform};
 
 use crate::simulator_abstract::Simulator;
 
 use crate::urn::Urn;
-#[allow(unused_imports)]
 use crate::util::{ln_factorial, ln_gamma, multinomial_sample};
 
 type State = usize;
@@ -154,7 +153,7 @@ impl SimulatorCRNMultiBatch {
     ///         Delta[i, j] gives contains the two output states.
     ///     random_transitions: A q^o x 2 array. That is, it has o+1 dimensions, all but the last have length q,
     ///         and the last dimension always has length two.
-    ///         Entry [r, 0] is the number of possible outputs if transition on reactant set r is random, 
+    ///         Entry [r, 0] is the number of possible outputs if transition on reactant set r is non-null, 
     ///         otherwise it is 0. Entry [r, 1] gives the starting index to find the outputs in the array random_outputs if it is random.
     ///     random_outputs: A ? x (o + g) array containing all outputs of random transitions,
     ///         whose indexing information is contained in random_transitions.
@@ -178,7 +177,7 @@ impl SimulatorCRNMultiBatch {
         let q: usize = init_config.len() as State;
 
         let num_inputs = random_transitions.shape().len() - 1;
-        let num_outputs = random_transitions.shape()[num_inputs];
+        let num_outputs = random_outputs.shape()[1];
 
         for i in 0..num_inputs {
             assert_eq!(random_transitions.shape()[i], q, "random_transitions shape mismatch");
@@ -186,11 +185,7 @@ impl SimulatorCRNMultiBatch {
         let random_transitions: ArrayD<usize> = random_transitions.as_array().to_owned();
 
         let random_outputs_length = random_outputs.shape()[0];
-        assert_eq!(
-            random_outputs.shape()[1],
-            num_outputs,
-            "random_outputs shape mismatch"
-        );
+
         let mut random_outputs_vec = Vec::with_capacity(random_outputs_length);
         for i in 0..random_outputs_length {
             let mut output_element = Vec::new();
@@ -246,7 +241,7 @@ impl SimulatorCRNMultiBatch {
                 self.gillespie_step(t_max);
                 flame::end("gillespie step");
             } else {
-                self.multibatch_step(t_max);
+                self.batch_step(t_max);
             }
         }
         Ok(())
@@ -459,7 +454,7 @@ impl NDBatchResult {
         }
     }
     fn sample_batch_result(&mut self, reactions: usize, urn: &mut Urn) {
-        urn.sample_vector(reactions, &mut self.values);
+        urn.sample_vector(reactions, &mut self.values).unwrap();
         self.cur_idx = 0;
         if self.dimensions > 1 {
             for i in 0..self.length {
@@ -726,7 +721,7 @@ impl SimulatorCRNMultiBatch {
         // The idea here is to iterate through random_transitions and array_sums together; they should
         // both be indexed by q^o-tuples when iterated through this way, and the iteration order should
         // be lexicographic for both of them.
-        self.array_sums.sample_batch_result(l, &mut self.urn);
+        self.array_sums.sample_batch_result(rxns_before_coll, &mut self.urn);
         let mut done = false;
         for random_transition in self.random_transitions.lanes(Axis(self.o)).into_iter() {
             assert!(!done, "self.array_sums finished iterating before self.random_transitions");
@@ -755,8 +750,6 @@ impl SimulatorCRNMultiBatch {
         }
         assert!(done, "self.random_transitions finished iterating before self.array_sums");
 
-        self.t += l;
-        self.urn.add_vector(&self.updated_counts.config);
 
         flame::end("process batch");
         flame::start("sample collision");
@@ -766,38 +759,70 @@ impl SimulatorCRNMultiBatch {
         // into anything smaller. In fact I'm a little worried about u128; on population size
         // 10^12 which is about 2^40, if we have 4 reactants, then the denominator for the
         // relevant probability distribution will be too large to store. 
-        let mut collision_count_num_ways: Vec<u128> = Vec::with_capacity(self.o);
-        let num_new_molecules = (self.o + self.g) * l;
-        let num_old_molecules = self.n - (self.o * l);
-        for i in 0..self.o + 1 {
-            collision_count_num_ways.push(
-                (num_old_molecules as u128).pow((self.o - i).try_into().unwrap()) 
-                * (num_new_molecules as u128).pow(i.try_into().unwrap()));
-        }
-        let total_ways: u128 = (num_new_molecules as u128 + num_old_molecules as u128).pow(self.o.try_into().unwrap());
-        let u2 = self.rng.sample(uniform);
-        let mut num_colliding_molecules = 0;
-        for i in 0..self.o {
-            if (collision_count_num_ways[i] as f64) / (total_ways as f64) < u2 {
-                num_colliding_molecules = i + 1;
-                break;
+        if rxns_before_coll == l {
+            let mut collision_count_num_ways: Vec<u128> = Vec::with_capacity(self.o);
+            let num_new_molecules = (self.o + self.g) * rxns_before_coll;
+            let num_old_molecules = self.n - (self.o * rxns_before_coll);
+            for i in 0..self.o + 1 {
+                collision_count_num_ways.push(
+                    (num_old_molecules as u128).pow((self.o - i).try_into().unwrap()) 
+                    * (num_new_molecules as u128).pow(i.try_into().unwrap()));
             }
+            let total_ways: u128 = (num_new_molecules as u128 + num_old_molecules as u128).pow(self.o.try_into().unwrap());
+            let u2 = self.rng.sample(uniform);
+            let mut num_colliding_molecules = 0;
+            for i in 0..self.o {
+                if (collision_count_num_ways[i] as f64) / (total_ways as f64) < u2 {
+                    num_colliding_molecules = i + 1;
+                    break;
+                }
+            }
+            assert!(num_colliding_molecules > 0, "Failed to sample collision size");
+            let mut collision: Vec<usize> = Vec::with_capacity(self.o);
+            for _ in 0..num_colliding_molecules {
+                collision.push(self.updated_counts.sample_one().unwrap());
+            }
+            for _ in num_colliding_molecules..self.o {
+                collision.push(self.urn.sample_one().unwrap());
+            }
+            // TODO: no need to shuffle if the implementation doesn't care about reactant order.
+            // I'm not sure if it will at this point.
+            collision.shuffle(&mut self.rng);
+            // Index into random_probabilities to sample what the collision will do.
+            let mut view = self.random_transitions.view();
+            for dimension in 0..self.o {
+                view = view.index_axis_move(Axis(dimension), collision[dimension]);
+            }
+            // Verify that the view is now a 1-dimensional subarray of random_probabilities,
+            // which should just have two elements in it (number of random outputs and starting index)
+            assert!(view.ndim() == 1, "Was not left with 1-dimensional vector after indexing collision");
+            assert!(view.len() == 2, "Indexing collision did not leave two-element subarray");
+
+            let (num_outputs, first_idx) = (view[0], view[1]);
+            let u3 = self.rng.sample(uniform);
+            let mut total_probability = 0.0;
+            let mut output_index = first_idx;
+            // Sample the random transition.
+            for i in first_idx..first_idx + num_outputs - 1 {
+                total_probability += self.transition_probabilities[first_idx + i];
+                if u3 < total_probability {
+                    break;
+                }
+                output_index += 1;
+            }
+            let outputs = &self.random_outputs[output_index];
+            for output in outputs {
+                self.updated_counts.add_to_entry(output.clone(), 1);
+            }
+            self.n += self.g;
+            self.t += 1;
         }
-        assert!(num_colliding_molecules > 0, "Failed to sample collision size");
-        let mut collision: Vec<usize> = Vec::with_capacity(self.o);
-        for _ in 0..num_colliding_molecules {
-            collision.push(self.updated_counts.sample_one().unwrap());
-        }
-        for _ in num_colliding_molecules..self.o {
-            collision.push(self.urn.sample_one().unwrap());
-        }
-        // TODO: no need to shuffle if the implementation doesn't care about reactant order.
-        // I'm not sure if it will at this point.
-        collision.shuffle(&mut self.rng);
-        // TODO do the collision.
         flame::end("sample collision");
 
-        self.n += self.g * (l + 1);
+        self.n += self.g * rxns_before_coll;
+        self.t += rxns_before_coll;
+        
+        self.urn.add_vector(&self.updated_counts.config);
         self.urn.sort();
         //self.update_enabled_reactions();
     }

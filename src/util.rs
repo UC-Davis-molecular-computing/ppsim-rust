@@ -6,17 +6,17 @@ use rand_distr::Distribution;
 #[allow(unused_imports)]
 use crate::flame;
 
-#[cfg(feature = "ue")]
+// #[cfg(feature = "ue")]
 pub fn ln_gamma(x: f64) -> f64 {
     // println!("ue version called");
     ln_gamma_special(x)
 }
 
-#[cfg(not(feature = "ue"))]
-pub fn ln_gamma(x: f64) -> f64 {
-    // println!("non ue version called");
-    ln_gamma_manual(x)
-}
+// #[cfg(not(feature = "ue"))]
+// pub fn ln_gamma(x: f64) -> f64 {
+//     // println!("non ue version called");
+//     ln_gamma_manual(x)
+// }
 
 #[cfg(feature = "ue")]
 pub fn ln_factorial(x: usize) -> f64 {
