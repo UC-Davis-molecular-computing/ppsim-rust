@@ -500,7 +500,54 @@ def var_hypo(n: int, k: int, o: int, g: int, special: bool = True) -> float:
             return var_hypo_o4(n, k, g)
         elif o == 4:
             return var_hypo_o5(n, k, g)
-    raise NotImplementedError
+        
+    
+    # first sum
+    #     o^2 / g^2
+    #     *
+    #     \sum_{m=0}^{o-1}
+    #         \binom{o-1}{m}^2
+    #         *
+    #         [
+    #         \psi_1( (n-(o-1-m)+ig) / g )
+    #         -
+    #         \psi_1( k + (n-(o-1-m)+ig) / g )
+    #         ]
+    first_sum = mpf(0)
+    for m in range(int(o)):
+        coeff = binomial(o-1, m)**2
+        arg1 = (n - (o - 1 - m)) / g
+        arg2 = k + arg1
+        first_sum += coeff * (psi(1, arg1) - psi(0, arg2))
+    first_sum *= (o**2) / (g**2)
+
+    # second sum
+    #   + 2 o^2
+    #     \sum_{m=0}^{o-1}
+    #     \sum_{j=m+1}^{o-1}
+    #     (-1)^{m+j} / (m-j) * \binom{o-1}{m} * \binom{o-1}{j}
+    #     * [
+    #         psi_0( k + (n-(o-1-j)) / g )
+    #       - psi_0(     (n-(o-1-j)) / g )
+    #       - psi_0( k + (n-(o-1-m)) / g )
+    #       + psi_0(     (n-(o-1-m)) / g )
+    #       ].
+    second_sum = mpf(0)
+    for m in range(int(o)):
+        for j in range(m + 1, int(o)):
+            sign = -1 if (m+j) % 2 == 1 else 1
+            coeff = sign / (m-j) * binomial(o-1, m) * binomial(o-1, j)
+
+            arg2 = (n - (o - 1 - j)) / g
+            arg1 = k + arg2
+            arg4 = (n - (o - 1 - m)) / g
+            arg3 = k + arg4
+            psi0_sum = (psi(0, arg1) - psi(0, arg2) - psi(0, arg3) + psi(0, arg4))
+
+            second_sum += coeff * psi0_sum
+    second_sum *= 2 * o**2
+
+    return first_sum + second_sum
 
 
 def var_hypo_o1(n: int, k: int, g: int) -> float:
