@@ -489,19 +489,6 @@ def general_mean_hypo_hypergeometric(n: int, k: int, o: int, g: int) -> float:
 
 @adaptive_precision
 def var_hypo(n: int, k: int, o: int, g: int, special: bool = True) -> float:
-    if special:  # faster for constants c=1,2,3,4 than calling hyp3f2 for general c
-        if o == 1:
-            return var_hypo_o1(n, k, g)
-        elif o == 2:
-            return var_hypo_o2(n, k, g)
-        elif o == 3:
-            return var_hypo_o3(n, k, g)
-        elif o == 4:
-            return var_hypo_o4(n, k, g)
-        elif o == 4:
-            return var_hypo_o5(n, k, g)
-        
-    
     # first sum
     #     o^2 / g^2
     #     *
@@ -518,7 +505,7 @@ def var_hypo(n: int, k: int, o: int, g: int, special: bool = True) -> float:
         coeff = binomial(o-1, m)**2
         arg1 = (n - (o - 1 - m)) / g
         arg2 = k + arg1
-        first_sum += coeff * (psi(1, arg1) - psi(0, arg2))
+        first_sum += coeff * (psi(1, arg1) - psi(1, arg2))
     first_sum *= (o**2) / (g**2)
 
     # second sum
@@ -696,9 +683,9 @@ def mean_direct(n: int, k: int, o: int, g: int) -> float:
 
 
 def var_direct(n: int, k: int, o: int, g: int) -> float:
-    s = 0
+    s = mpf(0)
     for i in range(k):
-        s += 1 / comb(n + i*g, o) ** 2
+        s += 1 / binomial(n + i*g, o) ** 2
     return s
 
 
