@@ -5,25 +5,22 @@ import numpy as np
 import numpy.typing as npt
 from scipy.special import binom, gammaln
 
-mp.dps = 15  # set decimal places for mpmath calculations
-# print(mp)
-
 
 def main():
     from math import sqrt
 
     n = 10**8
     k = round(sqrt(n))
-    c = 2
+    o = 2
     g = 1
     trials = 10**6
     seed = 0
 
     rng = np.random.default_rng(seed)
 
-    gammas_params = gammas_params_matching_hypo(n, k, c, g, 10)
+    gammas_params = gammas_params_matching_hypo(n, k, o, g, 10)
     gammas_samples = sample_gammas_sum(rng, gammas_params, trials)
-    hypo_samples = sample_hypo(rng, n, k, c, trials)
+    hypo_samples = sample_hypo(rng, n, k, o, g, trials)
     print(f"gammas_samples: {gammas_samples}")
     print(f"hypo_samples: {hypo_samples}")
 
@@ -43,15 +40,15 @@ def sample_gammas_sum(
 
 
 def sample_hypo(
-    rng: np.random.Generator, n: int, k: int, c: int, size: int
+    rng: np.random.Generator, n: int, k: int, o: int, g: int, size: int
 ) -> npt.NDArray[np.float64]:
     """
     Sample from a hypoexponential distribution summing exponentials having rates
-    n choose c, n+1 choose c, n+2 choose c, ..., n+k-1 choose c.
+    n choose c, n+g choose c, n+2*g choose c, ..., n+(k-1)*g choose c.
     (directly, by sampling k exponentials with those rates and summing them)
     """
     indices = np.arange(k)
-    scales = 1.0 / binom(n + indices, c)
+    scales = 1.0 / binom(n + indices, o)
     scales = np.repeat(scales, size).reshape(scales.shape[0], size)
     exp_samples = rng.exponential(scales, size=(k, size))
     samples = np.sum(exp_samples, axis=0)
@@ -65,7 +62,7 @@ def gammas_params_matching_hypo(
     Compute the parameters of `num_gammas` Gamma distributions, whose sum matches the mean and variance of a
     hypoexponential distribution summing exponentials having rates
     (reciprocals of expected values of individual exponentials)
-        n choose c, n+g choose c, n+2*g choose c, ..., n+k-1 choose c.
+        n choose c, n+g choose c, n+2*g choose c, ..., n+(k-1)*g choose c.
     The parameters for the gammas are returned as a 2D ndarray representing pairs (shape, scale).
 
     If `num_gammas` evenly divides `k`, so that `k` / `num_gammas` is a integer `s`, each gamma distribution
@@ -116,7 +113,7 @@ def gamma_matching_hypo(n: int, k: int, o: int, g: int) -> tuple[float, float]:
     """
     Compute the parameters (shape, scale) of a Gamma distribution that matches the
     mean and variance of a hypoexponential distribution summing exponentials with rates
-    n choose c, n+g choose c, n+2*g choose c, ..., n+k-1 choose c.
+    n choose c, n+g choose c, n+2*g choose c, ..., n+(k-1)*g choose c.
     """
     mean = mean_hypo(n, k, o, g)
     var = var_hypo(n, k, o, g)
@@ -147,7 +144,7 @@ def adaptive_precision(func: Callable[..., T]) -> Callable[..., T]:
     precision context and convergence testing.
 
     This decorator will:
-    1. Calculate the function at increasing precisions: 53 (default), 60, 90, 120, 180 bits
+    1. Calculate the function at increasing precisions: 53 (default), 60, 90, 120, ..., 300 bits
     2. Stop early if consecutive results converge within relative tolerance of 1e-15
     3. Return the higher precision value when convergence is achieved
 
@@ -249,49 +246,6 @@ def mean_hypo(n: int, k: int, o: int, g: int, special: bool = True) -> float:
     #     result = general_mean_hypo_hypergeometric(n, k, o, g)
 
     return float(result)
-
-
-def mean_hypo_general(n: int, k: int, o: int, g: int) -> float:
-    """
-    Compute the mean of a hypoexponential distribution summing exponentials with rates
-    n choose o, n+g choose o, n+2*g choose o, ..., n+(k-1)*g choose o.
-
-    This is a general implementation that works for any value of o, using the pattern
-    observed in mean_hypo_o1 through mean_hypo_o8. The formula computes two weighted
-    sums of polygamma/psi function calls, where the weights are binomial coefficients
-    from the o'th row of Pascal's triangle with alternating signs.
-
-    Args:
-        n: Starting value for the binomial coefficient
-        k: Number of exponentials to sum
-        o: Order parameter (the 'o' in 'n choose o')
-        g: Step size between consecutive binomial coefficients
-
-    Returns:
-        The mean of the hypoexponential distribution
-    """
-    assert g >= 1, "g must be at least 1"
-    assert o >= 1, "o must be at least 1"
-
-    # Compute the two weighted sums using Pascal's triangle coefficients
-    sum1 = mpf(0)
-    sum2 = mpf(0)
-
-    for m in range(int(o)):
-        # Binomial coefficient from Pascal's triangle with alternating sign
-        sign = -1 if m % 2 == 1 else 1
-        coeff = sign * binomial(o-1, m)
-
-        # Arguments for psi function
-        arg1 = k + (n - (o - 1 - m)) / g
-        arg2 = (n - (o - 1 - m)) / g
-
-        sum1 += coeff * psi(0, arg1)
-        sum2 += coeff * psi(0, arg2)
-
-    # print(f'mean_hypo_general {sum1=}')
-    # print(f'mean_hypo_general {sum2=}')
-    return o * (sum1 - sum2) / g
 
 
 def mean_hypo_o1(n: int, k: int, g: int) -> float:
@@ -458,6 +412,49 @@ def mean_hypo_o8(n: int, k: int, g: int) -> float:
             )
         )
     ) / g
+
+
+def mean_hypo_general(n: int, k: int, o: int, g: int) -> float:
+    """
+    Compute the mean of a hypoexponential distribution summing exponentials with rates
+    n choose o, n+g choose o, n+2*g choose o, ..., n+(k-1)*g choose o.
+
+    This is a general implementation that works for any value of o, using the pattern
+    observed in mean_hypo_o1 through mean_hypo_o8. The formula computes two weighted
+    sums of polygamma/psi function calls, where the weights are binomial coefficients
+    from the o'th row of Pascal's triangle with alternating signs.
+
+    Args:
+        n: Starting value for the binomial coefficient
+        k: Number of exponentials to sum
+        o: Order parameter (the 'o' in 'n choose o')
+        g: Step size between consecutive binomial coefficients
+
+    Returns:
+        The mean of the hypoexponential distribution
+    """
+    assert g >= 1, "g must be at least 1"
+    assert o >= 1, "o must be at least 1"
+
+    # Compute the two weighted sums using Pascal's triangle coefficients
+    sum1 = mpf(0)
+    sum2 = mpf(0)
+
+    for m in range(int(o)):
+        # Binomial coefficient with alternating sign
+        sign = -1 if m % 2 == 1 else 1
+        coeff = sign * binomial(o-1, m)
+
+        # Arguments for psi function
+        arg2 = (n - (o - 1 - m)) / g
+        arg1 = k + arg2
+
+        sum1 += coeff * psi(0, arg1)
+        sum2 += coeff * psi(0, arg2)
+
+    # print(f'mean_hypo_general {sum1=}')
+    # print(f'mean_hypo_general {sum2=}')
+    return (o/g) * (sum1 - sum2)
 
 
 def general_mean_hypo_hypergeometric(n: int, k: int, o: int, g: int) -> float:
