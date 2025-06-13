@@ -1,4 +1,5 @@
-from math import comb
+import math
+from typing import Iterable
 from mpmath import hyp3f2, mpf, binomial, hyper, mp
 from mpmath import psi
 import numpy as np
@@ -9,7 +10,7 @@ from scipy.special import binom, gammaln
 def main():
     from math import sqrt
 
-    n = 10**8
+    n = 10**3
     k = round(sqrt(n))
     o = 2
     g = 1
@@ -48,7 +49,7 @@ def sample_hypo(
     (directly, by sampling k exponentials with those rates and summing them)
     """
     indices = np.arange(k)
-    scales = 1.0 / binom(n + indices, o)
+    scales = 1.0 / binom(n + indices*g, o)
     scales = np.repeat(scales, size).reshape(scales.shape[0], size)
     exp_samples = rng.exponential(scales, size=(k, size))
     samples = np.sum(exp_samples, axis=0)
@@ -85,13 +86,13 @@ def gammas_params_matching_hypo(
     gammas_f: list[tuple[float, float]] = []
     for i in range(num_gammas):
         # print(f'Block {i}: n={n+i*block_size}, k={block_size}')
-        shape, scale = gamma_matching_hypo(n + i * block_size, block_size, o, g)
-        gammas_f.append((float(shape), float(scale)))
+        shape, scale = gamma_params_matching_hypo(n + i * block_size, block_size, o, g)
+        gammas_f.append((shape, scale))
 
     if remainder > 0:
         # Handle the last block with the remainder
         # print(f'Block {num_gammas}: n={n+num_gammas*block_size}, k={remainder}')
-        shape, scale = gamma_matching_hypo(n + num_gammas * block_size, remainder, o, g)
+        shape, scale = gamma_params_matching_hypo(n + num_gammas * block_size, remainder, o, g)
         gammas_f.append((shape, scale))
 
     gammas = np.array(gammas_f)
@@ -106,10 +107,12 @@ def gammas_params_matching_hypo(
     return gammas
 
 
+from functools import lru_cache
 # XXX: many of the return types here should be `mpf` instead of `float`, but
 # mpmath does not appear to support using mpf as a type,, despite calling it a "type"
 # in their documentation: https://mpmath.org/doc/current/basics.html#number-types
-def gamma_matching_hypo(n: int, k: int, o: int, g: int) -> tuple[float, float]:
+@lru_cache
+def gamma_params_matching_hypo(n: int, k: int, o: int, g: int) -> tuple[float, float]:
     """
     Compute the parameters (shape, scale) of a Gamma distribution that matches the
     mean and variance of a hypoexponential distribution summing exponentials with rates
@@ -119,7 +122,7 @@ def gamma_matching_hypo(n: int, k: int, o: int, g: int) -> tuple[float, float]:
     var = var_hypo(n, k, o, g)
     shape = mean**2 / var
     scale = var / mean
-    return shape, scale
+    return float(shape), float(scale)
 
 
 from functools import wraps
@@ -128,6 +131,32 @@ from typing import Callable, Any, TypeVar
 # Type variable for the return type of the wrapped function
 T = TypeVar("T")
 
+
+def precision_for_sum(terms: Iterable[float]) -> float:
+    """
+    Computes the precision required for a sum of terms, based on the condition number.
+    The idea is to re-calculate the terms with the higher precision after using this
+    to estimate the precision required for the sum to be accurate.
+    Rounds to the next multiple of 30 bits, since mpmath uses 30-bit chunks.
+    """
+    condition_number = sum(abs(term) for term in terms) / abs(sum(terms))
+    precision = 53 + 3*math.ceil(math.log(condition_number, 2))
+    # Round to the next multiple of 30 bits
+    precision = (precision + 29) // 30 * 30
+    return precision
+
+def adaptive_precision_sum(num_terms: int, compute_term: Callable[[int], float]) -> float:
+    """
+    Given a number of terms and a function to compute each term as a function of its index,
+    this function computes the sum of those terms with adaptive precision.
+    """
+    terms = [compute_term(i) for i in range(num_terms)]
+    precision = precision_for_sum(terms)
+    with mp.workprec(precision):
+        print(f'{precision=}')
+        terms = [compute_term(i) for i in range(num_terms)]
+        s = mp.fsum(terms)
+    return float(s)
 
 def adaptive_precision(func: Callable[..., T]) -> Callable[..., T]:
     """
@@ -162,7 +191,7 @@ def adaptive_precision(func: Callable[..., T]) -> Callable[..., T]:
     @wraps(func)
     def wrapper(*args: Any, **kwargs: Any) -> T:
         # Precision sequence in bits
-        precisions: list[int] = [53, 60, 90, 120, 180, 210, 240, 270, 300]
+        precisions: list[int] = [53] + list(range(60, 1200, 30))
 
         prev_result: T | None = None
 
@@ -185,7 +214,8 @@ def adaptive_precision(func: Callable[..., T]) -> Callable[..., T]:
                         # Attempt convergence check for numeric types
                         abs_prev = abs(prev_result)  # type: ignore
                         if abs_prev > 0:
-                            rel_diff = abs(prev_result - result) / abs_prev  # type: ignore
+                            min_result_abs = min(abs(result), abs(prev_result))  # type: ignore
+                            rel_diff = abs(prev_result - result) / min_result_abs  # type: ignore
                             if rel_diff < 1e-15:
                                 return result  # Return higher precision value
                     except (TypeError, AttributeError):
@@ -413,7 +443,7 @@ def mean_hypo_o8(n: int, k: int, g: int) -> float:
         )
     ) / g
 
-
+@adaptive_precision
 def mean_hypo_general(n: int, k: int, o: int, g: int) -> float:
     """
     Compute the mean of a hypoexponential distribution summing exponentials with rates
@@ -436,25 +466,19 @@ def mean_hypo_general(n: int, k: int, o: int, g: int) -> float:
     assert g >= 1, "g must be at least 1"
     assert o >= 1, "o must be at least 1"
 
-    # Compute the two weighted sums using Pascal's triangle coefficients
-    sum1 = mpf(0)
-    sum2 = mpf(0)
+    terms = []
 
     for m in range(int(o)):
-        # Binomial coefficient with alternating sign
-        sign = -1 if m % 2 == 1 else 1
-        coeff = sign * binomial(o-1, m)
+        coeff = math.comb(int(o-1), int(m))
+        if m % 2 == 1:
+            coeff = -coeff
 
-        # Arguments for psi function
         arg2 = (n - (o - 1 - m)) / g
         arg1 = k + arg2
 
-        sum1 += coeff * psi(0, arg1)
-        sum2 += coeff * psi(0, arg2)
+        terms.extend([coeff * psi(0, arg1), -coeff * psi(0, arg2)])
 
-    # print(f'mean_hypo_general {sum1=}')
-    # print(f'mean_hypo_general {sum2=}')
-    return (o/g) * (sum1 - sum2)
+    return mp.fsum(terms) * o / g
 
 
 def general_mean_hypo_hypergeometric(n: int, k: int, o: int, g: int) -> float:
@@ -488,7 +512,11 @@ def general_mean_hypo_hypergeometric(n: int, k: int, o: int, g: int) -> float:
     return num1 / den1 - num2 / den2
 
 @adaptive_precision
-def var_hypo(n: int, k: int, o: int, g: int, special: bool = True) -> float:
+def var_hypo(n: int, k: int, o: int, g: int) -> float:
+    n = mpf(n)
+    k = mpf(k)
+    o = mpf(o)
+    g = mpf(g)
     # first sum
     #     o^2 / g^2
     #     *
@@ -500,146 +528,57 @@ def var_hypo(n: int, k: int, o: int, g: int, special: bool = True) -> float:
     #         -
     #         \psi_1( k + (n-(o-1-m)+ig) / g )
     #         ]
-    first_sum = mpf(0)
+    first_sum_terms = []
     for m in range(int(o)):
-        coeff = binomial(o-1, m)**2
-        arg1 = (n - (o - 1 - m)) / g
+        # coeff = binomial(o-1, m)**2
+        coeff = math.comb(int(o-1), int(m))**2
+        arg1 = mpf(n - (o - 1 - m)) / g
         arg2 = k + arg1
-        first_sum += coeff * (psi(1, arg1) - psi(1, arg2))
-    first_sum *= (o**2) / (g**2)
+        first_sum_terms.extend([coeff * psi(1, arg1), -coeff * psi(1, arg2)])
+    first_sum = mp.fsum(first_sum_terms)
+    first_sum *= (int(o)**2) / (int(g)**2)
 
     # second sum
-    #   + 2 o^2
+    #   + 2 o^2 / g
     #     \sum_{m=0}^{o-1}
     #     \sum_{j=m+1}^{o-1}
     #     (-1)^{m+j} / (m-j) * \binom{o-1}{m} * \binom{o-1}{j}
     #     * [
-    #         psi_0( k + (n-(o-1-j)) / g )
-    #       - psi_0(     (n-(o-1-j)) / g )
-    #       - psi_0( k + (n-(o-1-m)) / g )
     #       + psi_0(     (n-(o-1-m)) / g )
+    #       - psi_0( k + (n-(o-1-m)) / g )
+    #       - psi_0(     (n-(o-1-j)) / g )
+    #       + psi_0( k + (n-(o-1-j)) / g )
     #       ].
-    second_sum = mpf(0)
+    # second_sum = mpf(0)
+    # second_sum = Sum()
+    second_sum_terms = []
     for m in range(int(o)):
-        for j in range(m + 1, int(o)):
-            sign = -1 if (m+j) % 2 == 1 else 1
-            coeff = sign / (m-j) * binomial(o-1, m) * binomial(o-1, j)
+        for j in range(int(m) + 1, int(o)):
+            negate = (m+j) % 2 == 1
+            # coeff = sign * binomial(o-1, m) * binomial(o-1, j) / (m-j)
+            coeff = mpf(math.comb(int(o-1), int(m)) * binomial(int(o-1), int(j))) / (m-j)
+            if negate: coeff = -coeff
 
-            arg2 = (n - (o - 1 - j)) / g
-            arg1 = k + arg2
-            arg4 = (n - (o - 1 - m)) / g
-            arg3 = k + arg4
-            psi0_sum = (psi(0, arg1) - psi(0, arg2) - psi(0, arg3) + psi(0, arg4))
-
-            second_sum += coeff * psi0_sum
-    second_sum *= 2 * o**2
+            arg1 = (n - (o - 1 - m)) / g
+            arg2 = k + arg1
+            arg3 = (n - (o - 1 - j)) / g
+            arg4 = k + arg3
+            # print(f'{psi(0, arg1)=}')
+            # print(f'{psi(0, arg2)=}')
+            # print(f'{psi(0, arg3)=}')
+            # print(f'{psi(0, arg4)=}')
+            # psi0_sum = (psi(0, arg1) - psi(0, arg2) - psi(0, arg3) + psi(0, arg4))
+            term1 = coeff * psi(0, arg1)
+            term2 = - coeff * psi(0, arg2)
+            term3 = - coeff * psi(0, arg3)
+            term4 = coeff * psi(0, arg4)
+            second_sum_terms.extend([term1, term2, term3, term4])
+            # second_sum += coeff * psi0_sum
+    second_sum = mp.fsum(second_sum_terms)
+    second_sum *= 2 * o**2 / g
 
     return first_sum + second_sum
 
-
-def var_hypo_o1(n: int, k: int, g: int) -> float:
-    # https://www.wolframalpha.com/input?i=sum_%7Bi%3D0%7D%5E%7Bk-1%7D+1%2Fbinomial%28n+%2B+g*i%2C+1%29%5E2
-    return (psi(1, n/g) - psi(1, n/g + k)) / g**2
-
-
-def var_hypo_o2(n: int, k: int, g: int) -> float:
-    # https://www.wolframalpha.com/input?i=sum_%7Bi%3D0%7D%5E%7Bk-1%7D+1%2Fbinomial%28n+%2B+g*i%2C+2%29%5E2
-    return \
-        (
-            4 * 
-            (
-                2 * g * 
-                (
-                    - psi(0, (n - 1)/g + k)
-                    + psi(0, n/g + k)
-                    + psi(0, (n - 1)/g)
-                    - psi(0, n/g)
-                )
-                - 
-                (
-                    + psi(1, n/g + k)
-                    + psi(1, (n - 1)/g + k)
-                    + psi(1, (n - 1)/g)
-                    + psi(1, n/g)
-                )
-            )
-        ) / g**2 
-
-
-def var_hypo_o3(n: int, k: int, g: int) -> float:
-    # https://www.wolframalpha.com/input?i=sum_%7Bi%3D0%7D%5E%7Bk-1%7D+1%2Fbinomial%28n+%2B+g*i%2C+3%29%5E2
-    return \
-        (
-            9 * 
-            (
-                3 * g * 
-                (
-                    - psi(0, (n - 2)/g + k) 
-                    + psi(0, n/g + k)
-                    + psi(0, (n - 2)/g) 
-                    - psi(0, n/g)
-                )
-                - 4 *
-                (
-                    + psi(1, (n - 1)/g + k) 
-                    - psi(1, (n - 1)/g) 
-                )
-                + 
-                (
-                    - psi(1, (n - 2)/g + k) 
-                    - psi(1, n/g + k)
-                    + psi(1, (n - 2)/g) 
-                    + psi(1, n/g)
-                )
-            )
-        ) / g**2
-
-
-def var_hypo_o4(n: int, k: int, g: int) -> float:
-    # https://www.wolframalpha.com/input?i=sum_%7Bi%3D0%7D%5E%7Bk-1%7D+1%2Fbinomial%28n+%2B+g*i%2C+4%29%5E2
-    return \
-        (
-            16 * 
-            (
-                g *
-                (
-                    9 * 
-                    (
-                        - psi(0, (n - 2)/g + k) 
-                        + psi(0, (n - 1)/g + k) 
-                        + psi(0, (n - 2)/g) 
-                        - psi(0, (n - 1)/g) 
-                    )
-                    - (11/3) * 
-                    (
-                        + psi(0, (n - 3)/g + k)
-                        - psi(0, n/g + k)
-                        - psi(0, (n - 3)/g)
-                        + psi(0, n/g)
-                    )
-                )
-                - (9 * 
-                    (
-                        + psi(1, (n - 2)/g + k) 
-                        + psi(1, (n - 1)/g + k)
-                        - psi(1, (n - 2)/g) 
-                        - psi(1, (n - 1)/g) 
-                    )
-                    +
-                    (
-                        + psi(1, (n - 3)/g + k)
-                        + psi(1, n/g + k)
-                        - psi(1, (n - 3)/g) 
-                        - psi(1, n/g)
-                    )
-                )
-            )
-        ) / (g**2)
-
-
-def var_hypo_o5(n: int, k: int, g: int) -> float:
-    # https://www.wolframalpha.com/input?i=sum_%7Bi%3D0%7D%5E%7Bk-1%7D+1%2Fbinomial%28n+%2B+g*i%2C+5%29%5E2
-    raise NotImplementedError
 
 ###################################################
 ## more direct ways to compute; used to verify faster ways give same answer
@@ -676,91 +615,19 @@ def var_direct_np(n: int, k: int, o: int, g: int) -> float:
 
 
 def mean_direct(n: int, k: int, o: int, g: int) -> float:
-    s = 0
-    for i in range(k):
-        s += 1 / comb(n + i*g, o)
+    terms = []
+    for i in range(int(k)):
+        terms.append(1 / math.comb(n + i*g, o))
+    s = mp.fsum(terms)
     return s
 
 
 def var_direct(n: int, k: int, o: int, g: int) -> float:
-    s = mpf(0)
-    for i in range(k):
-        s += 1 / binomial(n + i*g, o) ** 2
+    terms = []
+    for i in range(int(k)):
+        terms.append(1 / math.comb(n + i*g, o))
+    s = mp.fsum(terms, squared=True)
     return s
-
-
-# # I don't know what happened here, but going from o=5 to o=6 seems to be qualitatively more complex,
-# # and also its slow to compute, no better than calling mpmath.hyper (which is too slow for us).
-# # I don't know why Wolfram alpha did not continue with the Pascal's triangle pattern,
-# # but this seems strictly worse than `mean_hypo_o6` above.
-# def mean_hypo_o6_wolfram(n: int, k: int, g: int) -> float:
-#     # sum_{i=0}^{k-1} 1 / binomial(n + g*i, 6)
-#     # https://www.wolframalpha.com/input?i=sum_%7Bi%3D0%7D%5E%7Bk-1%7D+1+%2F+binomial%28n+%2B+g*i%2C+6%29
-#     assert g >= 1, "g must be at least 1"
-#     # print(f'mean_hypo_o5_wolfram: n={n}, k={k}, g={g}')
-#     return (
-#         (
-#             (
-#                 g**6 * k**6
-#                 + 3 * g**5 * k**5 * (2 * n - 5)
-#                 + 5 * g**4 * k**4 * (3 * n**2 - 15 * n + 17)
-#                 + 5 * g**3 * k**3 * (4 * n**3 - 30 * n**2 + 68 * n - 45)
-#                 + g**2 * k**2 * (15 * n**4 - 150 * n**3 + 510 * n**2 - 675 * n + 274)
-#                 + g
-#                 * k
-#                 * (6 * n**5 - 75 * n**4 + 340 * n**3 - 675 * n**2 + 548 * n - 120)
-#                 + n * (n**5 - 15 * n**4 + 85 * n**3 - 225 * n**2 + 274 * n - 120)
-#             )
-#             * (
-#                 psi(0, k + (n - 5) / g)
-#                 - 5 * psi(0, k + (n - 4) / g)
-#                 + 10 * psi(0, k + (n - 3) / g)
-#                 - 10 * psi(0, k + (n - 2) / g)
-#                 + 5 * psi(0, k + (n - 1) / g)
-#                 - psi(0, k + n / g)
-#             )
-#         )
-#         / binomial(g * k + n, 6)
-#         - (
-#             n
-#             * (n**5 - 15 * n**4 + 85 * n**3 - 225 * n**2 + 274 * n - 120)
-#             * (
-#                 psi(0, (n - 5) / g)
-#                 - 5 * psi(0, (n - 4) / g)
-#                 + 10 * psi(0, (n - 3) / g)
-#                 - 10 * psi(0, (n - 2) / g)
-#                 + 5 * psi(0, (n - 1) / g)
-#                 - psi(0, n / g)
-#             )
-#         )
-#         / binomial(n, 6)
-#     ) / (120 * g)
-
-
-# def mean_hypo_g1(n: int, k: int, o: int) -> float:
-#     # sum_{i=0}^{k-1} 1/binomial(n + i, o)
-#     # https://www.wolframalpha.com/input?i=sum_%7Bi%3D0%7D%5E%7Bk-1%7D+1%2Fbinomial%28n+%2B+i%2C+o%29
-#     assert o >= 1, "o must be at least 1"
-#     return (n / binomial(n, o) - (k + n) / binomial(k + n, o)) / (o - 1)
-
-
-# def mean_hypo_g2(n: int, k: int, o: int) -> float:
-#     # sum_{i=0}^{k-1} 1/binomial(n + 2*i, o)
-#     # https://www.wolframalpha.com/input?i=sum_%7Bi%3D0%7D%5E%7Bk-1%7D+1%2Fbinomial%28n+%2B+2*i%2C+o%29
-#     assert o >= 1, "o must be at least 1"
-#     return hyp3f2(
-#         1, n / 2 - o / 2 + 1 / 2, n / 2 - o / 2 + 1, n / 2 + 1 / 2, n / 2 + 1, 1
-#     ) / binomial(n, o) - hyp3f2(
-#         1,
-#         k + n / 2 - o / 2 + 1 / 2,
-#         k + n / 2 - o / 2 + 1,
-#         k + n / 2 + 1 / 2,
-#         k + n / 2 + 1,
-#         1,
-#     ) / binomial(
-#         2 * k + n, o
-#     )
-
 
 
 if __name__ == "__main__":
