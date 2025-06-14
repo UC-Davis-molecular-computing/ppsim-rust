@@ -154,7 +154,7 @@ impl SimulatorCRNMultiBatch {
     ///     random_transitions: A q^o x 2 array. That is, it has o+1 dimensions, all but the last have length q,
     ///         and the last dimension always has length two.
     ///         Entry [r, 0] is the number of possible outputs if transition on reactant set r is non-null, 
-    ///         otherwise it is 0. Entry [r, 1] gives the starting index to find the outputs in the array random_outputs if it is random.
+    ///         otherwise it is 0. Entry [r, 1] gives the starting index to find the outputs in the array random_outputs if it is non-null.
     ///     random_outputs: A ? x (o + g) array containing all outputs of random transitions,
     ///         whose indexing information is contained in random_transitions.
     ///     transition_probabilities: A 1D length-? array containing all random transition probabilities,
@@ -428,55 +428,62 @@ struct NDBatchResult {
     // For the top level, dimensions = o (number of reactants). 
     // For the bottom level, dimensions = 1.
     dimensions: usize, 
-    // q
-    length: usize,
+    q: usize,
+    o: usize,
     // For iterating over results
-    cur_idx: usize,
+    curr_species: State,
     // Initialized to 0, then sampled into via urn.sample_vector().
-    pub values: Vec<usize>,
+    pub counts: Vec<usize>,
     // If dimensions > 1, this is a vector of subresults. If dimensions = 1, it is empty.
-    pub subresults: Vec<NDBatchResult>,
+    pub subresults: Option<Vec<NDBatchResult>>,
 }
 
 impl NDBatchResult {
     fn populate_empty(&mut self) {
         if self.dimensions > 1 {
-            for _ in 0..self.length {
+            for _ in 0..self.q {
                 let mut subresult = NDBatchResult{
                     dimensions: self.dimensions - 1, 
-                    length: self.length, 
-                    cur_idx: 0,
-                    values: vec![0; self.length], 
-                    subresults: {if self.dimensions == 2 {Vec::new()} else {Vec::with_capacity(self.length)}}};
+                    q: self.q, 
+                    o: self.o,
+                    curr_species: 0,
+                    counts: vec![0; self.q], 
+                    subresults: {if self.dimensions == 2 {None} else {Some(Vec::with_capacity(self.q))}}};
                 subresult.populate_empty();
-                self.subresults.push(subresult);
+                self.subresults.as_mut().unwrap().push(subresult);
             }
         }
     }
     fn sample_batch_result(&mut self, reactions: usize, urn: &mut Urn) {
-        urn.sample_vector(reactions, &mut self.values).unwrap();
-        self.cur_idx = 0;
+        urn.sample_vector(reactions, &mut self.counts).unwrap();
+        self.curr_species = 0;
         if self.dimensions > 1 {
-            for i in 0..self.length {
-                self.subresults[i].sample_batch_result(self.values[i], urn);
+            for i in 0..self.q {
+                let subresult = self.subresults.as_mut().unwrap();
+                subresult[i].sample_batch_result(self.counts[i], urn);
             }
         }
     }
-    fn get_next(&mut self) -> (Vec<usize>, usize, bool) {
+    // TODO docstring here. Also this should probably implement an iterable trait
+    fn get_next(&mut self) -> (Vec<State>, usize, bool) {
+        assert!(self.curr_species < self.q, "NDBatchResult iterated past final species");
         let mut done = false;
         if self.dimensions == 1 {
-            self.cur_idx += 1;
-            return (vec![self.cur_idx - 1], self.values[self.cur_idx - 1], self.cur_idx == self.length);
+            let mut curr_reaction = vec![0;self.o];
+            curr_reaction[self.o - self.dimensions] = self.curr_species;
+            self.curr_species += 1;
+            return (curr_reaction, self.counts[self.curr_species - 1], self.curr_species == self.q);
         } else {
-            let (mut subindices, value, subresult_done) = self.subresults[self.cur_idx].get_next();
+            let curr_subresult = &mut self.subresults.as_mut().unwrap()[self.curr_species];
+            let (mut curr_reaction, count, subresult_done) = curr_subresult.get_next();
+            curr_reaction[self.o - self.dimensions] = self.curr_species;
             if subresult_done {
-                self.cur_idx += 1;
-                if self.cur_idx == self.length {
+                self.curr_species += 1;
+                if self.curr_species == self.q {
                     done = true;
                 }
             }
-            subindices.push(self.cur_idx - 1);
-            return (subindices, value, done);
+            return (curr_reaction, count, done);
         }
     }
 }
@@ -484,10 +491,11 @@ impl NDBatchResult {
 fn make_batch_result(dimensions: usize, length: usize) -> NDBatchResult {
     let mut result = NDBatchResult {
         dimensions: dimensions, 
-        length: length, 
-        cur_idx: 0,
-        values: vec![0;length], 
-        subresults: Vec::with_capacity(length)};
+        q: length, 
+        o: dimensions,
+        curr_species: 0,
+        counts: vec![0;length], 
+        subresults: Some(Vec::with_capacity(length))};
     result.populate_empty();
     result
 }
@@ -1056,21 +1064,36 @@ impl SimulatorCRNMultiBatch {
     ///     Note that this is a different convention from :any:`SimulatorMultiBatch`, which 
     ///     returns the index at which an agent collision occurs.
     pub fn sample_coll(&self, r: usize, u: f64, _has_bounds: bool) -> usize {
+        // If every agent counts as a collision, the next reaction is a collision.
+        assert!(r <= self.n);
+        if r == self.n {
+            return 0;
+        }
         let mut t_lo: usize;
         let mut t_hi: usize;
-        assert!(self.n + 1 - r > 0);
 
-        // We compute all the terms of the distribution that don't depend on t and collect them in lhs.
-        // Below, we will compute all the terms that do depend on t, and collect them in rhs.
         let logu = u.ln();
         let diff = self.n + 1 - r;
         let ln_gamma_diff = ln_factorial(diff - 1);
 
+        // lhs tracks all of the terms that don't include t, i.e., those that we don't need to
+        // update each iteration of binary search.
         let mut lhs = ln_gamma_diff - logu;
         
         if self.g > 0 {
             for j in 0..self.o {
-                // Calculates a = ceil((n-g-j)/g)
+                // Calculates a = ceil((n-g-j)/g). This is the number of terms in the expansion of
+                // a multifactorial. For example, 11!^(3) (the third multifactorial of 11) is
+                // 11 * 8 * 5 * 2 so there are 4 terms in it. The way we calculate the log of a
+                // multifactorial is to "factor out" the amount each term decreases by (in this example 3,
+                // in general it will always equal g for the multifactorials we care about) from
+                // every term (whether or not they're divisible by it), then rewrite it using gamma.
+                // In this example, 11 * 8 * 5 * 2 = 3^4 * (11 / 3) * (8 / 3) * (5 / 3) * (2 / 3).
+                // So, log(11!^(3)) = 4*log(3) + log((11 / 3) * (8 / 3) * (5 / 3) * (2 / 3))
+                // = 4*log(3) * log(Gamma(14/3) / Gamma(2/3)) [because Gamma(x) = (x-1)*Gamma(x-1)]
+                // = 4*log(3) + lgamma(14/3) - lgamma(2/3).
+                // These three terms are the three terms that are added and subtracted from lhs, to
+                // account for the term log((n-g-j)!(g)).
                 let num_static_terms: f64 = (((self.n - j) as f64 - self.g as f64) / self.g as f64).ceil();
                 lhs += num_static_terms * (self.g as f64).ln();
                 lhs += ln_gamma((self.n - j) as f64 / self.g as f64);
@@ -1079,115 +1102,38 @@ impl SimulatorCRNMultiBatch {
         } else {
             // Nothing to do here. There are no other static terms in the g = 0 case.
         }
+
+        // TODO: it might be worth adding some code to jump-start the search with precomputed values,
+        // as can be done in the population protocols case.
+        // For now, we start with bounds that always hold.
         
-
-        // const PRINT: bool = true;
-        // let logn_minus_1 = ((self.n - 1) as f64).ln();
-
-        // if has_bounds {
-        //     if PRINT {
-        //         use stybulate::{Cell, Headers, Style, Table};
-        //         let mut headers: Vec<String> = vec!["".to_string()];
-        //         let mut first_row = vec![Cell::from(" r\\u")];
-        //         for i in 0..self.coll_table_u_values.len() {
-        //             // headers.push(format!("{:.2}", self.coll_table_u_values[i]));
-        //             headers.push(i.to_string());
-        //             first_row.push(Cell::from(&format!("{:.2}", self.coll_table_u_values[i])));
-        //         }
-        //         let mut table_data: Vec<Vec<Cell>> = vec![first_row];
-        //         for i in 0..self.coll_table.len() {
-        //             let first = format!("{i:2}:{}", self.coll_table_r_values[i].to_string());
-        //             let mut row = vec![Cell::from(&first)];
-        //             for j in 0..self.coll_table[i].len() {
-        //                 let entry = format!("{}", self.coll_table[i][j]);
-        //                 row.push(Cell::from(&entry));
-        //             }
-        //             table_data.push(row);
-        //         }
-        //         let headers_ref: Vec<&str> = headers.iter().map(|s| s.as_str()).collect();
-        //         let _table = Table::new(Style::Plain, table_data, Some(Headers::from(headers_ref)));
-        //         println!("coll_table:\n{}", _table.tabulate());
-        //     }
-
-        //     // Look up bounds from coll_table.
-        //     // For r values, we invert the definition of self.coll_table_r_values:
-        //     //   [2 + self.r_constant * (i ** 2) for i in range(self.num_r_values - 1)] + [self.n]
-        //     let i = (((r - 2) as f64) / self.r_constant as f64).sqrt() as usize;
-        //     let i = i.min(self.coll_table_r_values.len() - 2);
-
-        //     // for u values we similarly invert the definition: np.linspace(0, 1, num_u_values)
-        //     let j = (u * (self.coll_table_u_values.len() - 1) as f64) as usize;
-
-        //     t_lo = self.coll_table[i + 1][j + 1];
-        //     t_hi = self.coll_table[i][j];
-        //     t_hi = t_hi.min(self.n - r + 1);
-        //     if t_lo == 1 && t_hi == 1 {
-        //         t_lo = 1;
-        //         t_hi = 2;
-        //     }
-
-        //     if PRINT {
-        //         println!(
-        //             "n = {}, self.r_constant={}, u={u:.3}, r={r} i={i} j={j} t_lo={t_lo}, t_hi={t_hi} (((r - 2) as f64) / self.r_constant as f64).sqrt()={:.3}",
-        //             self.n,
-        //             self.r_constant,
-        //             (((r - 2) as f64) / self.r_constant as f64).sqrt()
-        //         );
-        //         println!(
-        //             "lhs = {lhs:.3}, logn={:.1}, t_lo*logn={:.1}, log_factorial(n-r-t_lo)={:.1}, log_factorial(n-r-t_lo) + t_lo*logn={:.3}",
-        //             self.logn,
-        //             t_lo as f64 * self.logn,
-        //             ln_factorial(self.n - r - t_lo),
-        //             ln_factorial(self.n - r - t_lo) + (t_lo as f64 * self.logn)
-        //         );
-        //     }
-        //     assert!(t_lo < t_hi);
-        //     assert!(self.coll_table_r_values[i] <= r);
-        //     assert!(r <= self.coll_table_r_values[i + 1]);
-        //     assert!(self.coll_table_u_values[j] <= u);
-        //     assert!(u <= self.coll_table_u_values[j + 1]);
-
-        //     if t_lo < t_hi - 1 {
-        //         assert!(lhs >= ln_factorial(self.n - r - t_lo - 1) + (t_lo as f64 * logn_minus_1));
-        //         assert!(lhs < ln_factorial(self.n - r - t_hi) + (t_hi as f64 * self.logn));
-        //     }
-        // } else {
-        //     // When building the table, we start with bounds that always hold.
-        //     if r >= self.n {
-        //         return 0;
-        //     }
-        //     t_lo = 0;
-        //     t_hi = 1 + ((self.n - r) / self.o);
-        // }
-
-        // When building the table, we start with bounds that always hold.
-        if r >= self.n {
-            return 0;
-        }
         t_lo = 0;
         t_hi = 1 + ((self.n - r) / self.o);
 
         // We maintain the invariant that P(l >= t_lo) >= u and P(l >= t_hi) < u
         while t_lo < t_hi - 1 {
             let t_mid = (t_lo + t_hi) / 2;
-
+            // rhs tracks all of the terms that include t, i.e., those that we need to
+            // update each iteration of binary search.
             let mut rhs: f64 = ln_gamma((self.n - r - (t_mid * self.o)) as f64 + 1.0);
             if self.g > 0 {
                 for j in 0..self.o {
-                    // Calculates b = ceil((n+g(t-1)-j)/g)
+                    // Calculates b = ceil((n+g(t-1)-j)/g).
+                    // See the comment in the loop above where num_static_terms is defined for an explanation.
+                    // This is the same thing, for the term log((n+g(t-1)-j)!(g)).
                     let num_dynamic_terms = (((self.n + (self.g as usize * (t_mid - 1)) - j) as f64) / self.g as f64).ceil();
                     rhs += num_dynamic_terms * (self.g as f64).ln();
                     rhs += ln_gamma((self.n + (self.g as usize * t_mid) - j) as f64 / self.g as f64);
                     rhs -= ln_gamma((self.n as f64 + (self.g as f64 * (t_mid as f64 - num_dynamic_terms)) - j as f64) / self.g as f64);
                 } 
             } else {
-                // g = 0 case is much simpler.
+                // g = 0 case is much simpler; there's no multifactorial, as it's analogous
+                // to the population protocols case. 
                 for j in 0..self.o {
                     rhs += t_mid as f64 * ((self.n - j) as f64).ln();
                 } 
             }
             
-            // println!("They are {lhs} and {rhs}.");
             if lhs < rhs {
                 t_hi = t_mid;
             } else {
@@ -1195,8 +1141,8 @@ impl SimulatorCRNMultiBatch {
             }
         }
 
-        // Return t_lo instead of t_hi (as in simulator_pp_multibatch) because the CDF here is written
-        // in terms of p(l >= t) instead of p(l > t).
+        // Return t_lo instead of t_hi (which simulator_pp_multibatch returns) because the CDF here
+        // is written in terms of p(l >= t) instead of p(l > t).
         t_lo
     }
 
