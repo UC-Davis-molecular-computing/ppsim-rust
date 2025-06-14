@@ -21,7 +21,7 @@ def main():
 
     gammas_params = gammas_params_matching_hypo(n, k, o, g, 10)
     gammas_samples = sample_gammas_sum(rng, gammas_params, trials)
-    hypo_samples = sample_hypo(rng, n, k, o, g, trials)
+    hypo_samples = sample_hypos(rng, n, k, o, g, trials)
     print(f"gammas_samples: {gammas_samples}")
     print(f"hypo_samples: {hypo_samples}")
 
@@ -40,7 +40,15 @@ def sample_gammas_sum(
     return s
 
 
-def sample_hypo(
+def sample_hypo(rng: np.random.Generator, n: int, k: int, o: int, g: int) -> float:
+    indices = np.arange(k)
+    scales = 1.0 / binom(n + indices * g, o)
+    exponential_samples = rng.exponential(scales, size=k)
+    hypo_sample = np.sum(exponential_samples)
+    return float(hypo_sample)
+
+
+def sample_hypos(
     rng: np.random.Generator, n: int, k: int, o: int, g: int, size: int
 ) -> npt.NDArray[np.float64]:
     """
@@ -49,11 +57,19 @@ def sample_hypo(
     (directly, by sampling k exponentials with those rates and summing them)
     """
     indices = np.arange(k)
-    scales = 1.0 / binom(n + indices*g, o)
+    scales = 1.0 / binom(n + indices * g, o)
     scales = np.repeat(scales, size).reshape(scales.shape[0], size)
     exp_samples = rng.exponential(scales, size=(k, size))
     samples = np.sum(exp_samples, axis=0)
     return samples
+
+
+def sample_gamma_matching_hypo(
+    rng: np.random.Generator, n: int, k: int, o: int, g: int
+) -> float:
+    shape, scale = gamma_params_matching_hypo(n, k, o, g)
+    sample = rng.gamma(shape, scale)
+    return float(sample)
 
 
 def gammas_params_matching_hypo(
@@ -92,10 +108,12 @@ def gammas_params_matching_hypo(
     if remainder > 0:
         # Handle the last block with the remainder
         # print(f'Block {num_gammas}: n={n+num_gammas*block_size}, k={remainder}')
-        shape, scale = gamma_params_matching_hypo(n + num_gammas * block_size, remainder, o, g)
+        shape, scale = gamma_params_matching_hypo(
+            n + num_gammas * block_size, remainder, o, g
+        )
         gammas_f.append((shape, scale))
 
-    gammas = np.array(gammas_f)
+    gammas = np.array(gammas_f, dtype=np.float64)
 
     if np.min(gammas) < 0:
         raise ValueError(
@@ -108,28 +126,29 @@ def gammas_params_matching_hypo(
 
 
 from functools import lru_cache
+
+
 # XXX: many of the return types here should be `mpf` instead of `float`, but
 # mpmath does not appear to support using mpf as a type,, despite calling it a "type"
 # in their documentation: https://mpmath.org/doc/current/basics.html#number-types
-@lru_cache
-def gamma_params_matching_hypo(n: int, k: int, o: int, g: int) -> tuple[float, float]:
+# @lru_cache
+def gamma_params_matching_hypo(
+    n: int, k: int, o: int, g: int, direct: bool = False
+) -> tuple[float, float]:
     """
     Compute the parameters (shape, scale) of a Gamma distribution that matches the
     mean and variance of a hypoexponential distribution summing exponentials with rates
     n choose c, n+g choose c, n+2*g choose c, ..., n+(k-1)*g choose c.
     """
-    mean = mean_hypo(n, k, o, g)
-    var = var_hypo(n, k, o, g)
+    if direct:
+        mean = mean_direct_np(n, k, o, g)
+        var = var_direct_np(n, k, o, g)
+    else:
+        mean = mean_hypo(n, k, o, g)
+        var = var_hypo(n, k, o, g)
     shape = mean**2 / var
     scale = var / mean
-    return float(shape), float(scale)
-
-
-from functools import wraps
-from typing import Callable, Any, TypeVar
-
-# Type variable for the return type of the wrapped function
-T = TypeVar("T")
+    return shape, scale
 
 
 def precision_for_sum(terms: Iterable[float]) -> float:
@@ -140,142 +159,30 @@ def precision_for_sum(terms: Iterable[float]) -> float:
     Rounds to the next multiple of 30 bits, since mpmath uses 30-bit chunks.
     """
     condition_number = sum(abs(term) for term in terms) / abs(sum(terms))
-    precision = 53 + 3*math.ceil(math.log(condition_number, 2))
+    precision = 53 + 3 * math.ceil(math.log(condition_number, 2))
     # Round to the next multiple of 30 bits
     precision = (precision + 29) // 30 * 30
     return precision
 
-def adaptive_precision_sum(num_terms: int, compute_term: Callable[[int], float]) -> float:
-    """
-    Given a number of terms and a function to compute each term as a function of its index,
-    this function computes the sum of those terms with adaptive precision.
-    """
-    terms = [compute_term(i) for i in range(num_terms)]
-    precision = precision_for_sum(terms)
-    with mp.workprec(precision):
-        print(f'{precision=}')
-        terms = [compute_term(i) for i in range(num_terms)]
-        s = mp.fsum(terms)
-    return float(s)
 
-def adaptive_precision(func: Callable[..., T]) -> Callable[..., T]:
-    """
-    Decorator that adaptively increases precision until convergence. Although this can
-    be used to decorate any function, it should only be used if some of the arguments/
-    variables in that function are mpmath types, which might benefit from increased precision.
-    The function is run with increasingly larger precision contexts, and the results
-    are compared for convergence, to adaptively test how much precision is required.
-    It stops when maximum precision of 180 bits is reached, or two consecutive results
-    are within a relative tolerance of 1e-15.
-
-    The decorated function is responsible for handling its own argument conversions
-    and working with mpmath types as needed. This decorator only manages the
-    precision context and convergence testing.
-
-    This decorator will:
-    1. Calculate the function at increasing precisions: 53 (default), 60, 90, 120, ..., 300 bits
-    2. Stop early if consecutive results converge within relative tolerance of 1e-15
-    3. Return the higher precision value when convergence is achieved
-
-    The reason we choose multiples of 30 after the default 53 is that Python ints are represented
-    by 30 bit chunks, and mpmath uses Python ints under the hood to represent the bits of its
-    mantissa.
-
-    Args:
-        func: Function that returns a numeric result suitable for convergence testing
-
-    Returns:
-        Decorated function that adaptively computes the result with sufficient precision.
-    """
-
-    @wraps(func)
-    def wrapper(*args: Any, **kwargs: Any) -> T:
-        # Precision sequence in bits
-        precisions: list[int] = [53] + list(range(60, 1200, 30))
-
-        prev_result: T | None = None
-
-        for prec in precisions:
-            # print(f"trying precision {prec=}")
-            with mp.workprec(prec):
-                # Calculate function value
-                result: T = func(*args, **kwargs)
-
-                # Check convergence if we have a previous result and both are numeric
-                if (
-                    prev_result is not None
-                    and hasattr(result, "__abs__")
-                    and hasattr(prev_result, "__abs__")
-                    and hasattr(result, "__sub__")
-                    and hasattr(prev_result, "__sub__")
-                ):
-
-                    try:
-                        # Attempt convergence check for numeric types
-                        abs_prev = abs(prev_result)  # type: ignore
-                        if abs_prev > 0:
-                            min_result_abs = min(abs(result), abs(prev_result))  # type: ignore
-                            rel_diff = abs(prev_result - result) / min_result_abs  # type: ignore
-                            if rel_diff < 1e-15:
-                                return result  # Return higher precision value
-                    except (TypeError, AttributeError):
-                        # If convergence check fails, continue to next precision
-                        pass
-
-                # print(f"  result at {prec=:3}: {result}")
-                prev_result = result
-
-        # If we reach here, return the final result at highest precision
-        return prev_result  # type: ignore
-
-    return wrapper
-
-
-@adaptive_precision
 def mean_hypo(n: int, k: int, o: int, g: int, special: bool = True) -> float:
-    n = mpf(n)
-    k = mpf(k)
-    o = mpf(o)
-    g = mpf(g)
+    last_term = 1.0 / binomial(n + (k - 1) * g, o)
+    precision = precision_for(last_term)
 
-    if o == 1:
-        # need this special case unconditionally to avoid NaN calculation somewhere
-        result = mean_hypo_o1(n, k, g)
-    elif special:
-        result = mean_hypo_general(n, k, o, g)
-    else:
-        result = general_mean_hypo_hypergeometric(n, k, o, g)
-    # elif special and (o <= 8 or g <= 2):
-    #     # result = None
-    #     result = general_mean_hypo(n, k, o, g)
-    #     # much faster than calling hyper
-    #     if o == 2:
-    #         result = mean_hypo_o2(n, k, g)
-    #     elif o == 3:
-    #         result = mean_hypo_o3(n, k, g)
-    #     elif o == 4:
-    #         result = mean_hypo_o4(n, k, g)
-    #     elif o == 5:
-    #         result = mean_hypo_o5(n, k, g)
-    #     elif o == 6:
-    #         # result = mean_hypo_o6_wolfram(n, k, g)
-    #         result = mean_hypo_o6(n, k, g)
-    #     elif o == 7:
-    #         result = mean_hypo_o7(n, k, g)
-    #     elif o == 8:
-    #         result = mean_hypo_o8(n, k, g)
-    #     elif g == 1:
-    #         result = mean_hypo_g1(n, k, o)
-    #     elif g == 2:
-    #         result = mean_hypo_g2(n, k, o)
-    #     assert result is not None
+    with mp.workdps(precision):
+        n = mpf(n)
+        k = mpf(k)
+        o = mpf(o)
+        g = mpf(g)
+        if o == 1:
+            # need this special case unconditionally to avoid NaN calculation somewhere
+            result = mean_hypo_o1(n, k, g)
+        elif special:
+            result = mean_hypo_general(n, k, o, g)
+        else:
+            result = general_mean_hypo_hypergeometric(n, k, o, g)
 
-    # if result is None:
-    #     # empirically, this is precise even with mp.dps = 15 (i.e., increasing precision beyond 15
-    #     # does not change the first 15 decimals places, as it does with the faster special cases above)
-    #     result = general_mean_hypo_hypergeometric(n, k, o, g)
-
-    return float(result)
+        return float(result)
 
 
 def mean_hypo_o1(n: int, k: int, g: int) -> float:
@@ -286,6 +193,149 @@ def mean_hypo_o1(n: int, k: int, g: int) -> float:
     sum2 = psi(0, n / g)
     diff = sum1 - sum2
     return diff / g
+
+
+def mean_hypo_general(n: int, k: int, o: int, g: int) -> float:
+    """
+    Compute the mean of a hypoexponential distribution summing exponentials with rates
+    n choose o, n+g choose o, n+2*g choose o, ..., n+(k-1)*g choose o.
+
+    This is a general implementation that works for any value of o, using the pattern
+    observed in mean_hypo_o1 through mean_hypo_o8. The formula computes two weighted
+    sums of polygamma/psi function calls, where the weights are binomial coefficients
+    from the o'th row of Pascal's triangle with alternating signs.
+
+    Args:
+        n: Starting value for the binomial coefficient
+        k: Number of exponentials to sum
+        o: Order parameter (the 'o' in 'n choose o')
+        g: Step size between consecutive binomial coefficients
+
+    Returns:
+        The mean of the hypoexponential distribution
+    """
+    assert g >= 1, "g must be at least 1"
+    assert o >= 1, "o must be at least 1"
+
+    terms = []
+
+    for m in range(int(o)):
+        coeff = math.comb(int(o - 1), int(m))
+        if m % 2 == 1:
+            coeff = -coeff
+
+        arg2 = (n - (o - 1 - m)) / g
+        arg1 = k + arg2
+
+        terms.extend([coeff * psi(0, arg1), -coeff * psi(0, arg2)])
+
+    return mp.fsum(terms) * o / g
+
+
+def precision_for(term) -> int:
+    return (math.ceil(-math.log(term, 2)) + 53 + 29) // 30 * 30
+
+
+def var_hypo(n: int, k: int, o: int, g: int) -> float:
+    last_term = 1.0 / math.comb(n + (k - 1) * g, o) ** 2
+    precision = precision_for(last_term)
+    with mp.workdps(precision):
+        n = mpf(n)
+        k = mpf(k)
+        o = mpf(o)
+        g = mpf(g)
+        # first sum
+        #   o^2 / g^2
+        #   * \sum_{m=0}^{o-1}
+        #       \binom{o-1}{m}^2
+        #       * [ \psi_1(     (n-(o-1-m)+ig) / g )
+        #         - \psi_1( k + (n-(o-1-m)+ig) / g )]
+        first_sum_terms = []
+        for m in range(int(o)):
+            # coeff = binomial(o-1, m)**2
+            coeff = math.comb(int(o - 1), int(m)) ** 2
+            arg1 = mpf(n - (o - 1 - m)) / g
+            arg2 = k + arg1
+            first_sum_terms.extend([coeff * psi(1, arg1), -coeff * psi(1, arg2)])
+        first_sum = mp.fsum(first_sum_terms)
+        first_sum *= (int(o) ** 2) / (int(g) ** 2)
+
+        # second sum
+        #   + 2 o^2 / g
+        #     \sum_{m=0}^{o-1}
+        #     \sum_{j=m+1}^{o-1}
+        #     (-1)^{m+j} / (m-j) * \binom{o-1}{m} * \binom{o-1}{j}
+        #     * [
+        #       + psi_0(     (n-(o-1-m)) / g )
+        #       - psi_0( k + (n-(o-1-m)) / g )
+        #       - psi_0(     (n-(o-1-j)) / g )
+        #       + psi_0( k + (n-(o-1-j)) / g )
+        #       ].
+        second_sum_terms = []
+        for m in range(int(o)):
+            for j in range(int(m) + 1, int(o)):
+                negate = (m + j) % 2 == 1
+                # coeff = sign * binomial(o-1, m) * binomial(o-1, j) / (m-j)
+                coeff = mpf(
+                    math.comb(int(o - 1), int(m)) * binomial(int(o - 1), int(j))
+                ) / (m - j)
+                if negate:
+                    coeff = -coeff
+
+                arg1 = (n - (o - 1 - m)) / g
+                arg2 = k + arg1
+                arg3 = (n - (o - 1 - j)) / g
+                arg4 = k + arg3
+                # print(f'{psi(0, arg1)=}')
+                # print(f'{psi(0, arg2)=}')
+                # print(f'{psi(0, arg3)=}')
+                # print(f'{psi(0, arg4)=}')
+                # psi0_sum = (psi(0, arg1) - psi(0, arg2) - psi(0, arg3) + psi(0, arg4))
+                term1 = coeff * psi(0, arg1)
+                term2 = -coeff * psi(0, arg2)
+                term3 = -coeff * psi(0, arg3)
+                term4 = coeff * psi(0, arg4)
+                second_sum_terms.extend([term1, term2, term3, term4])
+                # second_sum += coeff * psi0_sum
+        second_sum = mp.fsum(second_sum_terms)
+        second_sum *= 2 * o**2 / g
+
+        return first_sum + second_sum
+
+
+##########################################################
+# Functions below here are early ideas not used anymore.
+
+
+def general_mean_hypo_hypergeometric(n: int, k: int, o: int, g: int) -> float:
+    # mpmath does not have a special implementation of hypergeometric 4F3 or above,
+    # so we use the general implementation:
+    # https://mpmath.org/doc/current/functions/hypergeometric.html#hyper
+    # Wolfram alpha does not have a closed form for this, but we can infer the closed
+    # form from the first few formulas for g=1, g=2, g=3:
+    # g=1: https://www.wolframalpha.com/input?i=sum_%7Bi%3D0%7D%5E%7Bk-1%7D+1%2Fbinomial%28n+%2B+i%2C+o%29
+    # g=2: https://www.wolframalpha.com/input?i=sum_%7Bi%3D0%7D%5E%7Bk-1%7D+1%2Fbinomial%28n+%2B+2*i%2C+o%29
+    # g=3: https://www.wolframalpha.com/input?i=sum_%7Bi%3D0%7D%5E%7Bk-1%7D+1%2Fbinomial%28n+%2B+3*i%2C+o%29
+    # XXX: This is VERY slow, it can take over a second to compute for example, for n=10**8, k=10**4, o=4, g=4
+
+    as1 = [1.0]
+    bs1 = []
+    as2 = [1.0]
+    bs2 = []
+
+    for i in range(1, int(g) + 1):
+        as1.append((n - o + i) / g)
+        bs1.append((n + i) / g)
+
+        as2.append(k + (n - o + i) / g)
+        bs2.append(k + (n + i) / g)
+
+    num1 = hyper(as1, bs1, 1)
+    den1 = binomial(n, o)
+    num2 = hyper(as2, bs2, 1)
+    den2 = binomial(n + g * k, o)
+
+    return num1 / den1 - num2 / den2
 
 
 def mean_hypo_o2(n: int, k: int, g: int) -> float:
@@ -311,11 +361,7 @@ def mean_hypo_o3(n: int, k: int, g: int) -> float:
             psi(0, k + (n - 2) / g)
             - 2 * psi(0, k + (n - 1) / g)
             + psi(0, k + n / g)
-            - (
-                psi(0, (n - 2) / g)
-                - 2 * psi(0, (n - 1) / g)
-                + psi(0, n / g)
-            )
+            - (psi(0, (n - 2) / g) - 2 * psi(0, (n - 1) / g) + psi(0, n / g))
         )
     ) / g
 
@@ -422,162 +468,114 @@ def mean_hypo_o8(n: int, k: int, g: int) -> float:
     return (
         8
         * (
-            psi(0,        k + (n - 7) / g)
-            - 7 * psi(0,  k + (n - 6) / g)
+            psi(0, k + (n - 7) / g)
+            - 7 * psi(0, k + (n - 6) / g)
             + 21 * psi(0, k + (n - 5) / g)
             - 35 * psi(0, k + (n - 4) / g)
             + 35 * psi(0, k + (n - 3) / g)
             - 21 * psi(0, k + (n - 2) / g)
-            + 7 * psi(0,  k + (n - 1) / g)
-            - psi(0,      k +       n / g)
+            + 7 * psi(0, k + (n - 1) / g)
+            - psi(0, k + n / g)
             - (
-                psi(0,        (n - 7) / g)
-                - 7 * psi(0,  (n - 6) / g)
+                psi(0, (n - 7) / g)
+                - 7 * psi(0, (n - 6) / g)
                 + 21 * psi(0, (n - 5) / g)
                 - 35 * psi(0, (n - 4) / g)
                 + 35 * psi(0, (n - 3) / g)
                 - 21 * psi(0, (n - 2) / g)
-                + 7 * psi(0,  (n - 1) / g)
-                - psi(0,            n / g)
+                + 7 * psi(0, (n - 1) / g)
+                - psi(0, n / g)
             )
         )
     ) / g
 
-@adaptive_precision
-def mean_hypo_general(n: int, k: int, o: int, g: int) -> float:
-    """
-    Compute the mean of a hypoexponential distribution summing exponentials with rates
-    n choose o, n+g choose o, n+2*g choose o, ..., n+(k-1)*g choose o.
 
-    This is a general implementation that works for any value of o, using the pattern
-    observed in mean_hypo_o1 through mean_hypo_o8. The formula computes two weighted
-    sums of polygamma/psi function calls, where the weights are binomial coefficients
-    from the o'th row of Pascal's triangle with alternating signs.
+from functools import wraps
+from typing import Callable, Any, TypeVar
+
+T = TypeVar("T")
+
+
+def adaptive_precision(func: Callable[..., T]) -> Callable[..., T]:
+    """
+    Decorator that adaptively increases precision until convergence. Although this can
+    be used to decorate any function, it should only be used if some of the arguments/
+    variables in that function are mpmath types, which might benefit from increased precision.
+    The function is run with increasingly larger precision contexts, and the results
+    are compared for convergence, to adaptively test how much precision is required.
+    It stops when maximum precision of 180 bits is reached, or two consecutive results
+    are within a relative tolerance of 1e-15.
+
+    The decorated function is responsible for handling its own argument conversions
+    and working with mpmath types as needed. This decorator only manages the
+    precision context and convergence testing.
+
+    This decorator will:
+    1. Calculate the function at increasing precisions: 53 (default), 60, 90, 120, ..., 300 bits
+    2. Stop early if consecutive results converge within relative tolerance of 1e-15
+    3. Return the higher precision value when convergence is achieved
+
+    The reason we choose multiples of 30 after the default 53 is that Python ints are represented
+    by 30 bit chunks, and mpmath uses Python ints under the hood to represent the bits of its
+    mantissa.
 
     Args:
-        n: Starting value for the binomial coefficient
-        k: Number of exponentials to sum
-        o: Order parameter (the 'o' in 'n choose o')
-        g: Step size between consecutive binomial coefficients
+        func: Function that returns a numeric result suitable for convergence testing
 
     Returns:
-        The mean of the hypoexponential distribution
+        Decorated function that adaptively computes the result with sufficient precision.
     """
-    assert g >= 1, "g must be at least 1"
-    assert o >= 1, "o must be at least 1"
 
-    terms = []
+    @wraps(func)
+    def wrapper(*args: Any, **kwargs: Any) -> T:
+        # Precision sequence in bits
+        precisions: list[int] = [270]  # [53] + list(range(60, 1200, 30))
 
-    for m in range(int(o)):
-        coeff = math.comb(int(o-1), int(m))
-        if m % 2 == 1:
-            coeff = -coeff
+        prev_result: T | None = None
 
-        arg2 = (n - (o - 1 - m)) / g
-        arg1 = k + arg2
+        for prec in precisions:
+            # print(f"trying precision {prec=}")
+            with mp.workprec(prec):
+                # Calculate function value
+                result: T = func(*args, **kwargs)
 
-        terms.extend([coeff * psi(0, arg1), -coeff * psi(0, arg2)])
+                # Check convergence if we have a previous result and both are numeric
+                if prev_result is not None:
+                    # Attempt convergence check for numeric types
+                    if result != 0.0 and result == prev_result:
+                        return result
+                    abs_prev = abs(prev_result)  # type: ignore
+                    if abs_prev > 0:
+                        min_result_abs = min(abs(result), abs(prev_result))  # type: ignore
+                        if min_result_abs == 0:
+                            min_result_abs = max(abs(result), abs(prev_result))  # type: ignore
+                        rel_diff = abs(prev_result - result) / min_result_abs  # type: ignore
+                        if rel_diff < 1e-15 and result != 0:
+                            return result  # Return higher precision value
 
-    return mp.fsum(terms) * o / g
+                # print(f"  result at {prec=:3}: {result}")
+                prev_result = result
+
+        # If we reach here, return the final result at highest precision
+        return prev_result  # type: ignore
+
+    return wrapper
 
 
-def general_mean_hypo_hypergeometric(n: int, k: int, o: int, g: int) -> float:
-    # mpmath does not have a special implementation of hypergeometric 4F3 or above,
-    # so we use the general implementation:
-    # https://mpmath.org/doc/current/functions/hypergeometric.html#hyper
-    # Wolfram alpha does not have a closed form for this, but we can infer the closed
-    # form from the first few formulas for g=1, g=2, g=3:
-    # g=1: https://www.wolframalpha.com/input?i=sum_%7Bi%3D0%7D%5E%7Bk-1%7D+1%2Fbinomial%28n+%2B+i%2C+o%29
-    # g=2: https://www.wolframalpha.com/input?i=sum_%7Bi%3D0%7D%5E%7Bk-1%7D+1%2Fbinomial%28n+%2B+2*i%2C+o%29
-    # g=3: https://www.wolframalpha.com/input?i=sum_%7Bi%3D0%7D%5E%7Bk-1%7D+1%2Fbinomial%28n+%2B+3*i%2C+o%29
-    # XXX: This is VERY slow, it can take over a second to compute for example, for n=10**8, k=10**4, o=4, g=4
-
-    as1 = [1.0]
-    bs1 = []
-    as2 = [1.0]
-    bs2 = []
-
-    for i in range(1, int(g) + 1):
-        as1.append((n - o + i) / g)
-        bs1.append((n + i) / g)
-
-        as2.append(k + (n - o + i) / g)
-        bs2.append(k + (n + i) / g)
-
-    num1 = hyper(as1, bs1, 1)
-    den1 = binomial(n, o)
-    num2 = hyper(as2, bs2, 1)
-    den2 = binomial(n + g * k, o)
-
-    return num1 / den1 - num2 / den2
-
-@adaptive_precision
-def var_hypo(n: int, k: int, o: int, g: int) -> float:
-    n = mpf(n)
-    k = mpf(k)
-    o = mpf(o)
-    g = mpf(g)
-    # first sum
-    #     o^2 / g^2
-    #     *
-    #     \sum_{m=0}^{o-1}
-    #         \binom{o-1}{m}^2
-    #         *
-    #         [
-    #         \psi_1( (n-(o-1-m)+ig) / g )
-    #         -
-    #         \psi_1( k + (n-(o-1-m)+ig) / g )
-    #         ]
-    first_sum_terms = []
-    for m in range(int(o)):
-        # coeff = binomial(o-1, m)**2
-        coeff = math.comb(int(o-1), int(m))**2
-        arg1 = mpf(n - (o - 1 - m)) / g
-        arg2 = k + arg1
-        first_sum_terms.extend([coeff * psi(1, arg1), -coeff * psi(1, arg2)])
-    first_sum = mp.fsum(first_sum_terms)
-    first_sum *= (int(o)**2) / (int(g)**2)
-
-    # second sum
-    #   + 2 o^2 / g
-    #     \sum_{m=0}^{o-1}
-    #     \sum_{j=m+1}^{o-1}
-    #     (-1)^{m+j} / (m-j) * \binom{o-1}{m} * \binom{o-1}{j}
-    #     * [
-    #       + psi_0(     (n-(o-1-m)) / g )
-    #       - psi_0( k + (n-(o-1-m)) / g )
-    #       - psi_0(     (n-(o-1-j)) / g )
-    #       + psi_0( k + (n-(o-1-j)) / g )
-    #       ].
-    # second_sum = mpf(0)
-    # second_sum = Sum()
-    second_sum_terms = []
-    for m in range(int(o)):
-        for j in range(int(m) + 1, int(o)):
-            negate = (m+j) % 2 == 1
-            # coeff = sign * binomial(o-1, m) * binomial(o-1, j) / (m-j)
-            coeff = mpf(math.comb(int(o-1), int(m)) * binomial(int(o-1), int(j))) / (m-j)
-            if negate: coeff = -coeff
-
-            arg1 = (n - (o - 1 - m)) / g
-            arg2 = k + arg1
-            arg3 = (n - (o - 1 - j)) / g
-            arg4 = k + arg3
-            # print(f'{psi(0, arg1)=}')
-            # print(f'{psi(0, arg2)=}')
-            # print(f'{psi(0, arg3)=}')
-            # print(f'{psi(0, arg4)=}')
-            # psi0_sum = (psi(0, arg1) - psi(0, arg2) - psi(0, arg3) + psi(0, arg4))
-            term1 = coeff * psi(0, arg1)
-            term2 = - coeff * psi(0, arg2)
-            term3 = - coeff * psi(0, arg3)
-            term4 = coeff * psi(0, arg4)
-            second_sum_terms.extend([term1, term2, term3, term4])
-            # second_sum += coeff * psi0_sum
-    second_sum = mp.fsum(second_sum_terms)
-    second_sum *= 2 * o**2 / g
-
-    return first_sum + second_sum
+def adaptive_precision_sum(
+    num_terms: int, compute_term: Callable[[int], float]
+) -> float:
+    """
+    Given a number of terms and a function to compute each term as a function of its index,
+    this function computes the sum of those terms with adaptive precision.
+    """
+    terms = [compute_term(i) for i in range(num_terms)]
+    precision = precision_for_sum(terms)
+    with mp.workprec(precision):
+        print(f"{precision=}")
+        terms = [compute_term(i) for i in range(num_terms)]
+        s = mp.fsum(terms)
+    return float(s)
 
 
 ###################################################
@@ -586,13 +584,15 @@ def var_hypo(n: int, k: int, o: int, g: int) -> float:
 
 
 def reciprocals(n: int, k: int, o: int, g: int) -> npt.NDArray[np.float64]:
-    indices = np.arange(k)*g
+    indices = np.arange(k) * g
     binomial_values = binom(n + indices, o)
     return 1.0 / binomial_values
 
 
-def reciprocals_gamma(n: int, k: int, o: int, g: int, square: bool) -> npt.NDArray[np.float64]:
-    indices = np.arange(k)*g
+def reciprocals_gamma(
+    n: int, k: int, o: int, g: int, square: bool
+) -> npt.NDArray[np.float64]:
+    indices = np.arange(k) * g
     log_binom = gammaln(n + indices + 1) - gammaln(o + 1) - gammaln(n + indices - o + 1)
     coef = -2 if square else -1
     return np.exp(coef * log_binom)
@@ -617,7 +617,7 @@ def var_direct_np(n: int, k: int, o: int, g: int) -> float:
 def mean_direct(n: int, k: int, o: int, g: int) -> float:
     terms = []
     for i in range(int(k)):
-        terms.append(1 / math.comb(n + i*g, o))
+        terms.append(1 / math.comb(n + i * g, o))
     s = mp.fsum(terms)
     return s
 
@@ -625,7 +625,7 @@ def mean_direct(n: int, k: int, o: int, g: int) -> float:
 def var_direct(n: int, k: int, o: int, g: int) -> float:
     terms = []
     for i in range(int(k)):
-        terms.append(1 / math.comb(n + i*g, o))
+        terms.append(1 / math.comb(n + i * g, o))
     s = mp.fsum(terms, squared=True)
     return s
 
