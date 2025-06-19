@@ -38,7 +38,7 @@ import numpy.typing as npt
 import pandas as pd
 from tqdm.auto import tqdm
 
-from ppsim.crn import Reaction, reactions_to_dict
+from ppsim.crn import Reaction, reactions_to_dict, CRN
 from ppsim.snapshot import Snapshot, TimeUpdate
 from ppsim.ppsim_rust import Simulator, SimulatorSequentialArray, SimulatorMultiBatch, SimulatorCRNMultiBatch
 
@@ -449,12 +449,23 @@ class Simulation:
                                             {b, a} -> {self.rule(b, a)}''')
 
         gillespie = self.simulator_method.lower() == 'gillespie'
-        self.simulator = self._method(
-            config, delta, # null_transitions,  # type: ignore
-            random_transitions, random_outputs_arr, transition_probabilities, 
-            transition_order=self._transition_order,
-            gillespie=gillespie, seed=self.seed
-        )
+        # TODO: not sure what the best way to deal with this is or if it will break the
+        # subclassing structure that I attempted to make pyo3 recognize, but for now, it seems
+        # much simpler to just give the CRN simulator a different new() signature.
+        if self.simulator_method == "crn":
+            self.simulator = self._method(
+                config, delta, # null_transitions,  # type: ignore
+                random_transitions, random_outputs_arr, transition_probabilities, 
+                self._transition_order,
+                gillespie, 234, [([1,2], [1,3], 0.56), ([0,3], [2,2], 0.009)], 0, 1
+            )
+        # if True:
+        #     self.simulator = self._method(
+        #         config, delta, # null_transitions,  # type: ignore
+        #         random_transitions, random_outputs_arr, transition_probabilities, 
+        #         transition_order=self._transition_order,
+        #         gillespie=gillespie, seed=self.seed
+        #     )
 
     def array_from_dict(self, d: dict) -> npt.NDArray[np.uint]:
         """Convert a configuration dictionary to an array.

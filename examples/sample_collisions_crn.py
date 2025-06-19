@@ -23,8 +23,6 @@ def main():
 
     sim = pp.Simulation(inits, rxns, simulator_method="crn")
 
-    sim.simulator.g = 2# type: ignore
-    sim.simulator.o = 3# type: ignore
     # r = math.ceil(math.sqrt(n))
     r = 0
     print(f'{n=}, {r=}')
@@ -53,8 +51,6 @@ def main():
     ls_dir = np.array(ls_dir)
     print(ls_pp)
     print(ls_dir)
-    print(sim.simulator.o)# type: ignore
-    print(sim.simulator.g)# type: ignore
     # print(f'fast:   { ls_pp.mean():7.2f}, stddev: { ls_pp.std():6.2f}')
     # print(f'direct: {ls_dir.mean():7.2f}, stddev: {ls_dir.std():6.2f}')
     print(f'fast:   { ls_pp.mean():7.2f}')

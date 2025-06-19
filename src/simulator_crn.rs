@@ -1,4 +1,4 @@
-use std::collections::{HashMap};
+use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::time::{Duration, Instant};
 use std::vec;
@@ -6,7 +6,6 @@ use std::vec;
 use crate::flame;
 
 use numpy::PyArrayMethods;
-use numpy::PyUntypedArrayMethods;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 // use ndarray::prelude::*;
@@ -20,17 +19,174 @@ use rand::seq::SliceRandom;
 #[allow(unused_imports)]
 use statrs::distribution::{Geometric, Uniform};
 
+use itertools::Itertools;
+
 use crate::simulator_abstract::Simulator;
 
 use crate::urn::Urn;
 use crate::util::{ln_factorial, ln_gamma, multinomial_sample};
 
 type State = usize;
+type RateConstant = f64;
+type StateList = Vec<State>;
+type Reaction = (StateList, StateList, RateConstant);
+type ProductsAndRateConstant = (StateList, RateConstant);
+// A map from each state that appears to how many times that state appears in this set of reactants.
+
+// We remember the CRN we started with, because we may need to recompute reaction 
+// probabilities between batches if we change the count of K. This should also hopefully
+// make it easier to interface with the Simulator class from both python and rust.
+// This struct is named to emphasize that it stores the CRN *after* the uniform transformation
+// is applied (so all reactions should have equal order and equal generativity). Rate constants
+// are stored here *before* adjusting for the count of K.
+pub struct UniformCRN {
+    // Reaction order.
+    pub o: usize,
+    // Generativity.
+    pub g: usize,
+    // Number of species, including K and W.
+    pub q: usize,
+    // The specific States that represent K and W.
+    pub k: State,
+    pub w: State,
+    // The CRN's reactions. If multiple reactions share the same reactants, they are stored in
+    // the same Reaction object, for ease of iterating over reactions.
+    pub reactions: Vec<CombinedReaction>,
+}
+
+// A struct combining all reactions with the same reactants into a single piece.
+pub struct CombinedReaction {
+    pub reactants: StateList,
+    pub outputs: Vec<ProductsAndRateConstant>,
+}
+
+impl UniformCRN {
+    // Make sure that a set of reactions is uniform and the reactions valid, and combine reactions 
+    // that share the same set of reactants for easier iteration.
+    fn verify_and_combine_reactions(reactions: Vec<Reaction>, k: State, w: State) -> UniformCRN {
+        if reactions.len() == 0 {
+            return UniformCRN {o: 0, g: 0, q: 0, k: 0, w: 0, reactions: Vec::new()}
+        }
+        let first_reaction = &reactions[0];
+        let o = first_reaction.0.len();
+        let g = first_reaction.1.len() - o;
+        let mut all_species_seen: HashSet<State> = HashSet::from([k,w]);
+        let mut highest_species_seen = k.max(w);
+        let mut collected_reactions: HashMap<StateList, Vec<ProductsAndRateConstant>> = HashMap::new();
+        for reaction in reactions {
+            assert!(reaction.0.len() == o, "All reactions must have the same number of inputs");
+            assert!(reaction.1.len() - reaction.0.len() == g, "All reactions must have the same number of outputs");
+            for reactant in &reaction.0 {
+                all_species_seen.insert(*reactant);
+                highest_species_seen = highest_species_seen.max(*reactant);
+            }
+            for product in &reaction.1 {
+                all_species_seen.insert(*product);
+                highest_species_seen = highest_species_seen.max(*product);
+            }
+            collected_reactions.entry(reaction.0).or_default().push((reaction.1, reaction.2));
+        }
+        let q = highest_species_seen + 1;
+        assert!(q == all_species_seen.len(), "Species must be indexed using contiguous integers starting from 0");
+        let reactions_out: Vec<CombinedReaction> = collected_reactions
+            .keys()
+            .map(|x| CombinedReaction { reactants: x.to_vec(), outputs: collected_reactions[x].clone() })
+            .collect();
+        return UniformCRN { o: o, g: g, q: q, k: k, w: w, reactions: reactions_out }
+    }
+    // Build or rebuild random_transitions, random_outputs, and transition_probabilities.
+    // We need to rebuild these tables because reaction propensities depend on the count of K,
+    // which we may want to change throughout the execution.
+    // Returns a tuple of these three objects in that order.
+    fn construct_transition_arrays(&self, k_count: usize) -> (ArrayD<usize>, Vec<StateList>, Vec<f64>) {
+        flame::start("construct_transition_arrays");
+        let mut max_total_rate_constant: f64 = 0.0;
+        // Iterate through reactions, adjusting rate constants to account for how many K
+        // are being added, and for symmetry that results from the scheduler having different
+        // orders it can pick, so that the adjusted CRN keeps the original dynamics.
+        for reaction in &self.reactions {
+            let mut total_rate_constant = 0.0;
+            let reactants = &reaction.reactants;
+            let mut correction_factor = Self::symmetry_degree(reactants) as f64;
+            let k_multiplicity = reactants.iter().filter(|&s| *s == self.k).count();
+                // We've artificially sped up this reaction by |K| * (|K| - 1) * ...
+                // This loop undoes that artificial speedup.
+                for i in 0..k_multiplicity {
+                    correction_factor /= (k_count - i) as f64;
+                }
+            for output in &reaction.outputs {            
+                let adjusted_rate_constant: f64 = output.1 * correction_factor;
+                total_rate_constant += adjusted_rate_constant;
+            }
+            max_total_rate_constant = max_total_rate_constant.max(total_rate_constant);
+        }
+        // random_transitions has q+1 dimensions, the first q of which have length o,
+        // and the last of which has length 2.
+        let mut shape_vec = vec![self.q; self.o];
+        shape_vec.push(2);
+        let mut random_transitions = ArrayD::<usize>::zeros(shape_vec);
+        let mut random_outputs: Vec<Vec<State>> = Vec::new();
+        let mut random_probabilities: Vec<f64> = Vec::new();
+        // Add any non-null reactions. Null reactions don't need any special handling.
+        let mut cur_output_index = 0;
+        for reaction in &self.reactions {
+            
+            // Add info from this reaction to all possible permutations of reactants.
+            for permutation in reaction.reactants.iter().permutations(self.o) {
+                
+                for output in &reaction.outputs {
+                    let probability = output.1 / max_total_rate_constant;
+                    let mut view = random_transitions.view_mut();
+                    // This loop indexes into random_transitions.
+                    for dimension in 0..self.o {
+                        view = view.index_axis_move(Axis(0), *permutation[dimension]);    
+                    }
+                    // Make sure that this is one-dimensional.
+                    let mut inner_view = view.into_dimensionality::<ndarray::Ix1>().unwrap();
+                    // Increment the number of possible outputs for these reactants.
+                    inner_view[0] += 1;
+                    inner_view[1] = cur_output_index;
+                    random_outputs.push(output.0.clone());
+                    random_probabilities.push(probability);
+                }
+            }
+            cur_output_index += reaction.outputs.len();
+        }        
+        flame::end("construct_transition_arrays");
+        return (random_transitions, random_outputs, random_probabilities);
+    }
+
+    // Determine the degree of symmetry of a reaction, i.e., for any given ordering of its reactants,
+    // the number of reorderings that are redundant. Obtained as the product of the factorial of
+    // the count of each reactant.
+    fn symmetry_degree(reactants: &Vec<State>) -> usize {
+        let mut factor = 1;
+        let mut frequencies: HashMap<usize, usize> = HashMap::new();
+        for reactant in reactants {
+            *frequencies.entry(*reactant).or_default() += 1;
+        }
+        for (_, frequency) in frequencies {
+            for i in 2..frequency + 1 {
+                factor *= i;
+            }
+        }
+        return factor
+    }
+    // An iterator that iterates over all possible reactant vectors.
+    // It might be more efficient to implement some custom iterator since really all this needs
+    // to do is count up through all o-digit numbers in base q.
+    // fn reactant_iterator(self) -> impl Iterator<Item = Vec<State>> {
+    //     return itertools::repeat_n(0..self.q, self.o).multi_cartesian_product();
+    // }
+}
 
 //TODO: consider using ndarrays instead of multi-dimensional vectors
 // I think native Rust arrays won't work because their size needs to be known at compile time.
 #[pyclass(extends = Simulator)]
 pub struct SimulatorCRNMultiBatch {
+    /// The CRN with a list of reactions, so we can recompute probabilities when the
+    /// count of K is updated between batches.
+    pub crn: UniformCRN,
     /// The population size (sum of values in urn.config).
     #[pyo3(get, set)]
     pub n: usize,
@@ -39,17 +195,11 @@ pub struct SimulatorCRNMultiBatch {
     pub t: usize,
     /// The total number of states (length of urn.config).
     pub q: usize,
-    /// The order of reactions, i.e. the number of reactants.
-    #[pyo3(get, set)]
-    pub o: usize,
-    /// The generativity of reactions, i.e. the number of products minus the number of reactants.
-    #[pyo3(get, set)]
-    pub g: usize,
     /// An (o + 1)-dimensional array. The first o dimensions represent reactants. After indexing through
     /// the first o dimensions, the last dimension always has size two, with elements (`num_outputs`, `first_idx`).
-    /// `num_outputs` is the number of possible outputs if transition i,j --> ... is random,
+    /// `num_outputs` is the number of possible outputs if transition i,j --> ... is non-null,
     /// otherwise it is 0. `first_idx` gives the starting index to find
-    /// the outputs in the array `self.random_outputs` if it is random.
+    /// the outputs in the array `self.random_outputs` if it is non-null.
     /// #[pyo3(get, set)] // XXX: for testing
     pub random_transitions: ArrayD<usize>,
     /// A 1D array of tuples containing all outputs of random transitions,
@@ -61,9 +211,10 @@ pub struct SimulatorCRNMultiBatch {
     /// `random_outputs[first_idx+1] = (7,7,8)`, and
     /// `random_outputs[first_idx+2] = (3,2,1)`.
     #[pyo3(get, set)] // XXX: for testing
-    pub random_outputs: Vec<Vec<State>>,
+    pub random_outputs: Vec<StateList>,
     /// An array containing all random transition probabilities,
     /// whose indexing matches random_outputs.
+    /// May add up to less than 1 for a given reaction, in which case the remainder is assumed null.
     #[pyo3(get, set)] // XXX: for testing
     pub transition_probabilities: Vec<f64>,
     /// The maximum number of random outputs from any random transition.
@@ -127,11 +278,6 @@ pub struct SimulatorCRNMultiBatch {
     coll_table_u_values: Vec<f64>,
     /// Used to populate coll_table_r_values.
     r_constant: usize,
-    /// If true, unconditionally use the Gillespie algorithm.
-    gillespie_always: bool,
-    /// Length-q^o vector that has all possible subsets of [q]^o, for easy indexing over reactions.
-    #[allow(dead_code)]
-    reaction_indices: Vec<Vec<usize>>,
 }
 
 // fn py_print(py: Python, msg: &str) {
@@ -161,58 +307,100 @@ impl SimulatorCRNMultiBatch {
     ///         whose indexing matches random_outputs.
     ///     seed (optional): An integer seed for the pseudorandom number generator.
     #[new]
-    #[pyo3(signature = (init_config, _delta, random_transitions, random_outputs, transition_probabilities, transition_order, gillespie=false, seed=None))]
+    #[pyo3(signature = (init_config, _delta, _random_transitions, _random_outputs, _transition_probabilities, _transition_order, _gillespie, seed, reactions, k, w))]
     pub fn new(
         init_config: PyReadonlyArray1<State>,
         _delta: PyReadonlyArrayDyn<State>,
-        random_transitions: PyReadonlyArrayDyn<usize>,
-        random_outputs: PyReadonlyArray2<State>,
-        transition_probabilities: PyReadonlyArray1<f64>,
-        transition_order: String,
-        gillespie: bool,
+        _random_transitions: PyReadonlyArrayDyn<usize>,
+        _random_outputs: PyReadonlyArray2<State>,
+        _transition_probabilities: PyReadonlyArray1<f64>,
+        _transition_order: String,
+        _gillespie: bool,
         seed: Option<u64>,
+        reactions: Vec<Reaction>,
+        k: State,
+        w: State,
     ) -> (Self, Simulator) {
-        
+        let crn = UniformCRN::verify_and_combine_reactions(reactions, k, w);
         let init_config = init_config.to_vec().unwrap();
-        let q: usize = init_config.len() as State;
 
-        let num_inputs = random_transitions.shape().len() - 1;
-        let num_outputs = random_outputs.shape()[1];
 
-        for i in 0..num_inputs {
-            assert_eq!(random_transitions.shape()[i], q, "random_transitions shape mismatch");
-        }
-        let random_transitions: ArrayD<usize> = random_transitions.as_array().to_owned();
+        let config = init_config.clone();
+        let n = config.iter().sum();
+        let q = config.len() as State;
 
-        let random_outputs_length = random_outputs.shape()[0];
+        // random_depth is the maximum number of outputs for any randomized transition
+        let random_depth = 1;
 
-        let mut random_outputs_vec = Vec::with_capacity(random_outputs_length);
-        for i in 0..random_outputs_length {
-            let mut output_element = Vec::new();
-            for j in 0..num_outputs {
-                output_element.push(*random_outputs.get([i,j]).unwrap());
+        // TODO uncomment this
+        // for random_transitions_inner in random_transitions.axis_iter(Axis(o)) {
+        //     random_depth = random_depth.max(random_transitions_inner[0]);
+        // }
 
-            }
-            random_outputs_vec.push(output_element);
-        }
-        let random_outputs = random_outputs_vec;
+        // assert_eq!(
+        //     random_outputs.len(),
+        //     transition_probabilities.len(),
+        //     "random_outputs and transition_probabilities length mismatch"
+        // );
 
-        let transition_probabilities = transition_probabilities.to_vec().unwrap();
-        assert_eq!(
-            random_outputs.len(),
-            transition_probabilities.len(),
-            "random_outputs and transition_probabilities length mismatch"
-        );
+        let t = 0;
+        let rng = if let Some(s) = seed {
+            SmallRng::seed_from_u64(s)
+        } else {
+            SmallRng::from_entropy()
+        };
 
-        (SimulatorCRNMultiBatch::from_delta_random(
-            init_config,
+        let urn = Urn::new(config.clone(), seed);
+        let updated_counts = Urn::new(vec![0; q], seed);
+        let array_sums = make_batch_result(crn.o, q);
+        let row = vec![0; q];
+        let m = vec![0; random_depth];
+        let silent = false;
+        let do_gillespie = false; // this changes during run
+
+        // next three fields are only used with Gillespie steps;
+        // they will be set accordingly if we switch to Gillespie
+        // let propensities = vec![0.0; reactions.len()];
+        // let enabled_reactions = vec![0; reactions.len()];
+        // let num_enabled_reactions = 0;
+
+        // below here we give meaningless default values to the other fields and rely on
+        // set_n_parameters and get_enabled_reactions to set them to the correct values
+        let logn = 0.0;
+        let batch_threshold = 0;
+        let gillespie_threshold = 0.0;
+        let coll_table = vec![vec![0; 1]; 1];
+        let coll_table_r_values = vec![0; 1];
+        let coll_table_u_values = vec![0.0; 1];
+        let r_constant = 0;
+
+        let (random_transitions, random_outputs, transition_probabilities) = crn.construct_transition_arrays(300);
+
+        (SimulatorCRNMultiBatch {
+            crn,
+            n,
+            t,
+            q,
             random_transitions,
             random_outputs,
             transition_probabilities,
-            transition_order,
-            gillespie,
-            seed,
-        ), Simulator::default())
+            random_depth,
+            rng,
+            urn,
+            updated_counts,
+            logn,
+            batch_threshold,
+            array_sums,
+            row,
+            m,
+            do_gillespie,
+            silent,
+            gillespie_threshold,
+            coll_table,
+            coll_table_r_values,
+            coll_table_u_values,
+            r_constant,
+        }, Simulator::default())
     }
 
     #[getter]
@@ -230,10 +418,6 @@ impl SimulatorCRNMultiBatch {
         let duration = Duration::from_millis(max_wallclock_milliseconds);
         let start_time = Instant::now();
         while self.t < t_max && start_time.elapsed() < duration {
-            // println!("self.gillespie_always = {}", self.gillespie_always);
-            if self.gillespie_always {
-                self.do_gillespie = true;
-            }
             if self.silent {
                 return Ok(());
             } else if self.do_gillespie {
@@ -251,13 +435,10 @@ impl SimulatorCRNMultiBatch {
     #[pyo3()]
     pub fn run_until_silent(&mut self) {
         while !self.silent {
-            if self.gillespie_always {
-                self.do_gillespie = true;
-            }
             if self.do_gillespie {
                 self.gillespie_step(0);
             } else {
-                self.multibatch_step(0);
+                self.batch_step(0);
             }
         }
     }
@@ -278,7 +459,6 @@ impl SimulatorCRNMultiBatch {
         }
         self.t = t;
         self.update_enabled_reactions();
-        self.do_gillespie = self.gillespie_always;
         Ok(())
     }
 
@@ -331,7 +511,7 @@ impl SimulatorCRNMultiBatch {
         let mut num_seen = r;
         let mut pop_size = n;
         loop {
-            for _ in 0..self.o {
+            for _ in 0..self.crn.o {
                 let sample = self.rng.gen_range(0..pop_size);
                 if sample < num_seen {
                     return idx;
@@ -339,24 +519,11 @@ impl SimulatorCRNMultiBatch {
                 pop_size -= 1;
             }
             idx += 1;
-            pop_size += self.o + self.g;
-            num_seen += self.o + self.g;
+            pop_size += self.crn.o + self.crn.g;
+            num_seen += self.crn.o + self.crn.g;
         }
     }
 }
-
-// Helper function to get all q^o possible sets of reactants, i.e. all subsets of [q]^o.
-fn all_reaction_indices(q:usize, o:usize) -> Vec<Vec<usize>> {
-    let output: Vec<Vec<usize>> = Vec::with_capacity(q.pow(o.try_into().unwrap()));
-    // for i in 0..q.pow(o.try_into().unwrap()) {
-    //     let mut elem = Vec::new();
-    //     for j in 0..o {
-    //         elem.push(i % q.pow(j.try_into().unwrap()));
-    //     }
-    //     output.push(elem);
-    // }
-    output
-} 
 
 fn write_span_data(content: &mut String, span_data_map: &HashMap<String, SpanData>, depth: usize) {
     let indent = "  ".repeat(depth);
@@ -503,6 +670,7 @@ fn make_batch_result(dimensions: usize, length: usize) -> NDBatchResult {
 
 // const CAP_BATCH_THRESHOLD: bool = true;
 
+#[allow(dead_code)]
 impl SimulatorCRNMultiBatch {
     fn multibatch_step(&mut self, _t_max: usize) -> () {
         unimplemented!()
@@ -731,7 +899,7 @@ impl SimulatorCRNMultiBatch {
         // be lexicographic for both of them.
         self.array_sums.sample_batch_result(rxns_before_coll, &mut self.urn);
         let mut done = false;
-        for random_transition in self.random_transitions.lanes(Axis(self.o)).into_iter() {
+        for random_transition in self.random_transitions.lanes(Axis(self.crn.o)).into_iter() {
             assert!(!done, "self.array_sums finished iterating before self.random_transitions");
             let next_array_sum = self.array_sums.get_next();
             // TODO maybe add an assert check that the two structures are iterated through
@@ -768,29 +936,29 @@ impl SimulatorCRNMultiBatch {
         // 10^12 which is about 2^40, if we have 4 reactants, then the denominator for the
         // relevant probability distribution will be too large to store. 
         if rxns_before_coll == l {
-            let mut collision_count_num_ways: Vec<u128> = Vec::with_capacity(self.o);
-            let num_new_molecules = (self.o + self.g) * rxns_before_coll;
-            let num_old_molecules = self.n - (self.o * rxns_before_coll);
-            for i in 0..self.o + 1 {
+            let mut collision_count_num_ways: Vec<u128> = Vec::with_capacity(self.crn.o);
+            let num_new_molecules = (self.crn.o + self.crn.g) * rxns_before_coll;
+            let num_old_molecules = self.n - (self.crn.o * rxns_before_coll);
+            for i in 0..self.crn.o + 1 {
                 collision_count_num_ways.push(
-                    (num_old_molecules as u128).pow((self.o - i).try_into().unwrap()) 
+                    (num_old_molecules as u128).pow((self.crn.o - i).try_into().unwrap()) 
                     * (num_new_molecules as u128).pow(i.try_into().unwrap()));
             }
-            let total_ways: u128 = (num_new_molecules as u128 + num_old_molecules as u128).pow(self.o.try_into().unwrap());
+            let total_ways: u128 = (num_new_molecules as u128 + num_old_molecules as u128).pow(self.crn.o.try_into().unwrap());
             let u2 = self.rng.sample(uniform);
             let mut num_colliding_molecules = 0;
-            for i in 0..self.o {
+            for i in 0..self.crn.o {
                 if (collision_count_num_ways[i] as f64) / (total_ways as f64) < u2 {
                     num_colliding_molecules = i + 1;
                     break;
                 }
             }
             assert!(num_colliding_molecules > 0, "Failed to sample collision size");
-            let mut collision: Vec<usize> = Vec::with_capacity(self.o);
+            let mut collision: Vec<usize> = Vec::with_capacity(self.crn.o);
             for _ in 0..num_colliding_molecules {
                 collision.push(self.updated_counts.sample_one().unwrap());
             }
-            for _ in num_colliding_molecules..self.o {
+            for _ in num_colliding_molecules..self.crn.o {
                 collision.push(self.urn.sample_one().unwrap());
             }
             // TODO: no need to shuffle if the implementation doesn't care about reactant order.
@@ -798,7 +966,7 @@ impl SimulatorCRNMultiBatch {
             collision.shuffle(&mut self.rng);
             // Index into random_probabilities to sample what the collision will do.
             let mut view = self.random_transitions.view();
-            for dimension in 0..self.o {
+            for dimension in 0..self.crn.o {
                 view = view.index_axis_move(Axis(dimension), collision[dimension]);
             }
             // Verify that the view is now a 1-dimensional subarray of random_probabilities,
@@ -822,12 +990,12 @@ impl SimulatorCRNMultiBatch {
             for output in outputs {
                 self.updated_counts.add_to_entry(output.clone(), 1);
             }
-            self.n += self.g;
+            self.n += self.crn.g;
             self.t += 1;
         }
         flame::end("sample collision");
 
-        self.n += self.g * rxns_before_coll;
+        self.n += self.crn.g * rxns_before_coll;
         self.t += rxns_before_coll;
         
         self.urn.add_vector(&self.updated_counts.config);
@@ -1080,8 +1248,8 @@ impl SimulatorCRNMultiBatch {
         // update each iteration of binary search.
         let mut lhs = ln_gamma_diff - logu;
         
-        if self.g > 0 {
-            for j in 0..self.o {
+        if self.crn.g > 0 {
+            for j in 0..self.crn.o {
                 // Calculates a = ceil((n-g-j)/g). This is the number of terms in the expansion of
                 // a multifactorial. For example, 11!^(3) (the third multifactorial of 11) is
                 // 11 * 8 * 5 * 2 so there are 4 terms in it. The way we calculate the log of a
@@ -1094,10 +1262,10 @@ impl SimulatorCRNMultiBatch {
                 // = 4*log(3) + lgamma(14/3) - lgamma(2/3).
                 // These three terms are the three terms that are added and subtracted from lhs, to
                 // account for the term log((n-g-j)!(g)).
-                let num_static_terms: f64 = (((self.n - j) as f64 - self.g as f64) / self.g as f64).ceil();
-                lhs += num_static_terms * (self.g as f64).ln();
-                lhs += ln_gamma((self.n - j) as f64 / self.g as f64);
-                lhs -= ln_gamma((self.n as f64 - (num_static_terms * self.g as f64) - j as f64) / self.g as f64);
+                let num_static_terms: f64 = (((self.n - j) as f64 - self.crn.g as f64) / self.crn.g as f64).ceil();
+                lhs += num_static_terms * (self.crn.g as f64).ln();
+                lhs += ln_gamma((self.n - j) as f64 / self.crn.g as f64);
+                lhs -= ln_gamma((self.n as f64 - (num_static_terms * self.crn.g as f64) - j as f64) / self.crn.g as f64);
             }
         } else {
             // Nothing to do here. There are no other static terms in the g = 0 case.
@@ -1108,28 +1276,28 @@ impl SimulatorCRNMultiBatch {
         // For now, we start with bounds that always hold.
         
         t_lo = 0;
-        t_hi = 1 + ((self.n - r) / self.o);
+        t_hi = 1 + ((self.n - r) / self.crn.o);
 
         // We maintain the invariant that P(l >= t_lo) >= u and P(l >= t_hi) < u
         while t_lo < t_hi - 1 {
             let t_mid = (t_lo + t_hi) / 2;
             // rhs tracks all of the terms that include t, i.e., those that we need to
             // update each iteration of binary search.
-            let mut rhs: f64 = ln_gamma((self.n - r - (t_mid * self.o)) as f64 + 1.0);
-            if self.g > 0 {
-                for j in 0..self.o {
+            let mut rhs: f64 = ln_gamma((self.n - r - (t_mid * self.crn.o)) as f64 + 1.0);
+            if self.crn.g > 0 {
+                for j in 0..self.crn.o {
                     // Calculates b = ceil((n+g(t-1)-j)/g).
                     // See the comment in the loop above where num_static_terms is defined for an explanation.
                     // This is the same thing, for the term log((n+g(t-1)-j)!(g)).
-                    let num_dynamic_terms = (((self.n + (self.g as usize * (t_mid - 1)) - j) as f64) / self.g as f64).ceil();
-                    rhs += num_dynamic_terms * (self.g as f64).ln();
-                    rhs += ln_gamma((self.n + (self.g as usize * t_mid) - j) as f64 / self.g as f64);
-                    rhs -= ln_gamma((self.n as f64 + (self.g as f64 * (t_mid as f64 - num_dynamic_terms)) - j as f64) / self.g as f64);
+                    let num_dynamic_terms = (((self.n + (self.crn.g as usize * (t_mid - 1)) - j) as f64) / self.crn.g as f64).ceil();
+                    rhs += num_dynamic_terms * (self.crn.g as f64).ln();
+                    rhs += ln_gamma((self.n + (self.crn.g as usize * t_mid) - j) as f64 / self.crn.g as f64);
+                    rhs -= ln_gamma((self.n as f64 + (self.crn.g as f64 * (t_mid as f64 - num_dynamic_terms)) - j as f64) / self.crn.g as f64);
                 } 
             } else {
                 // g = 0 case is much simpler; there's no multifactorial, as it's analogous
                 // to the population protocols case. 
-                for j in 0..self.o {
+                for j in 0..self.crn.o {
                     rhs += t_mid as f64 * ((self.n - j) as f64).ln();
                 } 
             }
@@ -1146,121 +1314,4 @@ impl SimulatorCRNMultiBatch {
         t_lo
     }
 
-    ///     init_array: A 2D length-q integer array of counts representing the initial configuration.
-    ///     delta: A 2D q x q x 2 array representing the transition function.
-    ///         Delta[i, j] gives contains the two output states.
-    ///     null_transitions: A 2D q x q boolean array where entry [i, j] says if these states have a null interaction.
-    ///     random_transitions: A 2D q x q x 2 array. Entry [i, j, 0] is the number of possible outputs if
-    ///         transition [i, j] is random, otherwise it is 0. Entry [i, j, 1] gives the starting index to find
-    ///         the outputs in the array random_outputs if it is random.
-    ///     random_outputs: A ? x 2 array containing all (out1,out2) outputs of random transitions,
-    ///         whose indexing information is contained in random_transitions.
-    ///     transition_probabilities: A 1D length-? array containing all random transition probabilities,
-    ///         whose indexing matches random_outputs.
-    ///     seed (optional): An integer seed for the pseudorandom number generator.
-
-    /// This is an easier to use constructor taking native Rust types instead of numpy arrays,
-    /// but otherwise it works similarly to the `new` constructor.
-    pub fn from_delta_random(
-        init_config: Vec<usize>,
-        random_transitions: ArrayD<usize>,
-        random_outputs: Vec<Vec<State>>,
-        transition_probabilities: Vec<f64>,
-        _transition_order: String,
-        gillespie: bool,
-        seed: Option<u64>,
-    ) -> Self {
-
-        let random_transitions = random_transitions.clone();
-
-        let config = init_config.clone();
-        let n = config.iter().sum();
-        let q = config.len() as State;
-
-        // let v = random_transitions[[3,4,5]];
-        // let w = [3,4,5];
-        let o = random_transitions.shape().len() - 1;
-        assert!(random_transitions.shape()[o] >= o, 
-            "Reactions should not have negative generativity when passed into simulator");
-        let g = random_transitions.shape()[o] - o;
-        let reaction_indices = all_reaction_indices(q, o);
-
-        // random_depth is the maximum number of outputs for any randomized transition
-        let random_depth = 1;
-
-        // TODO uncomment this
-        // for random_transitions_inner in random_transitions.axis_iter(Axis(o)) {
-        //     random_depth = random_depth.max(random_transitions_inner[0]);
-        // }
-
-        // assert_eq!(
-        //     random_outputs.len(),
-        //     transition_probabilities.len(),
-        //     "random_outputs and transition_probabilities length mismatch"
-        // );
-
-        let t = 0;
-        let rng = if let Some(s) = seed {
-            SmallRng::seed_from_u64(s)
-        } else {
-            SmallRng::from_entropy()
-        };
-
-        let urn = Urn::new(config.clone(), seed);
-        let updated_counts = Urn::new(vec![0; q], seed);
-        let array_sums = make_batch_result(o, q);
-        let row = vec![0; q];
-        let m = vec![0; random_depth];
-        let silent = false;
-        let do_gillespie = false; // this changes during run
-        let gillespie_always = gillespie; // this never changes; if True we always do Gillespie steps
-
-        // next three fields are only used with Gillespie steps;
-        // they will be set accordingly if we switch to Gillespie
-        // let propensities = vec![0.0; reactions.len()];
-        // let enabled_reactions = vec![0; reactions.len()];
-        // let num_enabled_reactions = 0;
-
-        // below here we give meaningless default values to the other fields and rely on
-        // set_n_parameters and get_enabled_reactions to set them to the correct values
-        let logn = 0.0;
-        let batch_threshold = 0;
-        let gillespie_threshold = 0.0;
-        let coll_table = vec![vec![0; 1]; 1];
-        let coll_table_r_values = vec![0; 1];
-        let coll_table_u_values = vec![0.0; 1];
-        let r_constant = 0;
-
-        let sim = SimulatorCRNMultiBatch {
-            n,
-            t,
-            q,
-            o,
-            g,
-            random_transitions,
-            random_outputs,
-            transition_probabilities,
-            random_depth,
-            rng,
-            urn,
-            updated_counts,
-            logn,
-            batch_threshold,
-            array_sums,
-            row,
-            m,
-            do_gillespie,
-            silent,
-            gillespie_threshold,
-            coll_table,
-            coll_table_r_values,
-            coll_table_u_values,
-            r_constant,
-            gillespie_always,
-            reaction_indices,
-        };
-        // sim.set_n_parameters();
-        // sim.update_enabled_reactions();
-        sim
-    }
 }

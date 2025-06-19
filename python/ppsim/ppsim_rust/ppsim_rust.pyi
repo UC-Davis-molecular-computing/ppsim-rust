@@ -69,7 +69,10 @@ class Simulator(ABC):
             transition_probabilities: npt.NDArray[np.float64],
             transition_order: str,
             gillespie: bool = False,
-            seed: int | None = None
+            seed: int = 3,
+            crn = None,
+            k = None,
+            w = None,
     ) -> None:
         """TODO"""
         ...
@@ -128,16 +131,7 @@ class SimulatorMultiBatch(Simulator):
 
 class SimulatorCRNMultiBatch(Simulator):
     """
-    Simulator for population protocols using the MultiBatch algorithm described in 
-    this paper: 
-    
-    Petra Berenbrink, David Hammer, Dominik Kaaser, Ulrich Meyer, Manuel Penschuck, and Hung Tran. 
-    Simulating Population Protocols in Sub-Constant Time per Interaction. 
-    In 28th Annual European Symposium on Algorithms (ESA 2020). 
-    Volume 173, pp. 16:1-16:22, 2020.
-    
-    - https://arxiv.org/abs/2005.03584 
-    - https://doi.org/10.4230/LIPIcs.ESA.2020.16
+    Simulator for CRNs using TODO cite paper once citeable.
     """
 
     do_gillespie: bool
