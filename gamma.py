@@ -297,13 +297,15 @@ def var_hypo(n: int, k: int, o: int, g: int) -> float:
 
                 arg1 = (n - (o - 1 - m)) // g if (n - (o - 1 - m)) % g == 0 else mpf(n - (o - 1 - m)) / g
                 arg2 = k + arg1
-                arg3 = (n - (o - 1 - j)) // g if (n - (o - 1 - m)) % g == 0 else mpf(n - (o - 1 - j)) / g
+                arg3 = (n - (o - 1 - j)) // g if (n - (o - 1 - j)) % g == 0 else mpf(n - (o - 1 - j)) / g
                 arg4 = k + arg3
-                term1 = coeff * psi(0, arg1)
-                term2 = -coeff * psi(0, arg2)
-                term3 = -coeff * psi(0, arg3)
-                term4 = coeff * psi(0, arg4)
-                second_sum_terms.extend([term1, term2, term3, term4])
+                if arg1 != arg3 or arg2 != arg4:
+                    # otherwise the sums of terms will be identically 0
+                    term1 = coeff * psi(0, arg1)
+                    term2 = -coeff * psi(0, arg2)
+                    term3 = -coeff * psi(0, arg3)
+                    term4 = coeff * psi(0, arg4)
+                    second_sum_terms.extend([term1, term2, term3, term4])
         second_sum = mp.fsum(second_sum_terms)
         second_sum_multiplier = mpf(2) * o**2 / g
         second_sum *= second_sum_multiplier
