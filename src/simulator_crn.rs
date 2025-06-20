@@ -101,25 +101,19 @@ impl UniformCRN {
     // Returns a tuple of these three objects in that order.
     fn construct_transition_arrays(&self, k_count: usize) -> (ArrayD<usize>, Vec<StateList>, Vec<f64>) {
         flame::start("construct_transition_arrays");
-        let mut max_total_rate_constant: f64 = 0.0;
+        let mut max_total_adjusted_rate_constant: f64 = 0.0;
         // Iterate through reactions, adjusting rate constants to account for how many K
         // are being added, and for symmetry that results from the scheduler having different
         // orders it can pick, so that the adjusted CRN keeps the original dynamics.
         for reaction in &self.reactions {
             let mut total_rate_constant = 0.0;
             let reactants = &reaction.reactants;
-            let mut correction_factor = Self::symmetry_degree(reactants) as f64;
-            let k_multiplicity = reactants.iter().filter(|&s| *s == self.k).count();
-                // We've artificially sped up this reaction by |K| * (|K| - 1) * ...
-                // This loop undoes that artificial speedup.
-                for i in 0..k_multiplicity {
-                    correction_factor /= (k_count - i) as f64;
-                }
+            let correction_factor = self.correction_factor(reactants, k_count);
             for output in &reaction.outputs {            
                 let adjusted_rate_constant: f64 = output.1 * correction_factor;
                 total_rate_constant += adjusted_rate_constant;
             }
-            max_total_rate_constant = max_total_rate_constant.max(total_rate_constant);
+            max_total_adjusted_rate_constant = max_total_adjusted_rate_constant.max(total_rate_constant);
         }
         // random_transitions has q+1 dimensions, the first q of which have length o,
         // and the last of which has length 2.
@@ -136,7 +130,7 @@ impl UniformCRN {
             for permutation in reaction.reactants.iter().permutations(self.o) {
                 
                 for output in &reaction.outputs {
-                    let probability = output.1 / max_total_rate_constant;
+                    let probability = output.1 * self.correction_factor(&reaction.reactants, k_count) / max_total_adjusted_rate_constant;
                     let mut view = random_transitions.view_mut();
                     // This loop indexes into random_transitions.
                     for dimension in 0..self.o {
@@ -156,6 +150,18 @@ impl UniformCRN {
         flame::end("construct_transition_arrays");
         return (random_transitions, random_outputs, random_probabilities);
     }
+
+    fn correction_factor(&self, reactants: &Vec<State>, k_count: usize) -> f64 {
+        let mut correction_factor = Self::symmetry_degree(reactants) as f64;
+        let k_multiplicity = reactants.iter().filter(|&s| *s == self.k).count();
+        // We've artificially sped up this reaction by |K| * (|K| - 1) * ...
+        // This loop undoes that artificial speedup.
+        for i in 0..k_multiplicity {
+            correction_factor /= (k_count - i) as f64;
+        }
+        return correction_factor;
+    }
+
 
     // Determine the degree of symmetry of a reaction, i.e., for any given ordering of its reactants,
     // the number of reorderings that are redundant. Obtained as the product of the factorial of
@@ -194,13 +200,13 @@ pub struct SimulatorCRNMultiBatch {
     /// The population size of all species except k and w.
     #[pyo3(get, set)]
     pub formal_n: usize,
-    /// The current number of elapsed interaction steps.
-    #[pyo3(get, set)]
-    pub t: usize,
     /// The current number of elapsed interaction steps that actually simulated something in 
     /// the original CRN, rather than being a "null reaction".
     #[pyo3(get, set)]
-    pub formal_t: usize,
+    pub t: usize,
+    /// The current number of elapsed interaction steps in this CRN, including null reactions.
+    #[pyo3(get, set)]
+    pub t_including_nulls: usize,
     /// The total number of states (length of urn.config).
     pub q: usize,
     /// An (o + 1)-dimensional array. The first o dimensions represent reactants. After indexing through
@@ -345,7 +351,7 @@ impl SimulatorCRNMultiBatch {
             .fold(0, |acc, x| acc.max(x));
         
         let t = 0;
-        let formal_t = 0;
+        let t_including_nulls = 0;
         let rng = if let Some(s) = seed {
             SmallRng::seed_from_u64(s)
         } else {
@@ -377,7 +383,7 @@ impl SimulatorCRNMultiBatch {
         let coll_table_u_values = vec![0.0; 1];
         let r_constant = 0;
 
-        let (random_transitions, random_outputs, transition_probabilities) = crn.construct_transition_arrays(300);
+        let (random_transitions, random_outputs, transition_probabilities) = crn.construct_transition_arrays(n);
         assert_eq!(
             random_outputs.len(),
             transition_probabilities.len(),
@@ -391,7 +397,7 @@ impl SimulatorCRNMultiBatch {
             n,
             formal_n,
             t,
-            formal_t,
+            t_including_nulls,
             q,
             random_transitions,
             random_outputs,
@@ -431,7 +437,7 @@ impl SimulatorCRNMultiBatch {
         let max_wallclock_milliseconds = (max_wallclock_time * 1_000.0).ceil() as u64;
         let duration = Duration::from_millis(max_wallclock_milliseconds);
         let start_time = Instant::now();
-        while self.t < t_max && start_time.elapsed() < duration {
+        while self.t_including_nulls < t_max && start_time.elapsed() < duration {
             if self.silent {
                 return Ok(());
             } else if self.do_gillespie {
@@ -473,7 +479,7 @@ impl SimulatorCRNMultiBatch {
             self.n = n;
             self.set_n_parameters();
         }
-        self.t = t;
+        self.t_including_nulls = t;
         self.update_enabled_reactions();
         Ok(())
     }
@@ -705,9 +711,9 @@ impl SimulatorCRNMultiBatch {
 
         // If the sampled collision happens after t_max, then include delayed agents up until t_max
         //   and do not perform the collision.
-        if t_max > 0 && self.t + l >= t_max {
-            assert!(t_max > self.t);
-            rxns_before_coll = t_max - self.t;
+        if t_max > 0 && self.t_including_nulls + l >= t_max {
+            assert!(t_max > self.t_including_nulls);
+            rxns_before_coll = t_max - self.t_including_nulls;
         }
 
 
@@ -740,7 +746,7 @@ impl SimulatorCRNMultiBatch {
                 self.updated_counts.add_to_entry(self.crn.w, (quantity * self.crn.g) as i64);
             } else {
                 // We'll add this for now, then subtract off the probabilistically null reactions later.
-                self.formal_t += quantity;
+                self.t += quantity;
                 let mut probabilities = self.transition_probabilities[first_idx..first_idx + num_outputs].to_vec();
                 let probability_sum: f64 = probabilities.iter().sum();
                 if probability_sum < 1.0 {
@@ -765,7 +771,10 @@ impl SimulatorCRNMultiBatch {
                 if probability_sum < 1.0 {
                     let null_count = self.m[num_outputs];
                     self.updated_counts.add_to_entry(self.crn.w, null_count as i64);
-                    self.formal_t -= null_count;
+                    for reactant in reactants {
+                        self.updated_counts.add_to_entry(reactant, null_count as i64);
+                    }
+                    self.t -= null_count;
                 }
             }
         }
@@ -829,7 +838,7 @@ impl SimulatorCRNMultiBatch {
                 }
                 self.updated_counts.add_to_entry(self.crn.w, (self.crn.g) as i64);
             } else {
-                self.formal_t += 1;
+                self.t += 1;
                 let mut probabilities = self.transition_probabilities[first_idx..first_idx + num_outputs].to_vec();
                 let probability_sum: f64 = probabilities.iter().sum();
                 if probability_sum < 1.0 {
@@ -854,26 +863,22 @@ impl SimulatorCRNMultiBatch {
                 if probability_sum < 1.0 {
                     let null_count = self.m[num_outputs];
                     self.updated_counts.add_to_entry(self.crn.w, null_count as i64);
-                    self.formal_t -= null_count;
+                    for reactant in collision {
+                        self.updated_counts.add_to_entry(reactant, 1 as i64);
+                    }
+                    self.t -= null_count;
                 }
             }
-            self.n += self.crn.g;
-            self.t += 1;
+            self.t_including_nulls += 1;
         }
         flame::end("sample collision");
-        println!("rxns before coll: {:?}", rxns_before_coll);
         
-        self.n += self.crn.g * rxns_before_coll;
-        println!("relevant stuff: {:?}, {:?}, {:?}, {:?}", self.formal_n, rxns_before_coll, self.updated_counts.config[self.crn.k], self.updated_counts.config[self.crn.w]);
-        println!("urn config: {:?}", self.urn.config);
-        println!("update config: {:?}", self.updated_counts.config);
-        self.formal_n += self.crn.g * rxns_before_coll;
-        self.formal_n -= self.updated_counts.config[self.crn.k];
-        self.formal_n -= self.updated_counts.config[self.crn.w];
-        self.t += rxns_before_coll;
+        self.t_including_nulls += rxns_before_coll;
         
         self.urn.add_vector(&self.updated_counts.config);
         self.urn.sort();
+        self.n = self.urn.size;
+        self.formal_n = self.n - self.urn.config[self.crn.k] - self.urn.config[self.crn.w]
         //self.update_enabled_reactions();
     }
 
@@ -1111,6 +1116,7 @@ impl SimulatorCRNMultiBatch {
         assert!(self.n as i64 + delta_k >= 0);
         self.n = (self.n as i64 + delta_k) as usize;
         self.urn.add_to_entry(self.crn.k, delta_k);
+        (self.random_transitions, self.random_outputs, self.transition_probabilities) = self.crn.construct_transition_arrays(self.formal_n);
     }
 
     /// Get rid of W from self.urn. 
