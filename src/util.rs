@@ -441,7 +441,5 @@ pub fn multinomial_sample_manual(
         }
         remaining_p -= pix[j];
     }
-    if dn > 0 {
-        result[d - 1] = dn as usize;
-    }
+    result[d - 1] = dn as usize;
 }

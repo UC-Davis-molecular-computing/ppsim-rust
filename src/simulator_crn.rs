@@ -16,11 +16,11 @@ use pyo3::types::PyNone;
 use rand::rngs::SmallRng;
 use rand::Rng;
 use rand::SeedableRng;
-use rand::seq::SliceRandom;
 #[allow(unused_imports)]
 use statrs::distribution::{Geometric, Uniform};
 
 use itertools::Itertools;
+use statrs::function::factorial::binomial;
 
 use crate::simulator_abstract::Simulator;
 
@@ -339,15 +339,11 @@ impl SimulatorCRNMultiBatch {
         let q = config.len() as State;
 
         // random_depth is the maximum number of outputs for any randomized transition
-        let random_depth = 1;
-
-        // TODO uncomment this
-        // for random_transitions_inner in random_transitions.axis_iter(Axis(o)) {
-        //     random_depth = random_depth.max(random_transitions_inner[0]);
-        // }
-
+        let random_depth = crn.reactions
+            .iter()
+            .map(|x| x.outputs.len())
+            .fold(0, |acc, x| acc.max(x));
         
-
         let t = 0;
         let formal_t = 0;
         let rng = if let Some(s) = seed {
@@ -360,7 +356,8 @@ impl SimulatorCRNMultiBatch {
         let updated_counts = Urn::new(vec![0; q], seed);
         let array_sums = make_batch_result(crn.o, q);
         let row = vec![0; q];
-        let m = vec![0; random_depth];
+        // The +1 here is to sample how many reactions are null.
+        let m = vec![0; random_depth + 1];
         let silent = false;
         let do_gillespie = false; // this changes during run
 
@@ -386,9 +383,9 @@ impl SimulatorCRNMultiBatch {
             transition_probabilities.len(),
             "random_outputs and transition_probabilities length mismatch"
         );
-        println!("Here are the random transitions: {:?}", random_transitions);
-        println!("Here are the random outputs: {:?}", random_outputs);
-        println!("Here are the transition probabilities: {:?}", transition_probabilities);
+        // println!("Here are the random transitions: {:?}", random_transitions);
+        // println!("Here are the random outputs: {:?}", random_outputs);
+        // println!("Here are the transition probabilities: {:?}", transition_probabilities);
         let mut simulator = SimulatorCRNMultiBatch {
             crn,
             n,
@@ -689,200 +686,7 @@ fn make_batch_result(dimensions: usize, length: usize) -> NDBatchResult {
 
 // const CAP_BATCH_THRESHOLD: bool = true;
 
-#[allow(dead_code)]
 impl SimulatorCRNMultiBatch {
-    fn multibatch_step(&mut self, _t_max: usize) -> () {
-        unimplemented!()
-        // let max_batch_threshold = self.n / 4;
-        // if CAP_BATCH_THRESHOLD && self.batch_threshold > max_batch_threshold {
-        //     self.batch_threshold = max_batch_threshold;
-        // }
-        // self.updated_counts.reset();
-
-        // for i in 0..self.urn.order.len() {
-        //     self.updated_counts.order[i] = self.urn.order[i];
-        // }
-
-        // // start with count 2 of delayed agents (guaranteed for the next interaction)
-        // let mut num_delayed: usize = 2;
-
-        // // let now = Instant::now();
-        // // let t1 = now.elapsed().as_secs_f64();
-
-        // // batch will go for at least batch_threshold interactions, unless passing t_max
-        // let mut end_step = self.t + self.batch_threshold;
-        // if t_max > 0 {
-        //     end_step = end_step.min(t_max);
-        // }
-
-        // let uniform = Uniform::standard();
-
-        // flame::start("process collisions");
-
-        // while self.t + num_delayed / 2 < end_step {
-        //     let mut u = self.rng.sample(uniform);
-
-        //     let pp = true;
-        //     let has_bounds = false;
-        //     flame::start("sample_coll");
-        //     let l = self.sample_coll(num_delayed + self.updated_counts.size, u, has_bounds, pp);
-        //     flame::end("sample_coll");
-
-        //     assert!(l > 0, "sample_coll must return at least 1");
-
-        //     // add (l-1) // 2 pairs of delayed agents, the lth agent a was already picked, so has a collision
-        //     num_delayed += 2 * ((l - 1) / 2);
-
-        //     // If the sampled collision happens after t_max, then include delayed agents up until t_max
-        //     //   and do not perform the collision.
-        //     if t_max > 0 && self.t + num_delayed / 2 >= t_max {
-        //         assert!(t_max > self.t);
-        //         num_delayed = (t_max - self.t) * 2;
-        //         break;
-        //     }
-
-        //     /*
-        //     Definitions from paper https://arxiv.org/abs/2005.03584
-
-        //     - *untouched* agents did not interact in the current epoch (multibatch step).
-        //       Hence, all agents are labeled untouched at the beginning of an epoch.
-
-        //     - *updated* agents took part in at least one interaction that was already evaluated.
-        //       Thus, updated agents are already assigned their most recent state.
-
-        //     - *delayed* agents took part in exactly one interaction that was not yet evaluated.
-        //       Thus, delayed agents are still in the same state they had at the beginning of the
-        //       epoch, but are scheduled to interact at a later point in time. We additionally
-        //       require that their interaction partner is also labeled delayed.
-        //      */
-
-        //     let mut initiator: State; // initiator, called a in Cython implementation
-        //     let mut responder: State; // responder, called b in Cython implementation
-
-        //     flame::start("process collision");
-
-        //     // sample if initiator was delayed or updated
-        //     u = self.rng.sample(uniform);
-        //     // initiator is delayed with probability num_delayed / (num_delayed + num_updated)
-        //     let initiator_delayed =
-        //         u * ((num_delayed + self.updated_counts.size) as f64) < num_delayed as f64;
-        //     if initiator_delayed {
-        //         // if initiator is delayed, need to first update it with its first interaction before the collision
-        //         // c is the delayed partner that initiator interacted with, so add this interaction
-        //         initiator = self.urn.sample_one().unwrap();
-        //         let mut c = self.urn.sample_one().unwrap();
-        //         (initiator, c) = self.unordered_delta(initiator, c);
-        //         self.t += 1;
-        //         // c is moved from delayed to updated, initiator is currently uncounted;
-        //         // we've updated initiator state, but don't put it in updated_counts because
-        //         // we'd just need to take it back out to do the initiator/responder interaction
-        //         self.updated_counts.add_to_entry(c, 1);
-        //         num_delayed -= 2;
-        //     } else {
-        //         // if initiator is updated, we simply sample initiator and remove it from updated_counts
-        //         initiator = self.updated_counts.sample_one().unwrap();
-        //     }
-
-        //     // sample responder
-        //     if l % 2 == 0 {
-        //         // when l is even, the collision must with a formerly untouched agent
-        //         responder = self.urn.sample_one().unwrap();
-        //     } else {
-        //         // when l is odd, the collision is with the next agent, either untouched, delayed, or updated
-        //         u = self.rng.sample(uniform);
-        //         if (u * ((self.n - 1) as f64)) < self.updated_counts.size as f64 {
-        //             // responder is an updated agent, simply remove it
-        //             responder = self.updated_counts.sample_one().unwrap();
-        //         } else {
-        //             // responder is untouched or delayed; we remove responder from self.urn in either case
-        //             responder = self.urn.sample_one().unwrap();
-        //             // if responder is delayed, we also have to do the past interaction
-        //             if (u * (self.n - 1) as f64) < (self.updated_counts.size + num_delayed) as f64 {
-        //                 let mut c = self.urn.sample_one().unwrap();
-        //                 (responder, c) = self.unordered_delta(responder, c);
-        //                 self.t += 1;
-        //                 self.updated_counts.add_to_entry(c, 1);
-        //                 num_delayed -= 2;
-        //             }
-        //         }
-        //     }
-
-        //     (initiator, responder) = self.unordered_delta(initiator, responder);
-        //     self.t += 1;
-        //     self.updated_counts.add_to_entry(initiator, 1);
-        //     self.updated_counts.add_to_entry(responder, 1);
-
-        //     flame::end("process collision");
-        // }
-
-        // flame::end("process collisions");
-
-        // flame::start("process batch");
-
-        // self.do_gillespie = true; // if entire batch are null reactions, stays true and switches to gillspie
-
-        // let i_max = self
-        //     .urn
-        //     .sample_vector(num_delayed / 2, &mut self.row_sums)
-        //     .unwrap();
-
-        // for i in 0..i_max {
-        //     let o_i = self.urn.order[i];
-        //     let j_max = self
-        //         .urn
-        //         .sample_vector(self.row_sums[o_i], &mut self.row)
-        //         .unwrap();
-
-        //     for j in 0..j_max {
-        //         let o_j = self.urn.order[j];
-        //         if self.is_random && self.random_transitions[o_i][o_j].0 > 0 {
-        //             // don't switch to gillespie because we did a random transition
-        //             // TODO: this might not switch to gillespie soon enough in certain cases
-        //             // better to test if the random transition is null or not
-        //             self.do_gillespie = false;
-        //             let (num_outputs, first_idx) = self.random_transitions[o_i][o_j];
-        //             // updates the first num_outputs entries of sample to hold a multinomial,
-        //             // giving the number of times for each random transition
-        //             let probabilities =
-        //                 self.transition_probabilities[first_idx..first_idx + num_outputs].to_vec();
-        //             flame::start("multinomial sample");
-        //             multinomial_sample(self.row[o_j], &probabilities, &mut self.m, &mut self.rng);
-        //             flame::end("multinomial sample");
-        //             assert_eq!(
-        //                 self.m.iter().sum::<usize>(),
-        //                 self.row[o_j],
-        //                 "sample sum mismatch"
-        //             );
-        //             for c in 0..num_outputs {
-        //                 let idx = first_idx + c;
-        //                 let (out1, out2) = self.random_outputs[idx];
-        //                 self.updated_counts.add_to_entry(out1, self.m[c] as i64);
-        //                 self.updated_counts.add_to_entry(out2, self.m[c] as i64);
-        //             }
-        //         } else {
-        //             if self.do_gillespie {
-        //                 // if transition is non-null, we will set do_gillespie = False
-        //                 self.do_gillespie = self.null_transitions[o_i][o_j];
-        //             }
-        //             // We are directly adding to updated_counts.config rather than using the function
-        //             //   updated_counts.add_to_entry for speed. None of the other urn features of updated_counts will
-        //             //   be used until it is reset in the next loop, so this is fine.
-        //             self.updated_counts.config[self.delta[o_i][o_j].0] += self.row[o_j];
-        //             self.updated_counts.config[self.delta[o_i][o_j].1] += self.row[o_j];
-        //         }
-        //     }
-        // }
-
-        // self.t += num_delayed / 2;
-        // // TODO: this is the only part scaling when the number of states (but not reached states) blows up
-        // self.urn.add_vector(&self.updated_counts.config);
-
-        // flame::end("process batch");
-
-        // self.urn.sort();
-        // self.update_enabled_reactions();
-    }
-
     fn batch_step(&mut self, t_max: usize) -> () {
         self.updated_counts.reset();
         let uniform = Uniform::standard();
@@ -911,41 +715,64 @@ impl SimulatorCRNMultiBatch {
 
         flame::start("process batch");
 
-        self.do_gillespie = true; // if entire batch are null reactions, stays true and switches to gillspie
-
         // The idea here is to iterate through random_transitions and array_sums together; they should
         // both be indexed by q^o-tuples when iterated through this way, and the iteration order should
         // be lexicographic for both of them.
         self.array_sums.sample_batch_result(rxns_before_coll, &mut self.urn);
         let mut done = false;
-        for random_transition in self.random_transitions.lanes(Axis(self.crn.o)).into_iter() {
+        let reactions_iter = self.random_transitions.lanes(Axis(self.crn.o)).into_iter();
+        for random_transition in reactions_iter {
             assert!(!done, "self.array_sums finished iterating before self.random_transitions");
             let next_array_sum = self.array_sums.get_next();
             // TODO maybe add an assert check that the two structures are iterated through
             // in the same order, i.e. reactants match
-            let (_reactants, quantity) = (next_array_sum.0, next_array_sum.1);
+            let (reactants, quantity) = (next_array_sum.0, next_array_sum.1);
             done = next_array_sum.2;
             let (num_outputs, first_idx) = (random_transition[0], random_transition[1]);
-            let probabilities = self.transition_probabilities[first_idx..first_idx + num_outputs].to_vec();
-            flame::start("multinomial sample");
-            multinomial_sample(quantity, &probabilities, &mut self.m[0..num_outputs], &mut self.rng);
-            flame::end("multinomial sample");
-            assert_eq!(
-                self.m.iter().sum::<usize>(),
-                quantity,
-                "sample sum mismatch"
-            );
-            for c in 0..num_outputs {
-                let idx = first_idx + c;
-                let outputs = &self.random_outputs[idx];
-                for output in outputs {
-                    self.updated_counts.add_to_entry(output.clone(), self.m[c] as i64);
+            // TODO and WARNING: this code is more or less copy-paste with the collision sampling code.
+            // They do the same thing. But it's apparently very annoying to reafactor this into a
+            // helper method in rust because of the immutable borrow of self above.
+            if num_outputs == 0 {
+                // Null reaction. Move the reactants from self.urn to self.updated_counts (for collision sampling), and add W.
+                for reactant in reactants {
+                    self.updated_counts.add_to_entry(reactant, quantity as i64);
+                }
+                self.updated_counts.add_to_entry(self.crn.w, (quantity * self.crn.g) as i64);
+            } else {
+                // We'll add this for now, then subtract off the probabilistically null reactions later.
+                self.formal_t += quantity;
+                let mut probabilities = self.transition_probabilities[first_idx..first_idx + num_outputs].to_vec();
+                let probability_sum: f64 = probabilities.iter().sum();
+                if probability_sum < 1.0 {
+                    probabilities.push(1.0 - probability_sum);
+                }
+                flame::start("multinomial sample");
+                multinomial_sample(quantity, &probabilities, &mut self.m[0..probabilities.len()], &mut self.rng);
+                flame::end("multinomial sample");
+                assert_eq!(
+                    self.m[0..probabilities.len()].iter().sum::<usize>(),
+                    quantity,
+                    "sample sum mismatch"
+                );
+                for c in 0..num_outputs {
+                    let idx = first_idx + c;
+                    let outputs = &self.random_outputs[idx];
+                    for output in outputs {
+                        self.updated_counts.add_to_entry(output.clone(), self.m[c] as i64);
+                    }
+                }
+                // Add any W produced by null reactions.
+                if probability_sum < 1.0 {
+                    let null_count = self.m[num_outputs];
+                    self.updated_counts.add_to_entry(self.crn.w, null_count as i64);
+                    self.formal_t -= null_count;
                 }
             }
         }
         assert!(done, "self.random_transitions finished iterating before self.array_sums");
 
-
+        assert_eq!((self.crn.g + self.crn.o) * rxns_before_coll, self.updated_counts.size, "Total number of molecules added is not consistent");
+        
         flame::end("process batch");
         flame::start("sample collision");
         // We need to sample a collision. It could involve as few as 1 already-used molecule,
@@ -958,16 +785,19 @@ impl SimulatorCRNMultiBatch {
             let mut collision_count_num_ways: Vec<u128> = Vec::with_capacity(self.crn.o);
             let num_new_molecules = (self.crn.o + self.crn.g) * rxns_before_coll;
             let num_old_molecules = self.n - (self.crn.o * rxns_before_coll);
-            for i in 0..self.crn.o + 1 {
+            for num_collisions in 1..self.crn.o + 1 {
                 collision_count_num_ways.push(
-                    (num_old_molecules as u128).pow((self.crn.o - i).try_into().unwrap()) 
-                    * (num_new_molecules as u128).pow(i.try_into().unwrap()));
+                    (num_old_molecules as u128).pow((self.crn.o - num_collisions).try_into().unwrap()) 
+                    * (num_new_molecules as u128).pow(num_collisions.try_into().unwrap()) 
+                    * binomial(self.crn.o as u64, num_collisions as u64) as u128);
             }
-            let total_ways: u128 = (num_new_molecules as u128 + num_old_molecules as u128).pow(self.crn.o.try_into().unwrap());
+            let total_ways_with_at_least_one_collision: u128 = collision_count_num_ways.iter().sum();
             let u2 = self.rng.sample(uniform);
             let mut num_colliding_molecules = 0;
+            let mut total_ways_so_far = 0;
             for i in 0..self.crn.o {
-                if (collision_count_num_ways[i] as f64) / (total_ways as f64) < u2 {
+                total_ways_so_far += collision_count_num_ways[i];
+                if u2 < (total_ways_so_far as f64) / (total_ways_with_at_least_one_collision as f64) {
                     num_colliding_molecules = i + 1;
                     break;
                 }
@@ -980,41 +810,63 @@ impl SimulatorCRNMultiBatch {
             for _ in num_colliding_molecules..self.crn.o {
                 collision.push(self.urn.sample_one().unwrap());
             }
-            // TODO: no need to shuffle if the implementation doesn't care about reactant order.
-            // I'm not sure if it will at this point.
-            collision.shuffle(&mut self.rng);
             // Index into random_probabilities to sample what the collision will do.
             let mut view = self.random_transitions.view();
             for dimension in 0..self.crn.o {
-                view = view.index_axis_move(Axis(dimension), collision[dimension]);
+                view = view.index_axis_move(Axis(0), collision[dimension]);
             }
             // Verify that the view is now a 1-dimensional subarray of random_probabilities,
             // which should just have two elements in it (number of random outputs and starting index)
-            assert!(view.ndim() == 1, "Was not left with 1-dimensional vector after indexing collision");
-            assert!(view.len() == 2, "Indexing collision did not leave two-element subarray");
+            assert_eq!(view.ndim(), 1, "Was not left with 1-dimensional vector after indexing collision");
+            assert_eq!(view.len(), 2, "Indexing collision did not leave two-element subarray");
 
             let (num_outputs, first_idx) = (view[0], view[1]);
-            let u3 = self.rng.sample(uniform);
-            let mut total_probability = 0.0;
-            let mut output_index = first_idx;
-            // Sample the random transition.
-            for i in first_idx..first_idx + num_outputs - 1 {
-                total_probability += self.transition_probabilities[first_idx + i];
-                if u3 < total_probability {
-                    break;
+            // TODO: this code is heavily copy-pasted. See other TODO comment above.
+            if num_outputs == 0 {
+                // Null reaction. 
+                for reactant in collision {
+                    self.updated_counts.add_to_entry(reactant, 1);
                 }
-                output_index += 1;
-            }
-            let outputs = &self.random_outputs[output_index];
-            for output in outputs {
-                self.updated_counts.add_to_entry(output.clone(), 1);
+                self.updated_counts.add_to_entry(self.crn.w, (self.crn.g) as i64);
+            } else {
+                self.formal_t += 1;
+                let mut probabilities = self.transition_probabilities[first_idx..first_idx + num_outputs].to_vec();
+                let probability_sum: f64 = probabilities.iter().sum();
+                if probability_sum < 1.0 {
+                    probabilities.push(1.0 - probability_sum);
+                }
+                flame::start("multinomial sample");
+                multinomial_sample(1, &probabilities, &mut self.m[0..probabilities.len()], &mut self.rng);
+                flame::end("multinomial sample");
+                assert_eq!(
+                    self.m[0..probabilities.len()].iter().sum::<usize>(),
+                    1,
+                    "sample sum mismatch"
+                );
+                for c in 0..num_outputs {
+                    let idx = first_idx + c;
+                    let outputs = &self.random_outputs[idx];
+                    for output in outputs {
+                        self.updated_counts.add_to_entry(output.clone(), self.m[c] as i64);
+                    }
+                }
+                // Add W if the collision was a probabilistic null reaction.
+                if probability_sum < 1.0 {
+                    let null_count = self.m[num_outputs];
+                    self.updated_counts.add_to_entry(self.crn.w, null_count as i64);
+                    self.formal_t -= null_count;
+                }
             }
             self.n += self.crn.g;
             self.t += 1;
         }
         flame::end("sample collision");
-        assert_eq!(self.crn.g * (rxns_before_coll + 1), self.updated_counts.size, "Total number of molecules added is not consistent");
+        println!("rxns before coll: {:?}", rxns_before_coll);
+        
         self.n += self.crn.g * rxns_before_coll;
+        println!("relevant stuff: {:?}, {:?}, {:?}, {:?}", self.formal_n, rxns_before_coll, self.updated_counts.config[self.crn.k], self.updated_counts.config[self.crn.w]);
+        println!("urn config: {:?}", self.urn.config);
+        println!("update config: {:?}", self.updated_counts.config);
         self.formal_n += self.crn.g * rxns_before_coll;
         self.formal_n -= self.updated_counts.config[self.crn.k];
         self.formal_n -= self.updated_counts.config[self.crn.w];
@@ -1024,6 +876,41 @@ impl SimulatorCRNMultiBatch {
         self.urn.sort();
         //self.update_enabled_reactions();
     }
+
+    /// Do multinomial sampling.
+    /// TODO better docstring
+    // fn do_multinomial_sampling(&mut self, quantity: usize, first_idx: usize, num_outputs: usize) {
+    //     if num_outputs == 0 {
+    //         // Null reaction. 
+    //         self.updated_counts.add_to_entry(self.crn.w, (quantity * self.crn.g) as i64);
+    //     } else {
+    //         let mut probabilities = self.transition_probabilities[first_idx..first_idx + num_outputs].to_vec();
+    //         let probability_sum: f64 = probabilities.iter().sum();
+    //         if probability_sum < 1.0 {
+    //             probabilities.push(1.0 - probability_sum);
+    //         }
+    //         flame::start("multinomial sample");
+    //         println!("Calling multinomial_sample on {:?}, {:?}", quantity, probabilities);
+    //         multinomial_sample(quantity, &probabilities, &mut self.m[0..probabilities.len()], &mut self.rng);
+    //         flame::end("multinomial sample");
+    //         assert_eq!(
+    //             self.m[0..probabilities.len()].iter().sum::<usize>(),
+    //             quantity,
+    //             "sample sum mismatch"
+    //         );
+    //         for c in 0..num_outputs {
+    //             let idx = first_idx + c;
+    //             let outputs = &self.random_outputs[idx];
+    //             for output in outputs {
+    //                 self.updated_counts.add_to_entry(output.clone(), self.m[c] as i64);
+    //             }
+    //         }
+    //         // Add any W produced by null reactions.
+    //         if probability_sum < 1.0 {
+    //             self.updated_counts.add_to_entry(self.crn.w, self.m[num_outputs] as i64);
+    //         }
+    //     }
+    // }
 
     /// Chooses sender/receiver, then applies delta to input states a, b.
     // fn unordered_delta(&mut self, a: State, b: State) -> (State, State) {
