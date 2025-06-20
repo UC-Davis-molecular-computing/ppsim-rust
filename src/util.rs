@@ -53,12 +53,12 @@ pub fn hypergeometric_sample(
 }
 
 #[cfg(feature = "ue")]
-pub fn multinomial_sample(n: usize, pix: &Vec<f64>, result: &mut Vec<usize>, rng: &mut SmallRng) {
+pub fn multinomial_sample(n: usize, pix: &Vec<f64>, result: &mut [usize], rng: &mut SmallRng) {
     multinomial_sample_statrs(n, pix, result, rng);
 }
 
 #[cfg(not(feature = "ue"))]
-pub fn multinomial_sample(n: usize, pix: &Vec<f64>, result: &mut Vec<usize>, rng: &mut SmallRng) {
+pub fn multinomial_sample(n: usize, pix: &Vec<f64>, result: &mut [usize], rng: &mut SmallRng) {
     multinomial_sample_manual(n, pix, result, rng);
 }
 
@@ -396,7 +396,7 @@ use statrs::distribution::Multinomial;
 pub fn multinomial_sample_statrs(
     n: usize,
     pix: &Vec<f64>,
-    result: &mut Vec<usize>,
+    result: &mut [usize],
     rng: &mut SmallRng,
 ) {
     assert_eq!(pix.len(), result.len());
@@ -420,7 +420,7 @@ pub fn binomial_sample(n: usize, p: f64, mut rng: &mut SmallRng) -> usize {
 pub fn multinomial_sample_manual(
     n: usize,
     pix: &Vec<f64>,
-    result: &mut Vec<usize>,
+    result: &mut [usize],
     rng: &mut SmallRng,
 ) {
     assert_eq!(pix.len(), result.len());

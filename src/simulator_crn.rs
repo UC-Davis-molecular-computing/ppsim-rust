@@ -928,7 +928,7 @@ impl SimulatorCRNMultiBatch {
             let (num_outputs, first_idx) = (random_transition[0], random_transition[1]);
             let probabilities = self.transition_probabilities[first_idx..first_idx + num_outputs].to_vec();
             flame::start("multinomial sample");
-            multinomial_sample(quantity, &probabilities, &mut self.m, &mut self.rng);
+            multinomial_sample(quantity, &probabilities, &mut self.m[0..num_outputs], &mut self.rng);
             flame::end("multinomial sample");
             assert_eq!(
                 self.m.iter().sum::<usize>(),
