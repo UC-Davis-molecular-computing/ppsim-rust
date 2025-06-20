@@ -4,6 +4,7 @@ use rand::SeedableRng;
 
 use crate::util::hypergeometric_sample;
 
+// TODO: I think almost every single instance of "State" and "usize" in this file are being used backwards :)
 type State = usize;
 
 /// Samples a discrete uniform random number in the range [low, high].
@@ -16,7 +17,7 @@ pub fn sample_discrete_uniform(rng: &mut SmallRng, low: usize, high: usize) -> u
 
 /// Data structure for a multiset that supports fast random sampling.
 pub struct Urn {
-    pub config: Vec<State>,
+    pub config: Vec<usize>,
     pub order: Vec<usize>,
     pub size: usize,
     rng: SmallRng,

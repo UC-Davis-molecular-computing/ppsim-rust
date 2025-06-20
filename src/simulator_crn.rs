@@ -11,7 +11,8 @@ use pyo3::prelude::*;
 // use ndarray::prelude::*;
 use ndarray::{ArrayD, Axis};
 
-use numpy::{PyReadonlyArray1, PyReadonlyArray2, PyReadonlyArrayDyn};
+use numpy::{PyReadonlyArray1};
+use pyo3::types::PyNone;
 use rand::rngs::SmallRng;
 use rand::Rng;
 use rand::SeedableRng;
@@ -190,9 +191,16 @@ pub struct SimulatorCRNMultiBatch {
     /// The population size (sum of values in urn.config).
     #[pyo3(get, set)]
     pub n: usize,
+    /// The population size of all species except k and w.
+    #[pyo3(get, set)]
+    pub formal_n: usize,
     /// The current number of elapsed interaction steps.
     #[pyo3(get, set)]
     pub t: usize,
+    /// The current number of elapsed interaction steps that actually simulated something in 
+    /// the original CRN, rather than being a "null reaction".
+    #[pyo3(get, set)]
+    pub formal_t: usize,
     /// The total number of states (length of urn.config).
     pub q: usize,
     /// An (o + 1)-dimensional array. The first o dimensions represent reactants. After indexing through
@@ -310,12 +318,12 @@ impl SimulatorCRNMultiBatch {
     #[pyo3(signature = (init_config, _delta, _random_transitions, _random_outputs, _transition_probabilities, _transition_order, _gillespie, seed, reactions, k, w))]
     pub fn new(
         init_config: PyReadonlyArray1<State>,
-        _delta: PyReadonlyArrayDyn<State>,
-        _random_transitions: PyReadonlyArrayDyn<usize>,
-        _random_outputs: PyReadonlyArray2<State>,
-        _transition_probabilities: PyReadonlyArray1<f64>,
-        _transition_order: String,
-        _gillespie: bool,
+        _delta: Py<PyNone>,
+        _random_transitions: Py<PyNone>,
+        _random_outputs: Py<PyNone>,
+        _transition_probabilities: Py<PyNone>,
+        _transition_order: Py<PyNone>,
+        _gillespie: Py<PyNone>,
         seed: Option<u64>,
         reactions: Vec<Reaction>,
         k: State,
@@ -327,6 +335,7 @@ impl SimulatorCRNMultiBatch {
 
         let config = init_config.clone();
         let n = config.iter().sum();
+        let formal_n = n;
         let q = config.len() as State;
 
         // random_depth is the maximum number of outputs for any randomized transition
@@ -337,13 +346,10 @@ impl SimulatorCRNMultiBatch {
         //     random_depth = random_depth.max(random_transitions_inner[0]);
         // }
 
-        // assert_eq!(
-        //     random_outputs.len(),
-        //     transition_probabilities.len(),
-        //     "random_outputs and transition_probabilities length mismatch"
-        // );
+        
 
         let t = 0;
+        let formal_t = 0;
         let rng = if let Some(s) = seed {
             SmallRng::seed_from_u64(s)
         } else {
@@ -375,11 +381,20 @@ impl SimulatorCRNMultiBatch {
         let r_constant = 0;
 
         let (random_transitions, random_outputs, transition_probabilities) = crn.construct_transition_arrays(300);
-
-        (SimulatorCRNMultiBatch {
+        assert_eq!(
+            random_outputs.len(),
+            transition_probabilities.len(),
+            "random_outputs and transition_probabilities length mismatch"
+        );
+        println!("Here are the random transitions: {:?}", random_transitions);
+        println!("Here are the random outputs: {:?}", random_outputs);
+        println!("Here are the transition probabilities: {:?}", transition_probabilities);
+        let mut simulator = SimulatorCRNMultiBatch {
             crn,
             n,
+            formal_n,
             t,
+            formal_t,
             q,
             random_transitions,
             random_outputs,
@@ -400,7 +415,9 @@ impl SimulatorCRNMultiBatch {
             coll_table_r_values,
             coll_table_u_values,
             r_constant,
-        }, Simulator::default())
+        };
+        simulator.reset_k_count();
+        (simulator, Simulator::default())
     }
 
     #[getter]
@@ -426,6 +443,8 @@ impl SimulatorCRNMultiBatch {
                 flame::end("gillespie step");
             } else {
                 self.batch_step(t_max);
+                self.reset_k_count();
+                self.recycle_waste();
             }
         }
         Ok(())
@@ -994,8 +1013,11 @@ impl SimulatorCRNMultiBatch {
             self.t += 1;
         }
         flame::end("sample collision");
-
+        assert_eq!(self.crn.g * (rxns_before_coll + 1), self.updated_counts.size, "Total number of molecules added is not consistent");
         self.n += self.crn.g * rxns_before_coll;
+        self.formal_n += self.crn.g * rxns_before_coll;
+        self.formal_n -= self.updated_counts.config[self.crn.k];
+        self.formal_n -= self.updated_counts.config[self.crn.w];
         self.t += rxns_before_coll;
         
         self.urn.add_vector(&self.updated_counts.config);
@@ -1190,6 +1212,27 @@ impl SimulatorCRNMultiBatch {
                 self.coll_table[r_idx][u_idx] = self.sample_coll(r, u, false);
             }
         }
+    }
+
+    /// Update the count of K in preparation for the next batch. 
+    /// We will try to choose a value for the count of K that maximizes the expected amount
+    /// of progress we make in simulating the original CRN.
+    fn reset_k_count(&mut self) {
+        // TODO: do something more complicated than this to actually be efficient.
+        // This is just making sure that half of everything is always k.
+        let delta_k = self.formal_n as i64 - self.urn.config[self.crn.k] as i64;
+        assert!(self.n as i64 + delta_k >= 0);
+        self.n = (self.n as i64 + delta_k) as usize;
+        self.urn.add_to_entry(self.crn.k, delta_k);
+    }
+
+    /// Get rid of W from self.urn. 
+    /// It is recycled to a better place.
+    fn recycle_waste(&mut self) {
+        let delta_w = -1 * self.urn.config[self.crn.w] as i64;
+        assert!(self.n as i64 + delta_w >= 0);
+        self.n = (self.n as i64 + delta_w) as usize;
+        self.urn.add_to_entry(self.crn.w, delta_w);
     }
 
     /// Sample a collision event from the urn

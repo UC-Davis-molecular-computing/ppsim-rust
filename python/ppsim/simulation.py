@@ -38,7 +38,7 @@ import numpy.typing as npt
 import pandas as pd
 from tqdm.auto import tqdm
 
-from ppsim.crn import Reaction, reactions_to_dict, CRN
+from ppsim.crn import Reaction, reactions_to_dict, CRN, convert_to_uniform, catalyst_specie, waste_specie
 from ppsim.snapshot import Snapshot, TimeUpdate
 from ppsim.ppsim_rust import Simulator, SimulatorSequentialArray, SimulatorMultiBatch, SimulatorCRNMultiBatch
 
@@ -55,7 +55,8 @@ Type representing transition rules for protocol. Is one of three types:
 
 - a function that takes two states and returns either a tuple of two states or a dictionary mapping pairs of states to probabilities.
 - a dictionary mapping pairs of states to either a tuple of two states or a dictionary mapping pairs of states to probabilities.
-- a list of :class:`ppsim.crn.Reaction` objects describing a CRN, which will be parsed into an equivalent population protocol.
+- a list of :class:`ppsim.crn.Reaction` objects describing a CRN, which will be passed as a CRN if the simulator method is CRN,
+or will be converted into a population protocol if it's using original ppsim-style multibatching.
 """
 
 ConvergenceDetector: TypeAlias = Callable[[dict[State, int]], bool]
@@ -184,6 +185,7 @@ class Simulation:
             volume: float | None = None, 
             continuous_time: bool = False, 
             time_units: str | None = None,
+            crn: CRN | None = None,
             **kwargs
     ) -> None:
         """
@@ -205,7 +207,7 @@ class Simulation:
                 which will be parsed into an equivalent population protocol.
             
             simulator_method: Which Simulator method to use, either ``'MultiBatch'``
-                or ``'Sequential'`` or ``'Gillespie'``.
+                or ``'Sequential'`` or ``'Gillespie'`` or ``'CRN'``.
                 - ``'MultiBatch'``:
                     :class:`ppsim_rust.SimulatorMultiBatch` does O(sqrt(n)) interaction steps in parallel
                     using batching, and is much faster for large population sizes and
@@ -217,6 +219,10 @@ class Simulation:
                     :class:`ppsim_rust.SimulatorSequentialArray` represents the population as an array of
                     agents, and simulates each interaction step by choosing a pair of agents
                     to update. Defaults to 'MultiBatch'.
+                - ``'CRN'``:
+                    :class:`ppsim_rust.SimulatorCRNMultiBatch` does parallel batching for arbitrary
+                    CRNs, and should be faster than Gillespie on large population sizes and
+                    small species sets.
             
             transition_order: Should the rule be interpreted as being symmetric,
                 either ``'asymmetric'``, ``'symmetric'``, or ``'symmetric_enforced'``.
@@ -287,7 +293,7 @@ class Simulation:
         except TypeError:
             # might end up here if rule is not even iterable, e.g., is a function
             rule_is_reaction_iterable = False
-        if rule_is_reaction_iterable:
+        if rule_is_reaction_iterable and not simulator_method.lower() == 'crn':
             if volume is None:
                 volume = self.n
             rule, rate_max = reactions_to_dict(rule, self.n, volume)  # type: ignore
@@ -312,12 +318,33 @@ class Simulation:
                 else:
                     states.extend(output)
             state_list = list(set(states))
+        elif simulator_method.lower() == 'crn':
+            # TODO: a lot of this code is really really written with the assumption of operating
+            # on population protocols. It'll take some significant refactoring to get it to not
+            # be ugly to also work easily with general CRNs. For now, I'm letting it be ugly.
+            # All of the code paths are based on whether or not simulator_method.lower() == 'crn'.
+            states = list(init_config.keys())
+            for reaction in rule: # type: ignore
+                states += reaction.reactants.species
+                states += reaction.products.species
+            state_list = list(set(states))
+
         else:
             # Otherwise, we use breadth-first search to find all reachable states
             state_list = list(state_enumeration(init_config, self.rule))
         # We use the natsorted library to put state_list in a reasonable order
         self.state_list = natsorted(state_list, key=lambda x: repr(x))
         self.state_dict = {state: i for i, state in enumerate(self.state_list)}
+
+        
+        if simulator_method.lower() == "crn":
+            # Build a CRN and modify it to make all reactions uniform in order and generativity.
+            crn = CRN(list(rule), self.state_list) # type: ignore
+            self._crn = convert_to_uniform(crn)
+            # TODO we probably want to keep track of these separately, because we don't want to
+            # report the counts of K and W to the end user, typically.
+            self.state_list = natsorted(state_list + [catalyst_specie(), waste_specie()], key=lambda x: repr(x))
+            self.state_dict = {state: i for i, state in enumerate(self.state_list)}
 
         if simulator_method.lower() in ('multibatch', 'gillespie'):
             self._method = SimulatorMultiBatch
@@ -388,84 +415,90 @@ class Simulation:
         Args:
             config: The config array to instantiate the simulator.
         """
+        use_crn_mode = self.simulator_method.lower() == 'crn'
         q = len(self.state_list)
-        delta = np.zeros((q, q, 2), dtype=np.uint)
-        null_transitions = np.zeros((q, q), dtype=np.bool_)
-        random_transitions = np.zeros((q, q, 2), dtype=np.uint)
-        random_outputs: list[tuple[State, State]] = []
-        transition_probabilities = []
-        for i, a in enumerate(self.state_list):
-            for j, b in enumerate(self.state_list):
-                output = self.rule(a, b)
-                assert output is not None
-                # when output is a distribution
-                if isinstance(output, dict):
-                    s = sum(output.values())
-                    assert s <= 1 + 2 ** -20, "The sum of output probabilities must be <= 1."
-                    # ensure probabilities sum to 1
-                    if 1 - s:
-                        if (a, b) in output.keys():
-                            output[(a, b)] += 1 - s
+        delta = None
+        reactions = None
+        k_state = None
+        w_state = None
+        null_transitions = None
+        random_transitions = None
+        random_outputs = None # type: ignore
+        random_outputs_arr = None
+        transition_probabilities = None
+        if use_crn_mode:
+            reactions = self._crn.exportable_reactions()
+            k_state = self.state_list.index(catalyst_specie())
+            w_state = self.state_list.index(waste_specie())
+        else:
+            delta = np.zeros((q, q, 2), dtype=np.uint)
+            null_transitions = np.zeros((q, q), dtype=np.bool_)
+            random_transitions = np.zeros((q, q, 2), dtype=np.uint)
+            random_outputs: list[tuple[State, State]] = []
+            transition_probabilities = []
+            for i, a in enumerate(self.state_list):
+                for j, b in enumerate(self.state_list):
+                    output = self.rule(a, b)
+                    assert output is not None
+                    # when output is a distribution
+                    if isinstance(output, dict):
+                        s = sum(output.values())
+                        assert s <= 1 + 2 ** -20, "The sum of output probabilities must be <= 1."
+                        # ensure probabilities sum to 1
+                        if 1 - s:
+                            if (a, b) in output.keys():
+                                output[(a, b)] += 1 - s
+                            else:
+                                output[(a, b)] = 1 - s
+                        if len(output) == 1:
+                            # distribution only had 1 output, not actually random
+                            output = next(iter(output.keys()))
                         else:
-                            output[(a, b)] = 1 - s
-                    if len(output) == 1:
-                        # distribution only had 1 output, not actually random
-                        output = next(iter(output.keys()))
-                    else:
-                        # add (number of outputs, index to outputs)
-                        random_transitions[i, j] = (len(output), len(random_outputs))
-                        for (x, y) in output.keys():
-                            random_outputs.append((self.state_dict[x], self.state_dict[y]))
-                        transition_probabilities.extend(list(output.values()))
-                if set(output) == {a, b}:
-                    null_transitions[i, j] = True
-                    delta[i, j] = (i, j)
-                elif isinstance(output, tuple):
-                    delta[i, j] = (self.state_dict[output[0]], self.state_dict[output[1]])
+                            # add (number of outputs, index to outputs)
+                            random_transitions[i, j] = (len(output), len(random_outputs))
+                            for (x, y) in output.keys():
+                                random_outputs.append((self.state_dict[x], self.state_dict[y]))
+                            transition_probabilities.extend(list(output.values()))
+                    if set(output) == {a, b}:
+                        null_transitions[i, j] = True
+                        delta[i, j] = (i, j)
+                    elif isinstance(output, tuple):
+                        delta[i, j] = (self.state_dict[output[0]], self.state_dict[output[1]])
 
-        # if random_outputs is empty, this makes a 0D ndarray, but we need a 2D array,
-        # with len (shape[0]) = 0, so that the first dimension's length will match with transition_probabilities
-        random_outputs_arr = np.array(random_outputs, dtype=np.uint) \
-            if len(random_outputs) > 0 else np.empty(shape=(0,2), dtype=np.uint)
+            # if random_outputs is empty, this makes a 0D ndarray, but we need a 2D array,
+            # with len (shape[0]) = 0, so that the first dimension's length will match with transition_probabilities
+            random_outputs_arr = np.array(random_outputs, dtype=np.uint) \
+                if len(random_outputs) > 0 else np.empty(shape=(0,2), dtype=np.uint)
 
-        transition_probabilities = np.array(transition_probabilities, dtype=float)
+            transition_probabilities = np.array(transition_probabilities, dtype=float)
 
-        if self._transition_order.lower() in ['symmetric', 'symmetric_enforced']:
-            for i in range(q):
-                for j in range(q):
-                    # Set the output for i, j to be equal to j, i if null
-                    if null_transitions[i, j]:
-                        null_transitions[i, j] = null_transitions[j, i]
-                        delta[i, j] = delta[j, i]
-                        random_transitions[i, j] = random_transitions[j, i]
-                    # If i, j and j, i are both non-null, with symmetric_enforced, check outputs are equal
-                    elif self._transition_order.lower() == 'symmetric_enforced' \
-                            and not null_transitions[j, i]:
-                        if sorted(delta[i, j]) != sorted(delta[j, i]) or \
-                                random_transitions[i, j, 0] != random_transitions[j, i, 0]:
-                            a, b = self.state_list[i], self.state_list[j]
-                            raise ValueError(f'''Asymmetric interaction:
-                                            {a, b} -> {self.rule(a, b)}
-                                            {b, a} -> {self.rule(b, a)}''')
+            if self._transition_order.lower() in ['symmetric', 'symmetric_enforced']:
+                for i in range(q):
+                    for j in range(q):
+                        # Set the output for i, j to be equal to j, i if null
+                        if null_transitions[i, j]:
+                            null_transitions[i, j] = null_transitions[j, i]
+                            delta[i, j] = delta[j, i]
+                            random_transitions[i, j] = random_transitions[j, i]
+                        # If i, j and j, i are both non-null, with symmetric_enforced, check outputs are equal
+                        elif self._transition_order.lower() == 'symmetric_enforced' \
+                                and not null_transitions[j, i]:
+                            if sorted(delta[i, j]) != sorted(delta[j, i]) or \
+                                    random_transitions[i, j, 0] != random_transitions[j, i, 0]:
+                                a, b = self.state_list[i], self.state_list[j]
+                                raise ValueError(f'''Asymmetric interaction:
+                                                {a, b} -> {self.rule(a, b)}
+                                                {b, a} -> {self.rule(b, a)}''')
 
-        gillespie = self.simulator_method.lower() == 'gillespie'
-        # TODO: not sure what the best way to deal with this is or if it will break the
-        # subclassing structure that I attempted to make pyo3 recognize, but for now, it seems
-        # much simpler to just give the CRN simulator a different new() signature.
-        if self.simulator_method == "crn":
-            self.simulator = self._method(
-                config, delta, # null_transitions,  # type: ignore
-                random_transitions, random_outputs_arr, transition_probabilities, 
-                self._transition_order,
-                gillespie, 234, [([1,2], [1,3], 0.56), ([0,3], [2,2], 0.009)], 0, 1
-            )
-        # if True:
-        #     self.simulator = self._method(
-        #         config, delta, # null_transitions,  # type: ignore
-        #         random_transitions, random_outputs_arr, transition_probabilities, 
-        #         transition_order=self._transition_order,
-        #         gillespie=gillespie, seed=self.seed
-        #     )
+        gillespie = self.simulator_method.lower() == 'gillespie' if not use_crn_mode else None
+        transition_order = self._transition_order if not use_crn_mode else None
+
+        self.simulator = self._method(
+            config, delta, 
+            random_transitions, random_outputs_arr, transition_probabilities, 
+            transition_order,
+            gillespie, self.seed, reactions, k_state, w_state
+        )
 
     def array_from_dict(self, d: dict) -> npt.NDArray[np.uint]:
         """Convert a configuration dictionary to an array.

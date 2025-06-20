@@ -34,6 +34,8 @@ from dataclasses import dataclass
 from xml.dom import minidom
 import gpac as gp
 
+CATALYST_NAME = "K"
+WASTE_NAME = "W"
 
 def species(sp: str | Iterable[str]) -> tuple[Specie, ...]:
     """
@@ -226,11 +228,17 @@ class Specie:
 
     __radd__ = __add__
 
-    def __rshift__(self, other: Specie | Expression) -> Reaction:
-        return Reaction(self, other)
+    def __rshift__(self, other: Specie | Expression | None) -> Reaction:
+        if other is not None:
+            return Reaction(self, other)
+        else:
+            return Reaction(self, Expression([]))
 
-    def __rrshift__(self, other: Specie | Expression) -> Reaction:
-        return Reaction(other, self)
+    def __rrshift__(self, other: Specie | Expression | None) -> Reaction:
+        if other is not None:
+            return Reaction(other, self)
+        else:
+            return Reaction(Expression([]), self)
 
     def __or__(self, other: Specie | Expression) -> Reaction:
         return Reaction(self, other, reversible=True)
@@ -396,12 +404,6 @@ class Reaction:
             reactants = Expression([reactants])
         if isinstance(products, Specie):
             products = Expression([products])
-
-        if len(reactants) == 0:
-            raise ValueError('reactants cannot be empty')
-
-        if len(products) == 0:
-            raise ValueError('products cannot be empty')
 
         self.reactants = reactants
         self.products = products
@@ -622,6 +624,9 @@ class CRN:
     reactions: list[Reaction]
     """The reactions comprising the CRN."""
 
+    species: list[Specie]
+    """The species in the CRN. Ordered by index that represents them during algorithm execution."""
+
     def __str__(self) -> str:
         return str([str(rxn) for rxn in self.reactions])
 
@@ -639,21 +644,46 @@ class CRN:
         """
         return max(rxn.generativity() for rxn in self.reactions)
 
+    def exportable_reactions(self) -> list[tuple[list[int], list[int], float]]:
+        """
+        Returns: the reactions of the CRN formatted in a way that can be passed through pyo3.
+        """
+        reactions: list[tuple[list[int], list[int], float]] = []
+        all_species: set[Specie] = set()
+        for reaction in self.reactions:
+            all_species.update(reaction.reactants.get_species())
+            all_species.update(reaction.products.get_species())
+        species_to_index: dict[Specie, int] = {}
 
-def convert_to_uniform(crn:CRN, K_count:int) -> CRN:
+        for i in range(len(self.species)):
+            specie = self.species[i]
+            species_to_index[specie] = i
+            
+        for reaction in self.reactions:
+            reactants = list(map(lambda species: species_to_index[species], reaction.reactants.species))
+            products = list(map(lambda species: species_to_index[species], reaction.products.species))
+            reactions.append((reactants, products, reaction.rate_constant))
+        return reactions
+
+def convert_to_uniform(crn:CRN) -> CRN:
     """
     Convert a CRN to an equivalent uniform CRN.
     The new CRN will have two new species, K (catalyst) and W (waste).
+    This function does NOT adjust rate constants for the count of K; this is done later.
 
     Args:
-        crn: a CRN to be converted. Can be arbitrary.
+        crn: a CRN to be converted. Should not be an output of this function.
         K_count: count of K to include in the configuration of the transformed CRN.
     """
+    # Special species are added by this function, so there shouldn't be any yet.
+    for specie in crn.species:
+        assert not specie.is_special_specie
     max_generativity = crn.generativity()
     max_order = crn.order()
     new_reactions:list[Reaction] = []
-    K = Specie(name="K",is_special_specie=True)
-    W = Specie(name="W",is_special_specie=True)
+    K = catalyst_specie()
+    W = waste_specie()
+    new_species = crn.species + [K, W]
     for reaction in replace_reversible_rxns(crn.reactions):
         reaction_order = reaction.num_reactants()
         reaction_generativity = reaction.generativity()
@@ -661,12 +691,17 @@ def convert_to_uniform(crn:CRN, K_count:int) -> CRN:
         W_to_add = max_generativity - reaction_generativity
         new_reactants = reaction.reactants + (K_to_add * K)
         new_products = reaction.products + (K_to_add * K) + (W_to_add * W)
-        new_k = reaction.rate_constant / (float(K_count) ** K_to_add)
+        new_k = reaction.rate_constant
         new_reactions.append(Reaction(reactants=new_reactants, products=new_products, k=new_k))
 
 
-    return CRN(reactions=new_reactions)
+    return CRN(reactions=new_reactions, species=new_species)
 
+def catalyst_specie() -> Specie:
+    return Specie(name=CATALYST_NAME,is_special_specie=True)
+
+def waste_specie() -> Specie:
+    return Specie(name=WASTE_NAME,is_special_specie=True)
 
 # example of StochKit format:
 '''

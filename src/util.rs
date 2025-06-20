@@ -54,13 +54,11 @@ pub fn hypergeometric_sample(
 
 #[cfg(feature = "ue")]
 pub fn multinomial_sample(n: usize, pix: &Vec<f64>, result: &mut Vec<usize>, rng: &mut SmallRng) {
-    // println!("ue version called");
     multinomial_sample_statrs(n, pix, result, rng);
 }
 
 #[cfg(not(feature = "ue"))]
 pub fn multinomial_sample(n: usize, pix: &Vec<f64>, result: &mut Vec<usize>, rng: &mut SmallRng) {
-    // println!("non ue version called");
     multinomial_sample_manual(n, pix, result, rng);
 }
 
