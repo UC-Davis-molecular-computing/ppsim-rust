@@ -127,10 +127,11 @@ impl UniformCRN {
         for reaction in &self.reactions {
             
             // Add info from this reaction to all possible permutations of reactants.
-            for permutation in reaction.reactants.iter().permutations(self.o) {
-                
-                for output in &reaction.outputs {
-                    let probability = output.1 * self.correction_factor(&reaction.reactants, k_count) / max_total_adjusted_rate_constant;
+            for output in &reaction.outputs {
+                let probability = output.1 * self.correction_factor(&reaction.reactants, k_count) / max_total_adjusted_rate_constant;
+                random_outputs.push(output.0.clone());
+                random_probabilities.push(probability);
+                for permutation in reaction.reactants.iter().permutations(self.o) {
                     let mut view = random_transitions.view_mut();
                     // This loop indexes into random_transitions.
                     for dimension in 0..self.o {
@@ -141,8 +142,7 @@ impl UniformCRN {
                     // Increment the number of possible outputs for these reactants.
                     inner_view[0] += 1;
                     inner_view[1] = cur_output_index;
-                    random_outputs.push(output.0.clone());
-                    random_probabilities.push(probability);
+                    
                 }
             }
             cur_output_index += reaction.outputs.len();
@@ -389,9 +389,6 @@ impl SimulatorCRNMultiBatch {
             transition_probabilities.len(),
             "random_outputs and transition_probabilities length mismatch"
         );
-        // println!("Here are the random transitions: {:?}", random_transitions);
-        // println!("Here are the random outputs: {:?}", random_outputs);
-        // println!("Here are the transition probabilities: {:?}", transition_probabilities);
         let mut simulator = SimulatorCRNMultiBatch {
             crn,
             n,
@@ -437,7 +434,7 @@ impl SimulatorCRNMultiBatch {
         let max_wallclock_milliseconds = (max_wallclock_time * 1_000.0).ceil() as u64;
         let duration = Duration::from_millis(max_wallclock_milliseconds);
         let start_time = Instant::now();
-        while self.t_including_nulls < t_max && start_time.elapsed() < duration {
+        while self.t < t_max && start_time.elapsed() < duration {
             if self.silent {
                 return Ok(());
             } else if self.do_gillespie {
@@ -448,6 +445,10 @@ impl SimulatorCRNMultiBatch {
                 self.batch_step(t_max);
                 self.reset_k_count();
                 self.recycle_waste();
+            }
+            // TODO this should be set more generally
+            if self.n == 0 {
+                self.silent = true;
             }
         }
         Ok(())
@@ -488,7 +489,7 @@ impl SimulatorCRNMultiBatch {
     pub fn write_profile(&self, filename: Option<String>) -> PyResult<()> {
         let spans = flame::spans();
         if spans.is_empty() {
-            println!("No profiling data available since flame_profiling feature disabled.");
+            // println!("No profiling data available since flame_profiling feature disabled.");
             return Ok(());
         }
 
@@ -507,7 +508,7 @@ impl SimulatorCRNMultiBatch {
         // content.push_str(&format!("\nTotal time: {}ms\n", total_time_ms));
 
         if filename.is_none() {
-            println!("{}", content);
+            // println!("{}", content);
         } else {
             let filename = filename.unwrap();
             let mut file = std::fs::File::create(filename)?;
@@ -694,6 +695,10 @@ fn make_batch_result(dimensions: usize, length: usize) -> NDBatchResult {
 
 impl SimulatorCRNMultiBatch {
     fn batch_step(&mut self, t_max: usize) -> () {
+        // println!("Urn at beginning: {:?}", self.urn.config);
+        // println!("transition probs: {:?}", self.transition_probabilities);
+        // println!("random outputs: {:?}", self.random_outputs);
+        // println!("random_transitions: {:?}", self.random_transitions);
         self.updated_counts.reset();
         let uniform = Uniform::standard();
 
@@ -710,10 +715,17 @@ impl SimulatorCRNMultiBatch {
         assert!(l > 0, "sample_coll must return at least 1 for batching");
 
         // If the sampled collision happens after t_max, then include delayed agents up until t_max
-        //   and do not perform the collision.
-        if t_max > 0 && self.t_including_nulls + l >= t_max {
-            assert!(t_max > self.t_including_nulls);
-            rxns_before_coll = t_max - self.t_including_nulls;
+        // and do not perform the collision.
+        // TODO: There's some awkwardness here: if there *might* be enough collisions to go past
+        // t_max, then we need to stop early. But this means that, for instance, if there are
+        // 100 reactions left until t_max, and our typical batch size is 200, we'll just keep
+        // running batches of size equal to t_max - t until getting t = t_max, since t only
+        // actually increases in response to "real" reactions. So if lots of null reactions happen,
+        // this will be super inefficient. Lots of possible options - the simplest might be,
+        // just run Gillespie during the last little bit of each batch.
+        if t_max > 0 && self.t + l >= t_max {
+            assert!(t_max > self.t);
+            rxns_before_coll = t_max - self.t;
         }
 
 
@@ -724,20 +736,27 @@ impl SimulatorCRNMultiBatch {
         // The idea here is to iterate through random_transitions and array_sums together; they should
         // both be indexed by q^o-tuples when iterated through this way, and the iteration order should
         // be lexicographic for both of them.
+        // println!("Before sample_batch_results, self.urn.config is {:?}", self.urn.config);
         self.array_sums.sample_batch_result(rxns_before_coll, &mut self.urn);
+        // println!("After sample_batch_results, self.urn.config is {:?}", self.urn.config);
         let mut done = false;
         let reactions_iter = self.random_transitions.lanes(Axis(self.crn.o)).into_iter();
+        // println!("About to process a batch of size {:?}", rxns_before_coll);
         for random_transition in reactions_iter {
+            // println!("random transition is {:?}", random_transition);
             assert!(!done, "self.array_sums finished iterating before self.random_transitions");
             let next_array_sum = self.array_sums.get_next();
             // TODO maybe add an assert check that the two structures are iterated through
             // in the same order, i.e. reactants match
             let (reactants, quantity) = (next_array_sum.0, next_array_sum.1);
+            // println!("reactants is {:?}", reactants);
             done = next_array_sum.2;
+            if quantity == 0 {continue}
             let (num_outputs, first_idx) = (random_transition[0], random_transition[1]);
             // TODO and WARNING: this code is more or less copy-paste with the collision sampling code.
             // They do the same thing. But it's apparently very annoying to reafactor this into a
             // helper method in rust because of the immutable borrow of self above.
+            // println!{"Now processing {:?} reactions of type {:?}, updated_counts is {:?}", quantity, reactants, self.updated_counts.config}
             if num_outputs == 0 {
                 // Null reaction. Move the reactants from self.urn to self.updated_counts (for collision sampling), and add W.
                 for reactant in reactants {
@@ -763,6 +782,7 @@ impl SimulatorCRNMultiBatch {
                 for c in 0..num_outputs {
                     let idx = first_idx + c;
                     let outputs = &self.random_outputs[idx];
+                    // println!("Outputs is {:?}", outputs);
                     for output in outputs {
                         self.updated_counts.add_to_entry(output.clone(), self.m[c] as i64);
                     }
@@ -777,6 +797,8 @@ impl SimulatorCRNMultiBatch {
                     self.t -= null_count;
                 }
             }
+            // println!{"Done processing, updated_counts is {:?}", self.updated_counts.config}
+
         }
         assert!(done, "self.random_transitions finished iterating before self.array_sums");
 
@@ -878,8 +900,9 @@ impl SimulatorCRNMultiBatch {
         self.urn.add_vector(&self.updated_counts.config);
         self.urn.sort();
         self.n = self.urn.size;
-        self.formal_n = self.n - self.urn.config[self.crn.k] - self.urn.config[self.crn.w]
+        self.formal_n = self.n - self.urn.config[self.crn.k] - self.urn.config[self.crn.w];
         //self.update_enabled_reactions();
+        // println!("Urn at end: {:?}", self.urn.config);
     }
 
     /// Do multinomial sampling.
@@ -895,7 +918,6 @@ impl SimulatorCRNMultiBatch {
     //             probabilities.push(1.0 - probability_sum);
     //         }
     //         flame::start("multinomial sample");
-    //         println!("Calling multinomial_sample on {:?}, {:?}", quantity, probabilities);
     //         multinomial_sample(quantity, &probabilities, &mut self.m[0..probabilities.len()], &mut self.rng);
     //         flame::end("multinomial sample");
     //         assert_eq!(
@@ -961,7 +983,6 @@ impl SimulatorCRNMultiBatch {
     ///     faithful simulation up to step num_steps).
     fn gillespie_step(&mut self, _t_max: usize) -> () {
         unimplemented!()
-        // // println!("gillespie_step at interaction {}", self.t);
         // let total_propensity = self.get_total_propensity();
         // if total_propensity == 0.0 {
         //     self.silent = true;
@@ -1054,7 +1075,6 @@ impl SimulatorCRNMultiBatch {
         self.batch_threshold = batch_constant
             * ((self.n as f64 / self.logn).sqrt() * (self.q as f64).min((self.n as f64).powf(0.7)))
                 as usize;
-        // println!("batch_threshold = {}", self.batch_threshold);
         self.batch_threshold = self.n / 2;
         // first rough approximation for probability of successful reaction where we want to do gillespie
         self.gillespie_threshold = 2.0 / (self.n as f64).sqrt();

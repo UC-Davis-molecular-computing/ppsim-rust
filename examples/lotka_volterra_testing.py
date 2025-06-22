@@ -8,9 +8,9 @@ from matplotlib import pyplot as plt
 def main():
     a,b = pp.species('A B')
     rxns = [
-        a+b >> 2*b,
-        a >> 2*a,
-        b >> None,
+        (a+b >> 2*b).k(0.01),
+        (a >> 2*a).k(10),
+        (b >> None).k(10),
     ]
 
     predator_fraction = 0.5 
@@ -21,7 +21,9 @@ def main():
     inits = {a: a_init, b: b_init}
 
     sim = pp.Simulation(inits, rxns, simulator_method="crn")
+    print("Running.")
     sim.run(20, 0.1)
+    print("Done running.")
     
     sim.history.plot(figsize=(10,5)) # .plot(figsize = (6, 4))
     plt.title('approximate majority (ppsim)')
