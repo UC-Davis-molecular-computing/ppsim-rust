@@ -723,13 +723,12 @@ impl SimulatorCRNMultiBatch {
         // actually increases in response to "real" reactions. So if lots of null reactions happen,
         // this will be super inefficient. Lots of possible options - the simplest might be,
         // just run Gillespie during the last little bit of each batch.
+        let mut do_collision = true;
         if t_max > 0 && self.t + l >= t_max {
             assert!(t_max > self.t);
             rxns_before_coll = t_max - self.t;
+            do_collision = false;
         }
-        // println!("They are {:?}, {:?}, {:?}, {:?}", rxns_before_coll, l, self.t, t_max);
-        // println!("Urn starts as {:?}", self.urn.config);
-
 
         flame::end("sample batch");
 
@@ -813,7 +812,7 @@ impl SimulatorCRNMultiBatch {
         // 10^12 which is about 2^40, if we have 4 reactants, then the denominator for the
         // relevant probability distribution will be too large to store. 
         let mut num_resampled = 0;
-        if rxns_before_coll == l {
+        if do_collision {
             let updated_counts_before_collision = self.updated_counts.size;
             let mut collision_count_num_ways: Vec<u128> = Vec::with_capacity(self.crn.o);
             let num_new_molecules = (self.crn.o + self.crn.g) * rxns_before_coll;
@@ -905,7 +904,6 @@ impl SimulatorCRNMultiBatch {
         self.urn.add_vector(&self.updated_counts.config);
         self.urn.sort();
         // Check that we added the right number of things to the urn.
-        // println!("Urn is {:?}", self.urn.config);
         assert_eq!(self.urn.size - self.n, (self.t_including_nulls - initial_t_including_nulls) * self.crn.g,
             "Inconsistency between number of reactions simulated and population size change.");
         self.n = self.urn.size;
