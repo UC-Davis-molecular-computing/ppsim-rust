@@ -9,12 +9,12 @@ def main():
     a,b = pp.species('A B')
     rxns = [
         (a+b >> 2*b).k(0.01),
-        (a >> 2*a).k(10),
-        (b >> None).k(10),
+        (a >> 2*a).k(1),
+        (b >> None).k(1),
     ]
 
     predator_fraction = 0.5 
-    pop_exponent = 3
+    pop_exponent = 2
     n = 10 ** pop_exponent
     a_init = int(n * (1 - predator_fraction))
     b_init = n - a_init

@@ -489,7 +489,7 @@ impl SimulatorCRNMultiBatch {
     pub fn write_profile(&self, filename: Option<String>) -> PyResult<()> {
         let spans = flame::spans();
         if spans.is_empty() {
-            // println!("No profiling data available since flame_profiling feature disabled.");
+            println!("No profiling data available since flame_profiling feature disabled.");
             return Ok(());
         }
 
@@ -508,7 +508,7 @@ impl SimulatorCRNMultiBatch {
         // content.push_str(&format!("\nTotal time: {}ms\n", total_time_ms));
 
         if filename.is_none() {
-            // println!("{}", content);
+            println!("{}", content);
         } else {
             let filename = filename.unwrap();
             let mut file = std::fs::File::create(filename)?;
@@ -695,12 +695,9 @@ fn make_batch_result(dimensions: usize, length: usize) -> NDBatchResult {
 
 impl SimulatorCRNMultiBatch {
     fn batch_step(&mut self, t_max: usize) -> () {
-        // println!("Urn at beginning: {:?}", self.urn.config);
-        // println!("transition probs: {:?}", self.transition_probabilities);
-        // println!("random outputs: {:?}", self.random_outputs);
-        // println!("random_transitions: {:?}", self.random_transitions);
         self.updated_counts.reset();
         let uniform = Uniform::standard();
+        assert_eq!(self.n, self.urn.size, "Self.n should match self.urn.size.");
 
         flame::start("sample batch");
 
@@ -709,8 +706,11 @@ impl SimulatorCRNMultiBatch {
         let has_bounds = false;
         flame::start("sample_coll");
         let l = self.sample_coll(0, u, has_bounds);
-        let mut rxns_before_coll = l;
         flame::end("sample_coll");
+
+        let mut rxns_before_coll = l;
+        let initial_t_including_nulls = self.t_including_nulls;
+
 
         assert!(l > 0, "sample_coll must return at least 1 for batching");
 
@@ -727,6 +727,8 @@ impl SimulatorCRNMultiBatch {
             assert!(t_max > self.t);
             rxns_before_coll = t_max - self.t;
         }
+        // println!("They are {:?}, {:?}, {:?}, {:?}", rxns_before_coll, l, self.t, t_max);
+        // println!("Urn starts as {:?}", self.urn.config);
 
 
         flame::end("sample batch");
@@ -736,27 +738,24 @@ impl SimulatorCRNMultiBatch {
         // The idea here is to iterate through random_transitions and array_sums together; they should
         // both be indexed by q^o-tuples when iterated through this way, and the iteration order should
         // be lexicographic for both of them.
-        // println!("Before sample_batch_results, self.urn.config is {:?}", self.urn.config);
         self.array_sums.sample_batch_result(rxns_before_coll, &mut self.urn);
-        // println!("After sample_batch_results, self.urn.config is {:?}", self.urn.config);
         let mut done = false;
         let reactions_iter = self.random_transitions.lanes(Axis(self.crn.o)).into_iter();
-        // println!("About to process a batch of size {:?}", rxns_before_coll);
         for random_transition in reactions_iter {
-            // println!("random transition is {:?}", random_transition);
             assert!(!done, "self.array_sums finished iterating before self.random_transitions");
             let next_array_sum = self.array_sums.get_next();
             // TODO maybe add an assert check that the two structures are iterated through
             // in the same order, i.e. reactants match
             let (reactants, quantity) = (next_array_sum.0, next_array_sum.1);
-            // println!("reactants is {:?}", reactants);
             done = next_array_sum.2;
+            // println!("Handling {:?} reactions of type {:?}.", quantity, reactants);
+            // println!("update config at this point is {:?}.", self.updated_counts.config);
+            let initial_updated_counts_size = self.updated_counts.size;
             if quantity == 0 {continue}
             let (num_outputs, first_idx) = (random_transition[0], random_transition[1]);
             // TODO and WARNING: this code is more or less copy-paste with the collision sampling code.
             // They do the same thing. But it's apparently very annoying to reafactor this into a
             // helper method in rust because of the immutable borrow of self above.
-            // println!{"Now processing {:?} reactions of type {:?}, updated_counts is {:?}", quantity, reactants, self.updated_counts.config}
             if num_outputs == 0 {
                 // Null reaction. Move the reactants from self.urn to self.updated_counts (for collision sampling), and add W.
                 for reactant in reactants {
@@ -782,7 +781,6 @@ impl SimulatorCRNMultiBatch {
                 for c in 0..num_outputs {
                     let idx = first_idx + c;
                     let outputs = &self.random_outputs[idx];
-                    // println!("Outputs is {:?}", outputs);
                     for output in outputs {
                         self.updated_counts.add_to_entry(output.clone(), self.m[c] as i64);
                     }
@@ -797,8 +795,10 @@ impl SimulatorCRNMultiBatch {
                     self.t -= null_count;
                 }
             }
-            // println!{"Done processing, updated_counts is {:?}", self.updated_counts.config}
-
+            // println!("update config afterward is {:?}.", self.updated_counts.config);
+            // println!("Size changed by {:?}, compared to quantity being {:?}.", self.updated_counts.size - initial_updated_counts_size, quantity)
+            assert_eq!(quantity * (self.crn.o + self.crn.g), self.updated_counts.size - initial_updated_counts_size, 
+                "Mismatch between how many elements were added to updated_counts.")
         }
         assert!(done, "self.random_transitions finished iterating before self.array_sums");
 
@@ -812,7 +812,9 @@ impl SimulatorCRNMultiBatch {
         // into anything smaller. In fact I'm a little worried about u128; on population size
         // 10^12 which is about 2^40, if we have 4 reactants, then the denominator for the
         // relevant probability distribution will be too large to store. 
+        let mut num_resampled = 0;
         if rxns_before_coll == l {
+            let updated_counts_before_collision = self.updated_counts.size;
             let mut collision_count_num_ways: Vec<u128> = Vec::with_capacity(self.crn.o);
             let num_new_molecules = (self.crn.o + self.crn.g) * rxns_before_coll;
             let num_old_molecules = self.n - (self.crn.o * rxns_before_coll);
@@ -837,6 +839,7 @@ impl SimulatorCRNMultiBatch {
             let mut collision: Vec<usize> = Vec::with_capacity(self.crn.o);
             for _ in 0..num_colliding_molecules {
                 collision.push(self.updated_counts.sample_one().unwrap());
+                num_resampled += 1;
             }
             for _ in num_colliding_molecules..self.crn.o {
                 collision.push(self.urn.sample_one().unwrap());
@@ -886,11 +889,13 @@ impl SimulatorCRNMultiBatch {
                     let null_count = self.m[num_outputs];
                     self.updated_counts.add_to_entry(self.crn.w, null_count as i64);
                     for reactant in collision {
-                        self.updated_counts.add_to_entry(reactant, 1 as i64);
+                        self.updated_counts.add_to_entry(reactant, null_count as i64);
                     }
                     self.t -= null_count;
                 }
             }
+            assert_eq!(self.updated_counts.size - updated_counts_before_collision, self.crn.o + self.crn.g - num_resampled,
+                "Collision failed to add exactly one thing to updated_counts");
             self.t_including_nulls += 1;
         }
         flame::end("sample collision");
@@ -899,10 +904,14 @@ impl SimulatorCRNMultiBatch {
         
         self.urn.add_vector(&self.updated_counts.config);
         self.urn.sort();
+        // Check that we added the right number of things to the urn.
+        // println!("Urn is {:?}", self.urn.config);
+        assert_eq!(self.urn.size - self.n, (self.t_including_nulls - initial_t_including_nulls) * self.crn.g,
+            "Inconsistency between number of reactions simulated and population size change.");
         self.n = self.urn.size;
         self.formal_n = self.n - self.urn.config[self.crn.k] - self.urn.config[self.crn.w];
+
         //self.update_enabled_reactions();
-        // println!("Urn at end: {:?}", self.urn.config);
     }
 
     /// Do multinomial sampling.
