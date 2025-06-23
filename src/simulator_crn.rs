@@ -470,6 +470,7 @@ impl SimulatorCRNMultiBatch {
         self.n_including_extra_species = self.urn.size;
         self.t = t;
         self.t_including_nulls = t;
+        self.silent = self.n == 0;
         Ok(())
     }
 
