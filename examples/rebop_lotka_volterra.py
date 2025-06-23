@@ -27,28 +27,33 @@ import gpac as gp
 import polars as pl
 from matplotlib import pyplot as plt
 import rebop as rb
+import timeit
 
 def main():
-    crn = rb.Gillespie()
-    crn.add_reaction(.01, ['A', 'B'], ['B', 'B'])
-    crn.add_reaction(10, ['A'], ['A', 'A'])
-    crn.add_reaction(10, ['B'], [])
-
-    # a, b = pp.species('A B')
-    # lotka_volterra = [
-    #     (a+b >> 2*b).k(1),
-    #     (a >> 2*a).k(100),
-    #     (b >> None).k(100),
-    # ]
-    pop_exponent = 3
-    n = 10 ** pop_exponent
-    p = 0.51
-    a_init = int(n * p)
-    b_init = n - a_init
-    inits = {"A": a_init, "B": b_init}
-    end_time = 0
-    results_rebop = crn.run(inits, 1.1, 0)
-    print(results_rebop['A'])
+    ns = []
+    times = []
+    for pop_exponent_increment in range(10):
+        crn = rb.Gillespie()
+        pop_exponent = 6 + pop_exponent_increment / 10.0
+        crn.add_reaction(.1 ** pop_exponent, ['A', 'B'], ['B', 'B'])
+        crn.add_reaction(1, ['A'], ['A', 'A'])
+        crn.add_reaction(1, ['B'], [])
+        n = int(10 ** pop_exponent)
+        p = 0.51
+        a_init = int(n * p)
+        b_init = n - a_init
+        inits = {"A": a_init, "B": b_init}
+        end_time = 0
+        results_rebop = {}
+        def timefn():
+            results_rebop = crn.run(inits, 10, 1000)
+        ns.append(n)
+        times.append(timeit.timeit(timefn, number=1))
+    fig, ax = plt.subplots(figsize = (10,4))
+    ax.plot(ns, times, label="Run time vs pop size")
+    plt.show()
+    return
+    print(f"Total reactions simulated: {len(results_rebop['A'])}")
 
     fig, ax = plt.subplots(figsize = (10,4))
     state = 'A'

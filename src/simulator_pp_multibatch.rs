@@ -8,6 +8,7 @@ use numpy::PyArrayMethods;
 use numpy::PyUntypedArrayMethods;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use pyo3::types::PyNone;
 
 use numpy::{PyReadonlyArray1, PyReadonlyArray2, PyReadonlyArray3};
 use rand::rngs::SmallRng;
@@ -151,7 +152,7 @@ impl SimulatorMultiBatch {
     ///         whose indexing matches random_outputs.
     ///     seed (optional): An integer seed for the pseudorandom number generator.
     #[new]
-    #[pyo3(signature = (init_config, delta, random_transitions, random_outputs, transition_probabilities, transition_order, gillespie=false, seed=None))]
+    #[pyo3(signature = (init_config, delta, random_transitions, random_outputs, transition_probabilities, transition_order, gillespie, seed, _reactions, _k, _w))]
     pub fn new(
         init_config: PyReadonlyArray1<State>,
         delta: PyReadonlyArray3<State>,
@@ -161,6 +162,10 @@ impl SimulatorMultiBatch {
         transition_order: String,
         gillespie: bool,
         seed: Option<u64>,
+        _reactions: Py<PyNone>,
+        _k: Py<PyNone>,
+        _w: Py<PyNone>,
+
     ) -> (Self, Simulator) {
         let init_config = init_config.to_vec().unwrap();
         let q: usize = init_config.len() as State;

@@ -12,7 +12,6 @@ use pyo3::prelude::*;
 use ndarray::{ArrayD, Axis};
 
 use numpy::{PyReadonlyArray1};
-use pyo3::types::PyNone;
 use rand::rngs::SmallRng;
 use rand::Rng;
 use rand::SeedableRng;
@@ -147,6 +146,11 @@ impl UniformCRN {
             }
             cur_output_index += reaction.outputs.len();
         }        
+        assert_eq!(
+            random_outputs.len(),
+            random_probabilities.len(),
+            "random_outputs and transition_probabilities length mismatch"
+        );
         flame::end("construct_transition_arrays");
         return (random_transitions, random_outputs, random_probabilities);
     }
@@ -196,10 +200,10 @@ pub struct SimulatorCRNMultiBatch {
     pub crn: UniformCRN,
     /// The population size (sum of values in urn.config).
     #[pyo3(get, set)]
-    pub n: usize,
+    pub n_including_extra_species: usize,
     /// The population size of all species except k and w.
     #[pyo3(get, set)]
-    pub formal_n: usize,
+    pub n: usize,
     /// The current number of elapsed interaction steps that actually simulated something in 
     /// the original CRN, rather than being a "null reaction".
     #[pyo3(get, set)]
@@ -243,13 +247,6 @@ pub struct SimulatorCRNMultiBatch {
     /// updated during a batch. Called `C'` in the pseudocode for the batching algorithm.
     #[allow(dead_code)]
     updated_counts: Urn,
-    /// Precomputed log(n).
-    logn: f64,
-    /// Minimum number of interactions that must be simulated in each
-    /// batch. Collisions will be repeatedly sampled up until batch_threshold
-    /// interaction steps, then all non-colliding pairs of 'delayed agents' are
-    /// processed in parallel.
-    batch_threshold: usize,
     /// Struct which stores the result of hypergeometric sampling.
     array_sums: NDBatchResult,
     /// Array which stores the counts of responder agents for each type of
@@ -277,21 +274,19 @@ pub struct SimulatorCRNMultiBatch {
     // pub num_enabled_reactions: usize,
     // /// An array of length `self.reactions.len()` holding the propensities of each reaction.
     // propensities: Vec<f64>, // these are used only when doing Gillespie steps and are all 0 otherwise
-    /// The probability of each reaction. 
-    /// #[pyo3(get, set)]
-    ///  pub reaction_probabilities: Vec<f64>,
-    /// The probability of a non-null interaction must be below this
-    /// threshold to keep doing Gillespie steps.
-    gillespie_threshold: f64,
-    /// Precomputed values to speed up the function sample_coll(r, u).
-    /// This is a 2D array of size (`coll_table_r_values.len()`, `coll_table_u_values.len()`).
-    coll_table: Vec<Vec<usize>>,
-    /// Values of r, giving one axis of coll_table.
-    coll_table_r_values: Vec<usize>,
-    /// Values of u, giving the other axis of coll_table.
-    coll_table_u_values: Vec<f64>,
-    /// Used to populate coll_table_r_values.
-    r_constant: usize,
+    // The probability of each reaction. 
+    // #[pyo3(get, set)]
+    // // pub reaction_probabilities: Vec<f64>,
+    // // The probability of a non-null interaction must be below this
+    // // threshold to keep doing Gillespie steps.
+    // gillespie_threshold: f64,
+    // // Precomputed values to speed up the function sample_coll(r, u).
+    // // This is a 2D array of size (`coll_table_r_values.len()`, `coll_table_u_values.len()`).
+    // coll_table: Vec<Vec<usize>>,
+    // // Values of r, giving one axis of coll_table.
+    // coll_table_r_values: Vec<usize>,
+    // // Values of u, giving the other axis of coll_table.
+    // coll_table_u_values: Vec<f64>,
 }
 
 // fn py_print(py: Python, msg: &str) {
@@ -341,7 +336,7 @@ impl SimulatorCRNMultiBatch {
 
         let config = init_config.clone();
         let n = config.iter().sum();
-        let formal_n = n;
+        let n_including_extra_species = n;
         let q = config.len() as State;
 
         // random_depth is the maximum number of outputs for any randomized transition
@@ -375,24 +370,20 @@ impl SimulatorCRNMultiBatch {
 
         // below here we give meaningless default values to the other fields and rely on
         // set_n_parameters and get_enabled_reactions to set them to the correct values
-        let logn = 0.0;
-        let batch_threshold = 0;
-        let gillespie_threshold = 0.0;
-        let coll_table = vec![vec![0; 1]; 1];
-        let coll_table_r_values = vec![0; 1];
-        let coll_table_u_values = vec![0.0; 1];
-        let r_constant = 0;
+        // let gillespie_threshold = 0.0;
+        // let coll_table = vec![vec![0; 1]; 1];
+        // let coll_table_r_values = vec![0; 1];
+        // let coll_table_u_values = vec![0.0; 1];
 
-        let (random_transitions, random_outputs, transition_probabilities) = crn.construct_transition_arrays(n);
-        assert_eq!(
-            random_outputs.len(),
-            transition_probabilities.len(),
-            "random_outputs and transition_probabilities length mismatch"
-        );
+        // The following will be initialized during reset_k_count() below.
+        let random_transitions = ArrayD::<usize>::zeros(Vec::new());
+        let random_outputs = Vec::new();
+        let transition_probabilities= Vec::new();
+        
         let mut simulator = SimulatorCRNMultiBatch {
             crn,
             n,
-            formal_n,
+            n_including_extra_species,
             t,
             t_including_nulls,
             q,
@@ -403,19 +394,17 @@ impl SimulatorCRNMultiBatch {
             rng,
             urn,
             updated_counts,
-            logn,
-            batch_threshold,
             array_sums,
             row,
             m,
             do_gillespie,
             silent,
-            gillespie_threshold,
-            coll_table,
-            coll_table_r_values,
-            coll_table_u_values,
-            r_constant,
+            // gillespie_threshold,
+            // coll_table,
+            // coll_table_r_values,
+            // coll_table_u_values,
         };
+        
         simulator.reset_k_count();
         (simulator, Simulator::default())
     }
@@ -447,7 +436,7 @@ impl SimulatorCRNMultiBatch {
                 self.recycle_waste();
             }
             // TODO this should be set more generally
-            if self.n == 0 {
+            if self.n_including_extra_species == 0 {
                 self.silent = true;
             }
         }
@@ -475,13 +464,11 @@ impl SimulatorCRNMultiBatch {
     pub fn reset(&mut self, config: PyReadonlyArray1<State>, t: usize) -> PyResult<()> {
         let config = config.to_vec().unwrap();
         self.urn.reset_config(&config);
-        let n: usize = config.iter().sum();
-        if n != self.n {
-            self.n = n;
-            self.set_n_parameters();
-        }
+        self.n = config.iter().sum();
+        self.reset_k_count();
+        self.n_including_extra_species = self.urn.size;
+        self.t = t;
         self.t_including_nulls = t;
-        self.update_enabled_reactions();
         Ok(())
     }
 
@@ -697,7 +684,7 @@ impl SimulatorCRNMultiBatch {
     fn batch_step(&mut self, t_max: usize) -> () {
         self.updated_counts.reset();
         let uniform = Uniform::standard();
-        assert_eq!(self.n, self.urn.size, "Self.n should match self.urn.size.");
+        assert_eq!(self.n_including_extra_species, self.urn.size, "Self.n should match self.urn.size.");
 
         flame::start("sample batch");
 
@@ -816,7 +803,7 @@ impl SimulatorCRNMultiBatch {
             let updated_counts_before_collision = self.updated_counts.size;
             let mut collision_count_num_ways: Vec<u128> = Vec::with_capacity(self.crn.o);
             let num_new_molecules = (self.crn.o + self.crn.g) * rxns_before_coll;
-            let num_old_molecules = self.n - (self.crn.o * rxns_before_coll);
+            let num_old_molecules = self.n_including_extra_species - (self.crn.o * rxns_before_coll);
             for num_collisions in 1..self.crn.o + 1 {
                 collision_count_num_ways.push(
                     (num_old_molecules as u128).pow((self.crn.o - num_collisions).try_into().unwrap()) 
@@ -904,10 +891,10 @@ impl SimulatorCRNMultiBatch {
         self.urn.add_vector(&self.updated_counts.config);
         self.urn.sort();
         // Check that we added the right number of things to the urn.
-        assert_eq!(self.urn.size - self.n, (self.t_including_nulls - initial_t_including_nulls) * self.crn.g,
+        assert_eq!(self.urn.size - self.n_including_extra_species, (self.t_including_nulls - initial_t_including_nulls) * self.crn.g,
             "Inconsistency between number of reactions simulated and population size change.");
-        self.n = self.urn.size;
-        self.formal_n = self.n - self.urn.config[self.crn.k] - self.urn.config[self.crn.w];
+        self.n_including_extra_species = self.urn.size;
+        self.n = self.n_including_extra_species - self.urn.config[self.crn.k] - self.urn.config[self.crn.w];
 
         //self.update_enabled_reactions();
     }
@@ -1053,105 +1040,25 @@ impl SimulatorCRNMultiBatch {
     //     // total_propensity
     // }
 
-    /// Updates :any:`enabled_reactions`, :any:`num_enabled_reactions`, and :any:`silent`.
-    fn update_enabled_reactions(&mut self) -> () {
-        unimplemented!()
-        // // flame::start("update_enabled_reactions");
-        // self.num_enabled_reactions = 0;
-        // for i in 0..self.reactions.len() {
-        //     let (reactant_1, reactant_2) = (self.reactions[i].0, self.reactions[i].1);
-        //     if (reactant_1 == reactant_2 && self.urn.config[reactant_1] >= 2)
-        //         || (reactant_1 != reactant_2
-        //             && self.urn.config[reactant_1] >= 1
-        //             && self.urn.config[reactant_2] >= 1)
-        //     {
-        //         self.enabled_reactions[self.num_enabled_reactions] = i;
-        //         self.num_enabled_reactions += 1;
-        //     }
-        // }
-        // self.silent = self.num_enabled_reactions == 0;
-        // // flame::end("update_enabled_reactions");
-    }
-
-    /// Initialize all parameters that depend on the population size n.
-    fn set_n_parameters(&mut self) -> () {
-        self.logn = (self.n as f64).ln();
-        // theoretical optimum for batch_threshold is Theta(sqrt(n / logn) * q) agents / batch
-        // let batch_constant = 2_i32.pow(2) as usize;
-        let batch_constant = 1 as usize;
-        self.batch_threshold = batch_constant
-            * ((self.n as f64 / self.logn).sqrt() * (self.q as f64).min((self.n as f64).powf(0.7)))
-                as usize;
-        self.batch_threshold = self.n / 2;
-        // first rough approximation for probability of successful reaction where we want to do gillespie
-        self.gillespie_threshold = 2.0 / (self.n as f64).sqrt();
-
-        // build table for precomputed coll(n, r, u) values
-        // Note num_attempted_r_values may be too large; we break early if r >= n.
-        // let mut num_r_values = (10.0 * self.logn) as usize;
-        let mut num_r_values = (5.0 * self.logn) as usize;
-        let num_u_values = num_r_values;
-
-        self.r_constant = (((1.5 * self.batch_threshold as f64) as usize)
-            / ((num_r_values - 2) * (num_r_values - 2)))
-            .max(1) as usize;
-
-        self.coll_table_r_values = vec![];
-        for idx in 0..num_r_values - 1 {
-            let r = 2 + self.r_constant * idx * idx;
-            if r >= self.n {
-                break;
-            }
-            self.coll_table_r_values.push(r);
-        }
-        self.coll_table_r_values.push(self.n);
-        num_r_values = self.coll_table_r_values.len();
-
-        self.coll_table_u_values = vec![0.0; num_u_values];
-        for i in 0..num_u_values {
-            self.coll_table_u_values[i] = i as f64 / (num_u_values as f64 - 1.0);
-        }
-
-        assert_eq!(
-            self.coll_table_r_values.len(),
-            num_r_values,
-            "self.coll_table_r_values length mismatch",
-        );
-        assert_eq!(
-            self.coll_table_u_values.len(),
-            num_u_values,
-            "self.coll_table_u_values length mismatch",
-        );
-
-        self.coll_table = vec![vec![0; num_u_values]; num_r_values];
-        for r_idx in 0..num_r_values {
-            for u_idx in 0..num_u_values {
-                let r = self.coll_table_r_values[r_idx];
-                let u = self.coll_table_u_values[u_idx];
-                self.coll_table[r_idx][u_idx] = self.sample_coll(r, u, false);
-            }
-        }
-    }
-
     /// Update the count of K in preparation for the next batch. 
     /// We will try to choose a value for the count of K that maximizes the expected amount
     /// of progress we make in simulating the original CRN.
     fn reset_k_count(&mut self) {
         // TODO: do something more complicated than this to actually be efficient.
         // This is just making sure that half of everything is always k.
-        let delta_k = self.formal_n as i64 - self.urn.config[self.crn.k] as i64;
-        assert!(self.n as i64 + delta_k >= 0);
-        self.n = (self.n as i64 + delta_k) as usize;
+        let delta_k = self.n as i64 - self.urn.config[self.crn.k] as i64;
+        assert!(self.n_including_extra_species as i64 + delta_k >= 0);
+        self.n_including_extra_species = (self.n_including_extra_species as i64 + delta_k) as usize;
         self.urn.add_to_entry(self.crn.k, delta_k);
-        (self.random_transitions, self.random_outputs, self.transition_probabilities) = self.crn.construct_transition_arrays(self.formal_n);
+        (self.random_transitions, self.random_outputs, self.transition_probabilities) = self.crn.construct_transition_arrays(self.n);
     }
 
     /// Get rid of W from self.urn. 
     /// It is recycled to a better place.
     fn recycle_waste(&mut self) {
         let delta_w = -1 * self.urn.config[self.crn.w] as i64;
-        assert!(self.n as i64 + delta_w >= 0);
-        self.n = (self.n as i64 + delta_w) as usize;
+        assert!(self.n_including_extra_species as i64 + delta_w >= 0);
+        self.n_including_extra_species = (self.n_including_extra_species as i64 + delta_w) as usize;
         self.urn.add_to_entry(self.crn.w, delta_w);
     }
 
@@ -1196,15 +1103,15 @@ impl SimulatorCRNMultiBatch {
     ///     returns the index at which an agent collision occurs.
     pub fn sample_coll(&self, r: usize, u: f64, _has_bounds: bool) -> usize {
         // If every agent counts as a collision, the next reaction is a collision.
-        assert!(r <= self.n);
-        if r == self.n {
+        assert!(r <= self.n_including_extra_species);
+        if r == self.n_including_extra_species {
             return 0;
         }
         let mut t_lo: usize;
         let mut t_hi: usize;
 
         let logu = u.ln();
-        let diff = self.n + 1 - r;
+        let diff = self.n_including_extra_species + 1 - r;
         let ln_gamma_diff = ln_factorial(diff - 1);
 
         // lhs tracks all of the terms that don't include t, i.e., those that we don't need to
@@ -1225,10 +1132,10 @@ impl SimulatorCRNMultiBatch {
                 // = 4*log(3) + lgamma(14/3) - lgamma(2/3).
                 // These three terms are the three terms that are added and subtracted from lhs, to
                 // account for the term log((n-g-j)!(g)).
-                let num_static_terms: f64 = (((self.n - j) as f64 - self.crn.g as f64) / self.crn.g as f64).ceil();
+                let num_static_terms: f64 = (((self.n_including_extra_species - j) as f64 - self.crn.g as f64) / self.crn.g as f64).ceil();
                 lhs += num_static_terms * (self.crn.g as f64).ln();
-                lhs += ln_gamma((self.n - j) as f64 / self.crn.g as f64);
-                lhs -= ln_gamma((self.n as f64 - (num_static_terms * self.crn.g as f64) - j as f64) / self.crn.g as f64);
+                lhs += ln_gamma((self.n_including_extra_species - j) as f64 / self.crn.g as f64);
+                lhs -= ln_gamma((self.n_including_extra_species as f64 - (num_static_terms * self.crn.g as f64) - j as f64) / self.crn.g as f64);
             }
         } else {
             // Nothing to do here. There are no other static terms in the g = 0 case.
@@ -1239,29 +1146,29 @@ impl SimulatorCRNMultiBatch {
         // For now, we start with bounds that always hold.
         
         t_lo = 0;
-        t_hi = 1 + ((self.n - r) / self.crn.o);
+        t_hi = 1 + ((self.n_including_extra_species - r) / self.crn.o);
 
         // We maintain the invariant that P(l >= t_lo) >= u and P(l >= t_hi) < u
         while t_lo < t_hi - 1 {
             let t_mid = (t_lo + t_hi) / 2;
             // rhs tracks all of the terms that include t, i.e., those that we need to
             // update each iteration of binary search.
-            let mut rhs: f64 = ln_gamma((self.n - r - (t_mid * self.crn.o)) as f64 + 1.0);
+            let mut rhs: f64 = ln_gamma((self.n_including_extra_species - r - (t_mid * self.crn.o)) as f64 + 1.0);
             if self.crn.g > 0 {
                 for j in 0..self.crn.o {
                     // Calculates b = ceil((n+g(t-1)-j)/g).
                     // See the comment in the loop above where num_static_terms is defined for an explanation.
                     // This is the same thing, for the term log((n+g(t-1)-j)!(g)).
-                    let num_dynamic_terms = (((self.n + (self.crn.g as usize * (t_mid - 1)) - j) as f64) / self.crn.g as f64).ceil();
+                    let num_dynamic_terms = (((self.n_including_extra_species + (self.crn.g as usize * (t_mid - 1)) - j) as f64) / self.crn.g as f64).ceil();
                     rhs += num_dynamic_terms * (self.crn.g as f64).ln();
-                    rhs += ln_gamma((self.n + (self.crn.g as usize * t_mid) - j) as f64 / self.crn.g as f64);
-                    rhs -= ln_gamma((self.n as f64 + (self.crn.g as f64 * (t_mid as f64 - num_dynamic_terms)) - j as f64) / self.crn.g as f64);
+                    rhs += ln_gamma((self.n_including_extra_species + (self.crn.g as usize * t_mid) - j) as f64 / self.crn.g as f64);
+                    rhs -= ln_gamma((self.n_including_extra_species as f64 + (self.crn.g as f64 * (t_mid as f64 - num_dynamic_terms)) - j as f64) / self.crn.g as f64);
                 } 
             } else {
                 // g = 0 case is much simpler; there's no multifactorial, as it's analogous
                 // to the population protocols case. 
                 for j in 0..self.crn.o {
-                    rhs += t_mid as f64 * ((self.n - j) as f64).ln();
+                    rhs += t_mid as f64 * ((self.n_including_extra_species - j) as f64).ln();
                 } 
             }
             
