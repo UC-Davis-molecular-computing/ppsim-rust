@@ -30,35 +30,25 @@ import rebop as rb
 import timeit
 
 def main():
-    ns = []
-    times = []
-    for pop_exponent_increment in range(10):
-        crn = rb.Gillespie()
-        pop_exponent = 6 + pop_exponent_increment / 10.0
-        crn.add_reaction(.1 ** pop_exponent, ['A', 'B'], ['B', 'B'])
-        crn.add_reaction(1, ['A'], ['A', 'A'])
-        crn.add_reaction(1, ['B'], [])
-        n = int(10 ** pop_exponent)
-        p = 0.51
-        a_init = int(n * p)
-        b_init = n - a_init
-        inits = {"A": a_init, "B": b_init}
-        end_time = 0
-        results_rebop = {}
-        def timefn():
-            results_rebop = crn.run(inits, 10, 1000)
-        ns.append(n)
-        times.append(timeit.timeit(timefn, number=1))
-    fig, ax = plt.subplots(figsize = (10,4))
-    ax.plot(ns, times, label="Run time vs pop size")
-    plt.show()
-    return
-    print(f"Total reactions simulated: {len(results_rebop['A'])}")
+    crn = rb.Gillespie()
+    pop_exponent = 2
+    crn.add_reaction(.1 ** pop_exponent, ['A', 'B'], ['B', 'B'])
+    crn.add_reaction(1, ['A'], ['A', 'A'])
+    crn.add_reaction(1, ['B'], [])
+    sampling_increment = 1000
+    n = int(10 ** pop_exponent)
+    p = 0.5
+    a_init = int(n * p)
+    b_init = n - a_init
+    inits = {"A": a_init, "B": b_init}
+    end_time = 0
+    results_rebop = {}
+    results_rebop = crn.run(inits, 10, sampling_increment)
+
+    print(f"Total reactions simulated: {sampling_increment * len(results_rebop['A'])}")
 
     fig, ax = plt.subplots(figsize = (10,4))
-    state = 'A'
-    # state = 'B'
-    # state = 'U'
+
     ax.plot(results_rebop['time'], results_rebop['B'], label='B')
     ax.plot(results_rebop['time'], results_rebop['A'], label='A')
     # ax.hist([results_rebop['A'], results_rebop['B']], bins = np.linspace(0, n, 20), 

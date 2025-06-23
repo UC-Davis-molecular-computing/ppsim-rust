@@ -10,6 +10,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 // use ndarray::prelude::*;
 use ndarray::{ArrayD, Axis};
+use pyo3::types::PyNone;
 
 use numpy::{PyReadonlyArray1};
 use rand::rngs::SmallRng;

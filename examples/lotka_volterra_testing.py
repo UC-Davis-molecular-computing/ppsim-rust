@@ -54,7 +54,7 @@ def get_rebop_samples(pop_exponent, trials, predator_fraction, state, steps):
         # of steps, it should be safe to run for, say, 3 times that much time
         while True:
             try:
-                results_rebop = crn.run(inits, 3 * steps / float(n), 0)
+                results_rebop = crn.run(inits, 1 * steps / float(n), 0)
                 output.append(int(results_rebop[state][steps]))
                 break
             except IndexError:
@@ -63,12 +63,12 @@ def get_rebop_samples(pop_exponent, trials, predator_fraction, state, steps):
     return output
 
 def test_distribution():
-    pop_exponent = 3
-    trials_exponent = 6
+    pop_exponent = 2
+    trials_exponent = 3
     a,b = pp.species('A B')
     
-    predator_fraction = 0.5 
-    num_steps = 3
+    predator_fraction = 0.5
+    num_steps = 10000
 
     rxns = [
         (a+b >> 2*b).k(0.1 ** pop_exponent),
