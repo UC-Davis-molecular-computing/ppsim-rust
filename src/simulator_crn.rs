@@ -52,11 +52,11 @@ pub struct UniformCRN {
     pub w: State,
     // The CRN's reactions. If multiple reactions share the same reactants, they are stored in
     // the same Reaction object, for ease of iterating over reactions.
-    pub reactions: Vec<CombinedReaction>,
+    pub reactions: Vec<CombinedReactions>,
 }
 
 // A struct combining all reactions with the same reactants into a single piece.
-pub struct CombinedReaction {
+pub struct CombinedReactions {
     pub reactants: StateList,
     pub outputs: Vec<ProductsAndRateConstant>,
 }
@@ -89,11 +89,11 @@ impl UniformCRN {
         }
         let q = highest_species_seen + 1;
         assert!(q == all_species_seen.len(), "Species must be indexed using contiguous integers starting from 0");
-        let reactions_out: Vec<CombinedReaction> = collected_reactions
+        let reactions_out: Vec<CombinedReactions> = collected_reactions
             .keys()
-            .map(|x| CombinedReaction { reactants: x.to_vec(), outputs: collected_reactions[x].clone() })
+            .map(|x| CombinedReactions { reactants: x.to_vec(), outputs: collected_reactions[x].clone() })
             .collect();
-        return UniformCRN { o: o, g: g, q: q, k: k, w: w, reactions: reactions_out }
+        return UniformCRN { o, g, q, k, w, reactions: reactions_out }
     }
     // Build or rebuild random_transitions, random_outputs, and transition_probabilities.
     // We need to rebuild these tables because reaction propensities depend on the count of K,
@@ -115,7 +115,7 @@ impl UniformCRN {
             }
             max_total_adjusted_rate_constant = max_total_adjusted_rate_constant.max(total_rate_constant);
         }
-        // random_transitions has q+1 dimensions, the first q of which have length o,
+        // random_transitions has o+1 dimensions, the first o of which have length q,
         // and the last of which has length 2.
         let mut shape_vec = vec![self.q; self.o];
         shape_vec.push(2);
@@ -159,7 +159,7 @@ impl UniformCRN {
     fn correction_factor(&self, reactants: &Vec<State>, k_count: usize) -> f64 {
         let mut correction_factor = Self::symmetry_degree(reactants) as f64;
         let k_multiplicity = reactants.iter().filter(|&s| *s == self.k).count();
-        // We've artificially sped up this reaction by |K| * (|K| - 1) * ...
+        // We've artificially sped up this reaction by |K| * (|K| - 1) * ... * (|K| - k_multiplicity + 1).
         // This loop undoes that artificial speedup.
         for i in 0..k_multiplicity {
             correction_factor /= (k_count - i) as f64;
@@ -177,7 +177,7 @@ impl UniformCRN {
         for reactant in reactants {
             *frequencies.entry(*reactant).or_default() += 1;
         }
-        for (_, frequency) in frequencies {
+        for frequency in frequencies.values() {
             for i in 2..frequency + 1 {
                 factor *= i;
             }
@@ -219,6 +219,8 @@ pub struct SimulatorCRNMultiBatch {
     /// `num_outputs` is the number of possible outputs if transition i,j --> ... is non-null,
     /// otherwise it is 0. `first_idx` gives the starting index to find
     /// the outputs in the array `self.random_outputs` if it is non-null.
+    /// TODO: it would be much, much more readable if this was o-dimensional of pairs, 
+    /// rather than (o+1)-dimensional.
     /// #[pyo3(get, set)] // XXX: for testing
     pub random_transitions: ArrayD<usize>,
     /// A 1D array of tuples containing all outputs of random transitions,
@@ -229,6 +231,8 @@ pub struct SimulatorCRNMultiBatch {
     /// `random_outputs[first_idx]   = (5,6,7)`,
     /// `random_outputs[first_idx+1] = (7,7,8)`, and
     /// `random_outputs[first_idx+2] = (3,2,1)`.
+    /// TODO: combine this with transition_probabilities into a single structure, since
+    /// they should only ever be iterated through together.
     #[pyo3(get, set)] // XXX: for testing
     pub random_outputs: Vec<StateList>,
     /// An array containing all random transition probabilities,
@@ -332,10 +336,9 @@ impl SimulatorCRNMultiBatch {
         w: State,
     ) -> (Self, Simulator) {
         let crn = UniformCRN::verify_and_combine_reactions(reactions, k, w);
-        let init_config = init_config.to_vec().unwrap();
+        let config = init_config.to_vec().unwrap();
 
 
-        let config = init_config.clone();
         let n = config.iter().sum();
         let n_including_extra_species = n;
         let q = config.len() as State;
@@ -686,9 +689,8 @@ impl SimulatorCRNMultiBatch {
     fn batch_step(&mut self, t_max: usize) -> () {
         self.updated_counts.reset();
         let uniform = Uniform::standard();
-        assert_eq!(self.n_including_extra_species, self.urn.size, "Self.n should match self.urn.size.");
+        assert_eq!(self.n_including_extra_species, self.urn.size, "Self.n_including_extra_species should match self.urn.size.");
 
-        flame::start("sample batch");
 
         let u = self.rng.sample(uniform);
 
@@ -712,6 +714,9 @@ impl SimulatorCRNMultiBatch {
         // actually increases in response to "real" reactions. So if lots of null reactions happen,
         // this will be super inefficient. Lots of possible options - the simplest might be,
         // just run Gillespie during the last little bit of each batch.
+        // Alternatively, probably the right thing to do: I think it's still correct if
+        // we are willing to sample past t_max, but then manually choose some of the sampled
+        // non-null reactions to actually run and ignore the rest. 
         let mut do_collision = true;
         if t_max > 0 && self.t + l >= t_max {
             assert!(t_max > self.t);
@@ -719,16 +724,22 @@ impl SimulatorCRNMultiBatch {
             do_collision = false;
         }
 
-        flame::end("sample batch");
-
-        flame::start("process batch");
+        
 
         // The idea here is to iterate through random_transitions and array_sums together; they should
         // both be indexed by q^o-tuples when iterated through this way, and the iteration order should
         // be lexicographic for both of them.
+        flame::start("sample batch");
         self.array_sums.sample_batch_result(rxns_before_coll, &mut self.urn);
+        flame::end("sample batch");
+
+        flame::start("process batch");
         let mut done = false;
         let reactions_iter = self.random_transitions.lanes(Axis(self.crn.o)).into_iter();
+        // TODO: we might be able to reintroduce the optimzation around keeping the urn sorted
+        // and taking advantage of sample_vector returning the highest state returned. Probably
+        // in the current implementation, this would live in NDBatchResult and its iteration,
+        // and we'd iterate over it instead of self.random_transitions.
         for random_transition in reactions_iter {
             assert!(!done, "self.array_sums finished iterating before self.random_transitions");
             let next_array_sum = self.array_sums.get_next();
@@ -738,8 +749,8 @@ impl SimulatorCRNMultiBatch {
             done = next_array_sum.2;
             // println!("Handling {:?} reactions of type {:?}.", quantity, reactants);
             // println!("update config at this point is {:?}.", self.updated_counts.config);
-            let initial_updated_counts_size = self.updated_counts.size;
             if quantity == 0 {continue}
+            let initial_updated_counts_size = self.updated_counts.size;
             let (num_outputs, first_idx) = (random_transition[0], random_transition[1]);
             // TODO and WARNING: this code is more or less copy-paste with the collision sampling code.
             // They do the same thing. But it's apparently very annoying to reafactor this into a
@@ -754,9 +765,9 @@ impl SimulatorCRNMultiBatch {
                 // We'll add this for now, then subtract off the probabilistically null reactions later.
                 self.t += quantity;
                 let mut probabilities = self.transition_probabilities[first_idx..first_idx + num_outputs].to_vec();
-                let probability_sum: f64 = probabilities.iter().sum();
-                if probability_sum < 1.0 {
-                    probabilities.push(1.0 - probability_sum);
+                let non_null_probability_sum: f64 = probabilities.iter().sum();
+                if non_null_probability_sum < 1.0 {
+                    probabilities.push(1.0 - non_null_probability_sum);
                 }
                 flame::start("multinomial sample");
                 multinomial_sample(quantity, &probabilities, &mut self.m[0..probabilities.len()], &mut self.rng);
@@ -766,15 +777,15 @@ impl SimulatorCRNMultiBatch {
                     quantity,
                     "sample sum mismatch"
                 );
-                for c in 0..num_outputs {
-                    let idx = first_idx + c;
+                for offset in 0..num_outputs {
+                    let idx = first_idx + offset;
                     let outputs = &self.random_outputs[idx];
                     for output in outputs {
-                        self.updated_counts.add_to_entry(output.clone(), self.m[c] as i64);
+                        self.updated_counts.add_to_entry(*output, self.m[offset] as i64);
                     }
                 }
                 // Add any W produced by null reactions.
-                if probability_sum < 1.0 {
+                if non_null_probability_sum < 1.0 {
                     let null_count = self.m[num_outputs];
                     self.updated_counts.add_to_entry(self.crn.w, null_count as i64);
                     for reactant in reactants {
@@ -853,9 +864,9 @@ impl SimulatorCRNMultiBatch {
             } else {
                 self.t += 1;
                 let mut probabilities = self.transition_probabilities[first_idx..first_idx + num_outputs].to_vec();
-                let probability_sum: f64 = probabilities.iter().sum();
-                if probability_sum < 1.0 {
-                    probabilities.push(1.0 - probability_sum);
+                let non_null_probability_sum: f64 = probabilities.iter().sum();
+                if non_null_probability_sum < 1.0 {
+                    probabilities.push(1.0 - non_null_probability_sum);
                 }
                 flame::start("multinomial sample");
                 multinomial_sample(1, &probabilities, &mut self.m[0..probabilities.len()], &mut self.rng);
@@ -868,12 +879,12 @@ impl SimulatorCRNMultiBatch {
                 for c in 0..num_outputs {
                     let idx = first_idx + c;
                     let outputs = &self.random_outputs[idx];
-                    for output in outputs {
-                        self.updated_counts.add_to_entry(output.clone(), self.m[c] as i64);
+                    for offset in outputs {
+                        self.updated_counts.add_to_entry(*offset, self.m[c] as i64);
                     }
                 }
                 // Add W if the collision was a probabilistic null reaction.
-                if probability_sum < 1.0 {
+                if non_null_probability_sum < 1.0 {
                     let null_count = self.m[num_outputs];
                     self.updated_counts.add_to_entry(self.crn.w, null_count as i64);
                     for reactant in collision {
