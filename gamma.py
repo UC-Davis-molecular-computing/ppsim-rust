@@ -236,7 +236,7 @@ def mean_hypo(n: int, k: int, o: int, g: int) -> float:
         return float(k * geom_mean)
 
     precision = precision_for(last_term)
-    with mp.workdps(precision):
+    with mp.workprec(precision):
         if o == 1:
             # need this special case unconditionally to avoid NaN calculation somewhere
             result = mean_hypo_o1(n, k, g)
@@ -284,7 +284,7 @@ def var_hypo(n: int, k: int, o: int, g: int, geom: bool = False) -> float:
     #     geom_mean = math.sqrt(first_term * last_term)
     #     return float(k * geom_mean)
     
-    with mp.workdps(precision):
+    with mp.workprec(precision):
         # first sum
         #   o^2 / g^2
         #   * sum_{m=0}^{o-1}
