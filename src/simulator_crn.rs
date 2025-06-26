@@ -12,7 +12,7 @@ use pyo3::prelude::*;
 use ndarray::{ArrayD, Axis};
 use pyo3::types::PyNone;
 
-use numpy::{PyReadonlyArray1};
+use numpy::PyReadonlyArray1;
 use rand::rngs::SmallRng;
 use rand::Rng;
 use rand::SeedableRng;
@@ -34,7 +34,7 @@ type Reaction = (StateList, StateList, RateConstant);
 type ProductsAndRateConstant = (StateList, RateConstant);
 // A map from each state that appears to how many times that state appears in this set of reactants.
 
-// We remember the CRN we started with, because we may need to recompute reaction 
+// We remember the CRN we started with, because we may need to recompute reaction
 // probabilities between batches if we change the count of K. This should also hopefully
 // make it easier to interface with the Simulator class from both python and rust.
 // This struct is named to emphasize that it stores the CRN *after* the uniform transformation
@@ -62,21 +62,35 @@ pub struct CombinedReactions {
 }
 
 impl UniformCRN {
-    // Make sure that a set of reactions is uniform and the reactions valid, and combine reactions 
+    // Make sure that a set of reactions is uniform and the reactions valid, and combine reactions
     // that share the same set of reactants for easier iteration.
     fn verify_and_combine_reactions(reactions: Vec<Reaction>, k: State, w: State) -> UniformCRN {
         if reactions.len() == 0 {
-            return UniformCRN {o: 0, g: 0, q: 0, k: 0, w: 0, reactions: Vec::new()}
+            return UniformCRN {
+                o: 0,
+                g: 0,
+                q: 0,
+                k: 0,
+                w: 0,
+                reactions: Vec::new(),
+            };
         }
         let first_reaction = &reactions[0];
         let o = first_reaction.0.len();
         let g = first_reaction.1.len() - o;
-        let mut all_species_seen: HashSet<State> = HashSet::from([k,w]);
+        let mut all_species_seen: HashSet<State> = HashSet::from([k, w]);
         let mut highest_species_seen = k.max(w);
-        let mut collected_reactions: HashMap<StateList, Vec<ProductsAndRateConstant>> = HashMap::new();
+        let mut collected_reactions: HashMap<StateList, Vec<ProductsAndRateConstant>> =
+            HashMap::new();
         for reaction in reactions {
-            assert!(reaction.0.len() == o, "All reactions must have the same number of inputs");
-            assert!(reaction.1.len() - reaction.0.len() == g, "All reactions must have the same number of outputs");
+            assert!(
+                reaction.0.len() == o,
+                "All reactions must have the same number of inputs"
+            );
+            assert!(
+                reaction.1.len() - reaction.0.len() == g,
+                "All reactions must have the same number of outputs"
+            );
             for reactant in &reaction.0 {
                 all_species_seen.insert(*reactant);
                 highest_species_seen = highest_species_seen.max(*reactant);
@@ -85,21 +99,40 @@ impl UniformCRN {
                 all_species_seen.insert(*product);
                 highest_species_seen = highest_species_seen.max(*product);
             }
-            collected_reactions.entry(reaction.0).or_default().push((reaction.1, reaction.2));
+            collected_reactions
+                .entry(reaction.0)
+                .or_default()
+                .push((reaction.1, reaction.2));
         }
         let q = highest_species_seen + 1;
-        assert!(q == all_species_seen.len(), "Species must be indexed using contiguous integers starting from 0");
+        assert!(
+            q == all_species_seen.len(),
+            "Species must be indexed using contiguous integers starting from 0"
+        );
         let reactions_out: Vec<CombinedReactions> = collected_reactions
             .keys()
-            .map(|x| CombinedReactions { reactants: x.to_vec(), outputs: collected_reactions[x].clone() })
+            .map(|x| CombinedReactions {
+                reactants: x.to_vec(),
+                outputs: collected_reactions[x].clone(),
+            })
             .collect();
-        return UniformCRN { o, g, q, k, w, reactions: reactions_out }
+        return UniformCRN {
+            o,
+            g,
+            q,
+            k,
+            w,
+            reactions: reactions_out,
+        };
     }
     // Build or rebuild random_transitions, random_outputs, and transition_probabilities.
     // We need to rebuild these tables because reaction propensities depend on the count of K,
     // which we may want to change throughout the execution.
     // Returns a tuple of these three objects in that order.
-    fn construct_transition_arrays(&self, k_count: usize) -> (ArrayD<usize>, Vec<StateList>, Vec<f64>) {
+    fn construct_transition_arrays(
+        &self,
+        k_count: usize,
+    ) -> (ArrayD<usize>, Vec<StateList>, Vec<f64>) {
         flame::start("construct_transition_arrays");
         let mut max_total_adjusted_rate_constant: f64 = 0.0;
         // Iterate through reactions, adjusting rate constants to account for how many K
@@ -109,11 +142,12 @@ impl UniformCRN {
             let mut total_rate_constant = 0.0;
             let reactants = &reaction.reactants;
             let correction_factor = self.correction_factor(reactants, k_count);
-            for output in &reaction.outputs {            
+            for output in &reaction.outputs {
                 let adjusted_rate_constant: f64 = output.1 * correction_factor;
                 total_rate_constant += adjusted_rate_constant;
             }
-            max_total_adjusted_rate_constant = max_total_adjusted_rate_constant.max(total_rate_constant);
+            max_total_adjusted_rate_constant =
+                max_total_adjusted_rate_constant.max(total_rate_constant);
         }
         // random_transitions has o+1 dimensions, the first o of which have length q,
         // and the last of which has length 2.
@@ -125,28 +159,27 @@ impl UniformCRN {
         // Add any non-null reactions. Null reactions don't need any special handling.
         let mut cur_output_index = 0;
         for reaction in &self.reactions {
-            
             // Add info from this reaction to all possible permutations of reactants.
             for output in &reaction.outputs {
-                let probability = output.1 * self.correction_factor(&reaction.reactants, k_count) / max_total_adjusted_rate_constant;
+                let probability = output.1 * self.correction_factor(&reaction.reactants, k_count)
+                    / max_total_adjusted_rate_constant;
                 random_outputs.push(output.0.clone());
                 random_probabilities.push(probability);
                 for permutation in reaction.reactants.iter().permutations(self.o) {
                     let mut view = random_transitions.view_mut();
                     // This loop indexes into random_transitions.
                     for dimension in 0..self.o {
-                        view = view.index_axis_move(Axis(0), *permutation[dimension]);    
+                        view = view.index_axis_move(Axis(0), *permutation[dimension]);
                     }
                     // Make sure that this is one-dimensional.
                     let mut inner_view = view.into_dimensionality::<ndarray::Ix1>().unwrap();
                     // Increment the number of possible outputs for these reactants.
                     inner_view[0] += 1;
                     inner_view[1] = cur_output_index;
-                    
                 }
             }
             cur_output_index += reaction.outputs.len();
-        }        
+        }
         assert_eq!(
             random_outputs.len(),
             random_probabilities.len(),
@@ -167,7 +200,6 @@ impl UniformCRN {
         return correction_factor;
     }
 
-
     // Determine the degree of symmetry of a reaction, i.e., for any given ordering of its reactants,
     // the number of reorderings that are redundant. Obtained as the product of the factorial of
     // the count of each reactant.
@@ -182,7 +214,7 @@ impl UniformCRN {
                 factor *= i;
             }
         }
-        return factor
+        return factor;
     }
     // An iterator that iterates over all possible reactant vectors.
     // It might be more efficient to implement some custom iterator since really all this needs
@@ -205,7 +237,7 @@ pub struct SimulatorCRNMultiBatch {
     /// The population size of all species except k and w.
     #[pyo3(get, set)]
     pub n: usize,
-    /// The current number of elapsed interaction steps that actually simulated something in 
+    /// The current number of elapsed interaction steps that actually simulated something in
     /// the original CRN, rather than being a "null reaction".
     #[pyo3(get, set)]
     pub t: usize,
@@ -219,7 +251,7 @@ pub struct SimulatorCRNMultiBatch {
     /// `num_outputs` is the number of possible outputs if transition i,j --> ... is non-null,
     /// otherwise it is 0. `first_idx` gives the starting index to find
     /// the outputs in the array `self.random_outputs` if it is non-null.
-    /// TODO: it would be much, much more readable if this was o-dimensional of pairs, 
+    /// TODO: it would be much, much more readable if this was o-dimensional of pairs,
     /// rather than (o+1)-dimensional.
     /// #[pyo3(get, set)] // XXX: for testing
     pub random_transitions: ArrayD<usize>,
@@ -279,7 +311,7 @@ pub struct SimulatorCRNMultiBatch {
     // pub num_enabled_reactions: usize,
     // /// An array of length `self.reactions.len()` holding the propensities of each reaction.
     // propensities: Vec<f64>, // these are used only when doing Gillespie steps and are all 0 otherwise
-    // The probability of each reaction. 
+    // The probability of each reaction.
     // #[pyo3(get, set)]
     // // pub reaction_probabilities: Vec<f64>,
     // // The probability of a non-null interaction must be below this
@@ -313,7 +345,7 @@ impl SimulatorCRNMultiBatch {
     ///         Delta[i, j] gives contains the two output states.
     ///     random_transitions: A q^o x 2 array. That is, it has o+1 dimensions, all but the last have length q,
     ///         and the last dimension always has length two.
-    ///         Entry [r, 0] is the number of possible outputs if transition on reactant set r is non-null, 
+    ///         Entry [r, 0] is the number of possible outputs if transition on reactant set r is non-null,
     ///         otherwise it is 0. Entry [r, 1] gives the starting index to find the outputs in the array random_outputs if it is non-null.
     ///     random_outputs: A ? x (o + g) array containing all outputs of random transitions,
     ///         whose indexing information is contained in random_transitions.
@@ -338,17 +370,17 @@ impl SimulatorCRNMultiBatch {
         let crn = UniformCRN::verify_and_combine_reactions(reactions, k, w);
         let config = init_config.to_vec().unwrap();
 
-
         let n = config.iter().sum();
         let n_including_extra_species = n;
         let q = config.len() as State;
 
         // random_depth is the maximum number of outputs for any randomized transition
-        let random_depth = crn.reactions
+        let random_depth = crn
+            .reactions
             .iter()
             .map(|x| x.outputs.len())
             .fold(0, |acc, x| acc.max(x));
-        
+
         let t = 0;
         let t_including_nulls = 0;
         let rng = if let Some(s) = seed {
@@ -382,8 +414,8 @@ impl SimulatorCRNMultiBatch {
         // The following will be initialized during reset_k_count() below.
         let random_transitions = ArrayD::<usize>::zeros(Vec::new());
         let random_outputs = Vec::new();
-        let transition_probabilities= Vec::new();
-        
+        let transition_probabilities = Vec::new();
+
         let mut simulator = SimulatorCRNMultiBatch {
             crn,
             n,
@@ -408,7 +440,7 @@ impl SimulatorCRNMultiBatch {
             // coll_table_r_values,
             // coll_table_u_values,
         };
-        
+
         simulator.reset_k_count();
         (simulator, Simulator::default())
     }
@@ -597,7 +629,7 @@ fn process_span(span_data_map: &mut HashMap<String, SpanData>, span: &flame::Spa
 // we first need to sample all the codimension-1 sums, that is, how many reactions have each species
 // as its first reactant. Then, for each of those, we need to sample the codimension-2 sums, e.g.,
 // how many reactions with A as their first reactant have each reactant as their second. And so on,
-// recursively down to o dimensions. 
+// recursively down to o dimensions.
 // When sampling, the each struct will store its codimension-1 sums in values. Then, for each
 // of those values, it will recursively sample that many subreactions into its subresults.
 // This could be implemented in a more memory-efficient way where the subresult is just a single
@@ -606,10 +638,10 @@ fn process_span(span_data_map: &mut HashMap<String, SpanData>, span: &flame::Spa
 // potentially be large enough that we couldn't store it all at once, though at that point
 // it's unlikely that this is the right algorithm for simulation.
 struct NDBatchResult {
-    // Tells you what level of recursion you're on. 
-    // For the top level, dimensions = o (number of reactants). 
+    // Tells you what level of recursion you're on.
+    // For the top level, dimensions = o (number of reactants).
     // For the bottom level, dimensions = 1.
-    dimensions: usize, 
+    dimensions: usize,
     q: usize,
     o: usize,
     // For iterating over results
@@ -624,13 +656,20 @@ impl NDBatchResult {
     fn populate_empty(&mut self) {
         if self.dimensions > 1 {
             for _ in 0..self.q {
-                let mut subresult = NDBatchResult{
-                    dimensions: self.dimensions - 1, 
-                    q: self.q, 
+                let mut subresult = NDBatchResult {
+                    dimensions: self.dimensions - 1,
+                    q: self.q,
                     o: self.o,
                     curr_species: 0,
-                    counts: vec![0; self.q], 
-                    subresults: {if self.dimensions == 2 {None} else {Some(Vec::with_capacity(self.q))}}};
+                    counts: vec![0; self.q],
+                    subresults: {
+                        if self.dimensions == 2 {
+                            None
+                        } else {
+                            Some(Vec::with_capacity(self.q))
+                        }
+                    },
+                };
                 subresult.populate_empty();
                 self.subresults.as_mut().unwrap().push(subresult);
             }
@@ -648,13 +687,20 @@ impl NDBatchResult {
     }
     // TODO docstring here. Also this should probably implement an iterable trait
     fn get_next(&mut self) -> (Vec<State>, usize, bool) {
-        assert!(self.curr_species < self.q, "NDBatchResult iterated past final species");
+        assert!(
+            self.curr_species < self.q,
+            "NDBatchResult iterated past final species"
+        );
         let mut done = false;
         if self.dimensions == 1 {
-            let mut curr_reaction = vec![0;self.o];
+            let mut curr_reaction = vec![0; self.o];
             curr_reaction[self.o - self.dimensions] = self.curr_species;
             self.curr_species += 1;
-            return (curr_reaction, self.counts[self.curr_species - 1], self.curr_species == self.q);
+            return (
+                curr_reaction,
+                self.counts[self.curr_species - 1],
+                self.curr_species == self.q,
+            );
         } else {
             let curr_subresult = &mut self.subresults.as_mut().unwrap()[self.curr_species];
             let (mut curr_reaction, count, subresult_done) = curr_subresult.get_next();
@@ -672,16 +718,16 @@ impl NDBatchResult {
 
 fn make_batch_result(dimensions: usize, length: usize) -> NDBatchResult {
     let mut result = NDBatchResult {
-        dimensions: dimensions, 
-        q: length, 
+        dimensions: dimensions,
+        q: length,
         o: dimensions,
         curr_species: 0,
-        counts: vec![0;length], 
-        subresults: Some(Vec::with_capacity(length))};
+        counts: vec![0; length],
+        subresults: Some(Vec::with_capacity(length)),
+    };
     result.populate_empty();
     result
 }
-
 
 // const CAP_BATCH_THRESHOLD: bool = true;
 
@@ -689,8 +735,10 @@ impl SimulatorCRNMultiBatch {
     fn batch_step(&mut self, t_max: usize) -> () {
         self.updated_counts.reset();
         let uniform = Uniform::standard();
-        assert_eq!(self.n_including_extra_species, self.urn.size, "Self.n_including_extra_species should match self.urn.size.");
-
+        assert_eq!(
+            self.n_including_extra_species, self.urn.size,
+            "Self.n_including_extra_species should match self.urn.size."
+        );
 
         let u = self.rng.sample(uniform);
 
@@ -701,7 +749,6 @@ impl SimulatorCRNMultiBatch {
 
         let mut rxns_before_coll = l;
         let initial_t_including_nulls = self.t_including_nulls;
-
 
         assert!(l > 0, "sample_coll must return at least 1 for batching");
 
@@ -716,7 +763,7 @@ impl SimulatorCRNMultiBatch {
         // just run Gillespie during the last little bit of each batch.
         // Alternatively, probably the right thing to do: I think it's still correct if
         // we are willing to sample past t_max, but then manually choose some of the sampled
-        // non-null reactions to actually run and ignore the rest. 
+        // non-null reactions to actually run and ignore the rest.
         let mut do_collision = true;
         if t_max > 0 && self.t + l >= t_max {
             assert!(t_max > self.t);
@@ -724,13 +771,12 @@ impl SimulatorCRNMultiBatch {
             do_collision = false;
         }
 
-        
-
         // The idea here is to iterate through random_transitions and array_sums together; they should
         // both be indexed by q^o-tuples when iterated through this way, and the iteration order should
         // be lexicographic for both of them.
         flame::start("sample batch");
-        self.array_sums.sample_batch_result(rxns_before_coll, &mut self.urn);
+        self.array_sums
+            .sample_batch_result(rxns_before_coll, &mut self.urn);
         flame::end("sample batch");
 
         flame::start("process batch");
@@ -741,7 +787,10 @@ impl SimulatorCRNMultiBatch {
         // in the current implementation, this would live in NDBatchResult and its iteration,
         // and we'd iterate over it instead of self.random_transitions.
         for random_transition in reactions_iter {
-            assert!(!done, "self.array_sums finished iterating before self.random_transitions");
+            assert!(
+                !done,
+                "self.array_sums finished iterating before self.random_transitions"
+            );
             let next_array_sum = self.array_sums.get_next();
             // TODO maybe add an assert check that the two structures are iterated through
             // in the same order, i.e. reactants match
@@ -749,7 +798,9 @@ impl SimulatorCRNMultiBatch {
             done = next_array_sum.2;
             // println!("Handling {:?} reactions of type {:?}.", quantity, reactants);
             // println!("update config at this point is {:?}.", self.updated_counts.config);
-            if quantity == 0 {continue}
+            if quantity == 0 {
+                continue;
+            }
             let initial_updated_counts_size = self.updated_counts.size;
             let (num_outputs, first_idx) = (random_transition[0], random_transition[1]);
             // TODO and WARNING: this code is more or less copy-paste with the collision sampling code.
@@ -760,17 +811,24 @@ impl SimulatorCRNMultiBatch {
                 for reactant in reactants {
                     self.updated_counts.add_to_entry(reactant, quantity as i64);
                 }
-                self.updated_counts.add_to_entry(self.crn.w, (quantity * self.crn.g) as i64);
+                self.updated_counts
+                    .add_to_entry(self.crn.w, (quantity * self.crn.g) as i64);
             } else {
                 // We'll add this for now, then subtract off the probabilistically null reactions later.
                 self.t += quantity;
-                let mut probabilities = self.transition_probabilities[first_idx..first_idx + num_outputs].to_vec();
+                let mut probabilities =
+                    self.transition_probabilities[first_idx..first_idx + num_outputs].to_vec();
                 let non_null_probability_sum: f64 = probabilities.iter().sum();
                 if non_null_probability_sum < 1.0 {
                     probabilities.push(1.0 - non_null_probability_sum);
                 }
                 flame::start("multinomial sample");
-                multinomial_sample(quantity, &probabilities, &mut self.m[0..probabilities.len()], &mut self.rng);
+                multinomial_sample(
+                    quantity,
+                    &probabilities,
+                    &mut self.m[0..probabilities.len()],
+                    &mut self.rng,
+                );
                 flame::end("multinomial sample");
                 assert_eq!(
                     self.m[0..probabilities.len()].iter().sum::<usize>(),
@@ -781,60 +839,87 @@ impl SimulatorCRNMultiBatch {
                     let idx = first_idx + offset;
                     let outputs = &self.random_outputs[idx];
                     for output in outputs {
-                        self.updated_counts.add_to_entry(*output, self.m[offset] as i64);
+                        self.updated_counts
+                            .add_to_entry(*output, self.m[offset] as i64);
                     }
                 }
-                // Add any W produced by null reactions.
+                // Add any W produced by null reactions, and add those reactants to updated_counts.
                 if non_null_probability_sum < 1.0 {
                     let null_count = self.m[num_outputs];
-                    self.updated_counts.add_to_entry(self.crn.w, null_count as i64);
+                    self.updated_counts
+                        .add_to_entry(self.crn.w, null_count as i64);
                     for reactant in reactants {
-                        self.updated_counts.add_to_entry(reactant, null_count as i64);
+                        self.updated_counts
+                            .add_to_entry(reactant, null_count as i64);
                     }
                     self.t -= null_count;
                 }
             }
             // println!("update config afterward is {:?}.", self.updated_counts.config);
             // println!("Size changed by {:?}, compared to quantity being {:?}.", self.updated_counts.size - initial_updated_counts_size, quantity)
-            assert_eq!(quantity * (self.crn.o + self.crn.g), self.updated_counts.size - initial_updated_counts_size, 
-                "Mismatch between how many elements were added to updated_counts.")
+            assert_eq!(
+                quantity * (self.crn.o + self.crn.g),
+                self.updated_counts.size - initial_updated_counts_size,
+                "Mismatch between how many elements were added to updated_counts."
+            )
         }
-        assert!(done, "self.random_transitions finished iterating before self.array_sums");
+        assert!(
+            done,
+            "self.random_transitions finished iterating before self.array_sums"
+        );
 
-        assert_eq!((self.crn.g + self.crn.o) * rxns_before_coll, self.updated_counts.size, "Total number of molecules added is not consistent");
-        
+        assert_eq!(
+            (self.crn.g + self.crn.o) * rxns_before_coll,
+            self.updated_counts.size,
+            "Total number of molecules added is not consistent"
+        );
+
         flame::end("process batch");
         flame::start("sample collision");
         // We need to sample a collision. It could involve as few as 1 already-used molecule,
         // or as many as o. So we need to decide how many are involved.
-        // TODO: I'm going to use u128 here because I'm pretty worried about fitting things 
+        // TODO: I'm going to use u128 here because I'm pretty worried about fitting things
         // into anything smaller. In fact I'm a little worried about u128; on population size
         // 10^12 which is about 2^40, if we have 4 reactants, then the denominator for the
-        // relevant probability distribution will be too large to store. 
+        // relevant probability distribution will be too large to store.
         let mut num_resampled = 0;
         if do_collision {
-            let updated_counts_before_collision = self.updated_counts.size;
             let mut collision_count_num_ways: Vec<u128> = Vec::with_capacity(self.crn.o);
-            let num_new_molecules = (self.crn.o + self.crn.g) * rxns_before_coll;
-            let num_old_molecules = self.n_including_extra_species - (self.crn.o * rxns_before_coll);
-            for num_collisions in 1..self.crn.o + 1 {
+            let num_new_molecules = self.updated_counts.size;
+            let num_old_molecules = self.urn.size;
+            // Count the number of ways that the collision reaction could have had exactly
+            // 1 reactant that has already been touched, or exactly 2, up to exactly o.
+            for num_updated_reactants_in_collision in 1..self.crn.o + 1 {
                 collision_count_num_ways.push(
-                    (num_old_molecules as u128).pow((self.crn.o - num_collisions).try_into().unwrap()) 
-                    * (num_new_molecules as u128).pow(num_collisions.try_into().unwrap()) 
-                    * binomial(self.crn.o as u64, num_collisions as u64) as u128);
+                    (num_old_molecules as u128).pow(
+                        (self.crn.o - num_updated_reactants_in_collision)
+                            .try_into()
+                            .unwrap(),
+                    ) * (num_new_molecules as u128)
+                        .pow(num_updated_reactants_in_collision.try_into().unwrap())
+                        * binomial(self.crn.o as u64, num_updated_reactants_in_collision as u64)
+                            as u128,
+                );
             }
-            let total_ways_with_at_least_one_collision: u128 = collision_count_num_ways.iter().sum();
+            // TODO: there should be some standard way to sample from this discrete probability distribution.
+            // Should be rand::WeightedIndex. Also urn::sample_one.
+            let total_ways_with_at_least_one_collision: u128 =
+                collision_count_num_ways.iter().sum();
             let u2 = self.rng.sample(uniform);
             let mut num_colliding_molecules = 0;
             let mut total_ways_so_far = 0;
             for i in 0..self.crn.o {
                 total_ways_so_far += collision_count_num_ways[i];
-                if u2 < (total_ways_so_far as f64) / (total_ways_with_at_least_one_collision as f64) {
+                if u2 < (total_ways_so_far as f64) / (total_ways_with_at_least_one_collision as f64)
+                {
                     num_colliding_molecules = i + 1;
                     break;
                 }
             }
-            assert!(num_colliding_molecules > 0, "Failed to sample collision size");
+            assert!(
+                num_colliding_molecules > 0,
+                "Failed to sample collision size"
+            );
             let mut collision: Vec<usize> = Vec::with_capacity(self.crn.o);
             for _ in 0..num_colliding_molecules {
                 collision.push(self.updated_counts.sample_one().unwrap());
@@ -850,26 +935,41 @@ impl SimulatorCRNMultiBatch {
             }
             // Verify that the view is now a 1-dimensional subarray of random_probabilities,
             // which should just have two elements in it (number of random outputs and starting index)
-            assert_eq!(view.ndim(), 1, "Was not left with 1-dimensional vector after indexing collision");
-            assert_eq!(view.len(), 2, "Indexing collision did not leave two-element subarray");
+            assert_eq!(
+                view.ndim(),
+                1,
+                "Was not left with 1-dimensional vector after indexing collision"
+            );
+            assert_eq!(
+                view.len(),
+                2,
+                "Indexing collision did not leave two-element subarray"
+            );
 
             let (num_outputs, first_idx) = (view[0], view[1]);
             // TODO: this code is heavily copy-pasted. See other TODO comment above.
             if num_outputs == 0 {
-                // Null reaction. 
+                // Null reaction.
                 for reactant in collision {
                     self.updated_counts.add_to_entry(reactant, 1);
                 }
-                self.updated_counts.add_to_entry(self.crn.w, (self.crn.g) as i64);
+                self.updated_counts
+                    .add_to_entry(self.crn.w, (self.crn.g) as i64);
             } else {
                 self.t += 1;
-                let mut probabilities = self.transition_probabilities[first_idx..first_idx + num_outputs].to_vec();
+                let mut probabilities =
+                    self.transition_probabilities[first_idx..first_idx + num_outputs].to_vec();
                 let non_null_probability_sum: f64 = probabilities.iter().sum();
                 if non_null_probability_sum < 1.0 {
                     probabilities.push(1.0 - non_null_probability_sum);
                 }
                 flame::start("multinomial sample");
-                multinomial_sample(1, &probabilities, &mut self.m[0..probabilities.len()], &mut self.rng);
+                multinomial_sample(
+                    1,
+                    &probabilities,
+                    &mut self.m[0..probabilities.len()],
+                    &mut self.rng,
+                );
                 flame::end("multinomial sample");
                 assert_eq!(
                     self.m[0..probabilities.len()].iter().sum::<usize>(),
@@ -886,28 +986,39 @@ impl SimulatorCRNMultiBatch {
                 // Add W if the collision was a probabilistic null reaction.
                 if non_null_probability_sum < 1.0 {
                     let null_count = self.m[num_outputs];
-                    self.updated_counts.add_to_entry(self.crn.w, null_count as i64);
+                    self.updated_counts
+                        .add_to_entry(self.crn.w, null_count as i64);
                     for reactant in collision {
-                        self.updated_counts.add_to_entry(reactant, null_count as i64);
+                        self.updated_counts
+                            .add_to_entry(reactant, null_count as i64);
                     }
                     self.t -= null_count;
                 }
             }
-            assert_eq!(self.updated_counts.size - updated_counts_before_collision, self.crn.o + self.crn.g - num_resampled,
-                "Collision failed to add exactly one thing to updated_counts");
+            assert_eq!(
+                self.updated_counts.size - num_new_molecules,
+                self.crn.o + self.crn.g - num_resampled,
+                "Collision failed to add exactly one thing to updated_counts"
+            );
             self.t_including_nulls += 1;
         }
         flame::end("sample collision");
-        
+
+        // TODO move this line to a more sensible place
         self.t_including_nulls += rxns_before_coll;
-        
+
         self.urn.add_vector(&self.updated_counts.config);
         self.urn.sort();
         // Check that we added the right number of things to the urn.
-        assert_eq!(self.urn.size - self.n_including_extra_species, (self.t_including_nulls - initial_t_including_nulls) * self.crn.g,
-            "Inconsistency between number of reactions simulated and population size change.");
+        assert_eq!(
+            self.urn.size - self.n_including_extra_species,
+            (self.t_including_nulls - initial_t_including_nulls) * self.crn.g,
+            "Inconsistency between number of reactions simulated and population size change."
+        );
         self.n_including_extra_species = self.urn.size;
-        self.n = self.n_including_extra_species - self.urn.config[self.crn.k] - self.urn.config[self.crn.w];
+        self.n = self.n_including_extra_species
+            - self.urn.config[self.crn.k]
+            - self.urn.config[self.crn.w];
 
         //self.update_enabled_reactions();
     }
@@ -916,7 +1027,7 @@ impl SimulatorCRNMultiBatch {
     /// TODO better docstring
     // fn do_multinomial_sampling(&mut self, quantity: usize, first_idx: usize, num_outputs: usize) {
     //     if num_outputs == 0 {
-    //         // Null reaction. 
+    //         // Null reaction.
     //         self.updated_counts.add_to_entry(self.crn.w, (quantity * self.crn.g) as i64);
     //     } else {
     //         let mut probabilities = self.transition_probabilities[first_idx..first_idx + num_outputs].to_vec();
@@ -1053,7 +1164,7 @@ impl SimulatorCRNMultiBatch {
     //     // total_propensity
     // }
 
-    /// Update the count of K in preparation for the next batch. 
+    /// Update the count of K in preparation for the next batch.
     /// We will try to choose a value for the count of K that maximizes the expected amount
     /// of progress we make in simulating the original CRN.
     fn reset_k_count(&mut self) {
@@ -1063,10 +1174,14 @@ impl SimulatorCRNMultiBatch {
         assert!(self.n_including_extra_species as i64 + delta_k >= 0);
         self.n_including_extra_species = (self.n_including_extra_species as i64 + delta_k) as usize;
         self.urn.add_to_entry(self.crn.k, delta_k);
-        (self.random_transitions, self.random_outputs, self.transition_probabilities) = self.crn.construct_transition_arrays(self.n);
+        (
+            self.random_transitions,
+            self.random_outputs,
+            self.transition_probabilities,
+        ) = self.crn.construct_transition_arrays(self.n);
     }
 
-    /// Get rid of W from self.urn. 
+    /// Get rid of W from self.urn.
     /// It is recycled to a better place.
     fn recycle_waste(&mut self) {
         let delta_w = -1 * self.urn.config[self.crn.w] as i64;
@@ -1081,8 +1196,8 @@ impl SimulatorCRNMultiBatch {
     /// The distribution gives the number of reactions that will occur before a collision.
     /// Inversion sampling with binary search is used, based on the formula
     ///     P(l >= t) = (n-r)! / (n-r-t*o)! * prod_{j=0}^{o-1} [(n-g-j)!(g) / (n+g(t-1)-j)!(g)].
-    /// !(g) denotes a multifactorial: n!(g) = n * (n - g) * (n - 2g) * ..., until these terms become nonpositive. 
-    /// This is the formula when g > 0; when g = 0 or g < 0, the formulas are slightly different 
+    /// !(g) denotes a multifactorial: n!(g) = n * (n - g) * (n - 2g) * ..., until these terms become nonpositive.
+    /// This is the formula when g > 0; when g = 0 or g < 0, the formulas are slightly different
     /// (see the full formula for coll(n,r,o,g) in the paper), but the method is the same:
     /// We sample a uniform random variable u, and find the value t such that
     ///     P(l >= t) < U < P(l >= t - 1).
@@ -1091,7 +1206,7 @@ impl SimulatorCRNMultiBatch {
     ///       <-->
     ///     ln_gamma(n-r+1) - ln_gamma(n-r-t*o+1) + sum_{j=0}^{o-1} [log((n-g-j)!(g)) - log((n+g(t-1)-j)!(g))] < log(U).
     /// which can be rewritten by using the fact that gamma(x) = (x - 1) * gamma(x-1) even for non-integer x,
-    /// by factoring out a factor of g from every term in the multifactorial. 
+    /// by factoring out a factor of g from every term in the multifactorial.
     /// To this end, if we let a and b denote the number of terms in these multifactorial products,
     /// that is, let a = ceil((n-g-j)/g) and b = ceil((n+g(t-1)-j)/g),
     ///     ln_gamma(n-r+1) - ln_gamma(n-r-t*o+1) + sum_{j=0}^{o-1} [log(g^a * gamma((n-j)/g) / gamma((n-ag-j)/g)) - log(g^b * gamma((n+gt-j)/g) / gamma((n+g(t-b)-j)/g))] < log(U).
@@ -1112,7 +1227,7 @@ impl SimulatorCRNMultiBatch {
     ///         (This will be false while the function is being called to populate the table.)
     /// Returns:
     ///     The number of interactions that will happen before the next collision.
-    ///     Note that this is a different convention from :any:`SimulatorMultiBatch`, which 
+    ///     Note that this is a different convention from :any:`SimulatorMultiBatch`, which
     ///     returns the index at which an agent collision occurs.
     pub fn sample_coll(&self, r: usize, u: f64, _has_bounds: bool) -> usize {
         // If every agent counts as a collision, the next reaction is a collision.
@@ -1130,7 +1245,7 @@ impl SimulatorCRNMultiBatch {
         // lhs tracks all of the terms that don't include t, i.e., those that we don't need to
         // update each iteration of binary search.
         let mut lhs = ln_gamma_diff - logu;
-        
+
         if self.crn.g > 0 {
             for j in 0..self.crn.o {
                 // Calculates a = ceil((n-g-j)/g). This is the number of terms in the expansion of
@@ -1145,10 +1260,18 @@ impl SimulatorCRNMultiBatch {
                 // = 4*log(3) + lgamma(14/3) - lgamma(2/3).
                 // These three terms are the three terms that are added and subtracted from lhs, to
                 // account for the term log((n-g-j)!(g)).
-                let num_static_terms: f64 = (((self.n_including_extra_species - j) as f64 - self.crn.g as f64) / self.crn.g as f64).ceil();
+                let num_static_terms: f64 = (((self.n_including_extra_species - j) as f64
+                    - self.crn.g as f64)
+                    / self.crn.g as f64)
+                    .ceil();
                 lhs += num_static_terms * (self.crn.g as f64).ln();
                 lhs += ln_gamma((self.n_including_extra_species - j) as f64 / self.crn.g as f64);
-                lhs -= ln_gamma((self.n_including_extra_species as f64 - (num_static_terms * self.crn.g as f64) - j as f64) / self.crn.g as f64);
+                lhs -= ln_gamma(
+                    (self.n_including_extra_species as f64
+                        - (num_static_terms * self.crn.g as f64)
+                        - j as f64)
+                        / self.crn.g as f64,
+                );
             }
         } else {
             // Nothing to do here. There are no other static terms in the g = 0 case.
@@ -1157,7 +1280,7 @@ impl SimulatorCRNMultiBatch {
         // TODO: it might be worth adding some code to jump-start the search with precomputed values,
         // as can be done in the population protocols case.
         // For now, we start with bounds that always hold.
-        
+
         t_lo = 0;
         t_hi = 1 + ((self.n_including_extra_species - r) / self.crn.o);
 
@@ -1166,25 +1289,38 @@ impl SimulatorCRNMultiBatch {
             let t_mid = (t_lo + t_hi) / 2;
             // rhs tracks all of the terms that include t, i.e., those that we need to
             // update each iteration of binary search.
-            let mut rhs: f64 = ln_gamma((self.n_including_extra_species - r - (t_mid * self.crn.o)) as f64 + 1.0);
+            let mut rhs: f64 =
+                ln_gamma((self.n_including_extra_species - r - (t_mid * self.crn.o)) as f64 + 1.0);
             if self.crn.g > 0 {
                 for j in 0..self.crn.o {
                     // Calculates b = ceil((n+g(t-1)-j)/g).
                     // See the comment in the loop above where num_static_terms is defined for an explanation.
                     // This is the same thing, for the term log((n+g(t-1)-j)!(g)).
-                    let num_dynamic_terms = (((self.n_including_extra_species + (self.crn.g as usize * (t_mid - 1)) - j) as f64) / self.crn.g as f64).ceil();
+                    let num_dynamic_terms = (((self.n_including_extra_species
+                        + (self.crn.g as usize * (t_mid - 1))
+                        - j) as f64)
+                        / self.crn.g as f64)
+                        .ceil();
                     rhs += num_dynamic_terms * (self.crn.g as f64).ln();
-                    rhs += ln_gamma((self.n_including_extra_species + (self.crn.g as usize * t_mid) - j) as f64 / self.crn.g as f64);
-                    rhs -= ln_gamma((self.n_including_extra_species as f64 + (self.crn.g as f64 * (t_mid as f64 - num_dynamic_terms)) - j as f64) / self.crn.g as f64);
-                } 
+                    rhs += ln_gamma(
+                        (self.n_including_extra_species + (self.crn.g as usize * t_mid) - j) as f64
+                            / self.crn.g as f64,
+                    );
+                    rhs -= ln_gamma(
+                        (self.n_including_extra_species as f64
+                            + (self.crn.g as f64 * (t_mid as f64 - num_dynamic_terms))
+                            - j as f64)
+                            / self.crn.g as f64,
+                    );
+                }
             } else {
                 // g = 0 case is much simpler; there's no multifactorial, as it's analogous
-                // to the population protocols case. 
+                // to the population protocols case.
                 for j in 0..self.crn.o {
                     rhs += t_mid as f64 * ((self.n_including_extra_species - j) as f64).ln();
-                } 
+                }
             }
-            
+
             if lhs < rhs {
                 t_hi = t_mid;
             } else {
@@ -1196,5 +1332,4 @@ impl SimulatorCRNMultiBatch {
         // is written in terms of p(l >= t) instead of p(l > t).
         t_lo
     }
-
 }
