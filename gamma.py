@@ -39,7 +39,8 @@ def sample_gammas_sum(
     s = np.sum(samples, axis=0)
     return s
 
-#TODO: measure time to sample hypo directly and compared to sampling gamma
+
+# TODO: measure time to sample hypo directly and compared to sampling gamma
 def sample_hypo(rng: np.random.Generator, n: int, k: int, o: int, g: int) -> float:
     indices = np.arange(k)
     scales = 1.0 / binom(n + indices * g, o)
@@ -133,7 +134,11 @@ from functools import lru_cache
 # in their documentation: https://mpmath.org/doc/current/basics.html#number-types
 # @lru_cache
 def gamma_params_matching_hypo(
-    n: int, k: int, o: int, g: int, direct: bool = False,
+    n: int,
+    k: int,
+    o: int,
+    g: int,
+    direct: bool = False,
 ) -> tuple[float, float]:
     """
     Compute the parameters (shape, scale) of a Gamma distribution that matches the
@@ -146,10 +151,11 @@ def gamma_params_matching_hypo(
     else:
         mean = mean_hypo(n, k, o, g)
         var = var_hypo(n, k, o, g)
-    print(f'with {direct=:5}, {mean=}, {var=}')
+    print(f"with {direct=:5}, {mean=}, {var=}")
     shape = mean**2 / var
     scale = var / mean
     return shape, scale
+
 
 def mean_hypo_adaptive(n: int, k: int, o: int, g: int) -> float:
     try:
@@ -158,16 +164,16 @@ def mean_hypo_adaptive(n: int, k: int, o: int, g: int) -> float:
         return 0.0
     if last_term <= 0.0:
         return 0.0
-    
+
     first_term = 1.0 / math.comb(n, o)
     assert first_term > 0.0
     relative_error = abs(first_term - last_term) / last_term
     if False:
-    # if relative_error < 0.01:
+        # if relative_error < 0.01:
         # print('using geometric mean shortcut for mean of hypoexponential')
         geom_mean = math.sqrt(first_term * last_term)
         return float(k * geom_mean)
-    
+
     time_mean_direct_np = predicted_mean_direct_np(n, k, o, g)
     time_mean_hypo = predicted_mean_hypo(n, k, o, g)
 
@@ -176,6 +182,7 @@ def mean_hypo_adaptive(n: int, k: int, o: int, g: int) -> float:
     else:
         return mean_hypo(n, k, o, g)
 
+
 def var_hypo_adaptive(n: int, k: int, o: int, g: int) -> float:
     try:
         last_term = 1.0 / math.comb(n + (k - 1) * g, o) ** 2
@@ -183,15 +190,15 @@ def var_hypo_adaptive(n: int, k: int, o: int, g: int) -> float:
         return 0.0
     if last_term <= 0.0:
         return 0.0
-    
+
     first_term = 1.0 / math.comb(n, o) ** 2
     assert first_term > 0.0
     relative_error = abs(first_term - last_term) / last_term
     if False:
-    # if relative_error < 0.1:
+        # if relative_error < 0.1:
         geom_mean = math.sqrt(first_term * last_term)
         return float(k * geom_mean)
-    
+
     time_var_direct_np = predicted_var_direct_np(n, k, o, g)
     time_var_hypo = predicted_var_hypo(n, k, o, g)
 
@@ -201,89 +208,94 @@ def var_hypo_adaptive(n: int, k: int, o: int, g: int) -> float:
         return var_hypo(n, k, o, g)
 
 
-def precision_for_sum(terms: Iterable[float]) -> float:
-    """
-    Computes the precision required for a sum of terms, based on the condition number.
-    The idea is to re-calculate the terms with the higher precision after using this
-    to estimate the precision required for the sum to be accurate.
-    Rounds to the next multiple of 30 bits, since mpmath uses 30-bit chunks.
-    """
-    condition_number = sum(abs(term) for term in terms) / abs(sum(terms))
-    precision = 53 + 3 * math.ceil(math.log(condition_number, 2))
-    # Round to the next multiple of 30 bits
-    precision = (precision + 29) // 30 * 30
-    return precision
+def precision_for(term) -> int:
+    return (math.ceil(-math.log(term, 2)) + 53 + 29) // 30 * 30
 
 
 def mean_hypo(n: int, k: int, o: int, g: int) -> float:
+    """
+    Compute the mean of a hypoexponential distribution summing exponentials with rates
+    n choose o, n+g choose o, n+2*g choose o, ..., n+(k-1)*g choose o.
+
+    This is a general implementation that works for any value of o, using the pattern
+    observed in mean_hypo_o1 through mean_hypo_o8. The formula computes two weighted
+    sums of polygamma/psi function calls, where the weights are binomial coefficients
+    from the o'th row of Pascal's triangle with alternating signs.
+
+    Args:
+        n: Starting value for the binomial coefficient
+        k: Number of exponentials to sum
+        o: Order parameter (the 'o' in 'n choose o')
+        g: Step size between consecutive binomial coefficients
+
+    Returns:
+        The mean of the hypoexponential distribution
+    """
+    assert g >= 1, "g must be at least 1"
+    assert o >= 1, "o must be at least 1"
     try:
         last_term = 1.0 / math.comb(n + (k - 1) * g, o)
     except OverflowError:
         return 0.0
     if last_term <= 0.0:
         return 0.0
-    
+
     first_term = 1.0 / math.comb(n, o)
     assert first_term > 0.0
     relative_error = abs(first_term - last_term) / last_term
     # print('* mean_hypo')
     # print(f'{relative_error=}')
-    # print(f'{first_term=}, {last_term=}')
-    if False:
-    # if relative_error < 0.5:
+    # print(f'    {first_term=}')
+    # print(f'     {last_term=}')
+    # if False:
+    if relative_error < 0.1:
         # print('using geometric mean shortcut for mean of hypoexponential')
         geom_mean = math.sqrt(first_term * last_term)
         return float(k * geom_mean)
 
     precision = precision_for(last_term)
     with mp.workprec(precision):
-        if o == 1:
-            # need this special case unconditionally to avoid NaN calculation somewhere
-            result = mean_hypo_o1(n, k, g)
-        else:
-            result = mean_hypo_general(n, k, o, g)
+        terms = []
 
-        return float(result)
+        for m in range(o):
+            coeff = math.comb(o - 1, m)
+            if m % 2 == 1:
+                coeff = -coeff
+
+            arg2 = mpf(n - (o - 1 - m)) / g
+            arg1 = arg2 + k
+
+            terms.extend([coeff * psi(0, arg1), -coeff * psi(0, arg2)])
+
+        result = mp.fsum(terms) * o / g
+    return float(result)
 
 
-def precision_for(term) -> int:
-    return (math.ceil(-math.log(term, 2)) + 53 + 29) // 30 * 30
-
-
-def var_hypo(n: int, k: int, o: int, g: int, geom: bool = False) -> float:
+def var_hypo(n: int, k: int, o: int, g: int) -> float:
     try:
         last_term = 1.0 / math.comb(n + (k - 1) * g, o) ** 2
     except OverflowError:
-        print('OverflowError in var_hypo')
+        print("OverflowError in var_hypo")
         return 0.0
     if last_term <= 0.0:
-        print('last_term <= 0.0 in var_hypo')
+        print("last_term <= 0.0 in var_hypo")
         return 0.0
-    
+
     first_term = 1.0 / math.comb(n, o) ** 2
     assert first_term > 0.0
     relative_error = abs(first_term - last_term) / last_term
-    # print('* var_hypo')
-    # print(f'{relative_error=}')
-    # print(f'{first_term=}, {last_term=}')
-    if False and relative_error < 1e-3:
-    # if relative_error < 0.5:
-        # print('using geometric mean shortcut for variance of hypoexponential')
+    # if False:
+    if relative_error < 0.5:
+        print("using geometric mean shortcut for variance of hypoexponential")
         prod = first_term * last_term
-        mean = math.sqrt(prod) if prod > 0.0 else (first_term + last_term) / 2.0
-        return float(k * mean)
-    
-    # time_estimated = 0.0007118038 * k**-0.064 * o**1.954
-    # time_estimated_direct = 0.0000000666 * k**0.974
-    # if time_estimated_direct < time_estimated:
-    #     return var_direct_np(n, k, o, g)
+        geom_mean = math.sqrt(prod) if prod > 0.0 else (first_term + last_term) / 2.0
+        print(f"    {first_term=}")
+        print(f"     {last_term=}")
+        print(f"{relative_error=}")
+        print(f"     {geom_mean=}")
+        return float(k * geom_mean)
 
     precision = precision_for(last_term)
-    # if precision > 200:
-    #     first_term = 1.0 / math.comb(n, o)
-    #     geom_mean = math.sqrt(first_term * last_term)
-    #     return float(k * geom_mean)
-    
     with mp.workprec(precision):
         # first sum
         #   o^2 / g^2
@@ -301,7 +313,7 @@ def var_hypo(n: int, k: int, o: int, g: int, geom: bool = False) -> float:
             arg2 = k + arg1
             first_sum_terms.extend([coeff * psi(1, arg1), -coeff * psi(1, arg2)])
         first_sum = mp.fsum(first_sum_terms)
-        first_sum_multiplier = mpf(o ** 2) / (g ** 2)
+        first_sum_multiplier = mpf(o**2) / (g**2)
         first_sum *= first_sum_multiplier
 
         # second sum
@@ -327,9 +339,17 @@ def var_hypo(n: int, k: int, o: int, g: int, geom: bool = False) -> float:
                 if negate:
                     coeff = -coeff
 
-                arg1 = (n - (o - 1 - m)) // g if (n - (o - 1 - m)) % g == 0 else mpf(n - (o - 1 - m)) / g
+                arg1 = (
+                    (n - (o - 1 - m)) // g
+                    if (n - (o - 1 - m)) % g == 0
+                    else mpf(n - (o - 1 - m)) / g
+                )
                 arg2 = k + arg1
-                arg3 = (n - (o - 1 - j)) // g if (n - (o - 1 - j)) % g == 0 else mpf(n - (o - 1 - j)) / g
+                arg3 = (
+                    (n - (o - 1 - j)) // g
+                    if (n - (o - 1 - j)) % g == 0
+                    else mpf(n - (o - 1 - j)) / g
+                )
                 arg4 = k + arg3
                 if arg1 != arg3 or arg2 != arg4:
                     # otherwise the sums of terms will be identically 0
@@ -342,58 +362,9 @@ def var_hypo(n: int, k: int, o: int, g: int, geom: bool = False) -> float:
         second_sum_multiplier = mpf(2) * o**2 / g
         second_sum *= second_sum_multiplier
 
-        result = first_sum + second_sum 
+        result = first_sum + second_sum
         assert result > 0
         return result
-
-
-
-def mean_hypo_o1(n: int, k: int, g: int) -> float:
-    # sum_{i=0}^{k-1} 1/binomial(n + g*i, 1)
-    # https://www.wolframalpha.com/input?i=sum_%7Bi%3D0%7D%5E%7Bk-1%7D+1%2Fbinomial%28n+%2B+g*i%2C+1%29
-    assert g >= 1, "g must be at least 1"
-    n = mpf(n)
-    sum1 = psi(0, n / g + k)
-    sum2 = psi(0, n / g)
-    diff = sum1 - sum2
-    return diff / g
-
-
-def mean_hypo_general(n: int, k: int, o: int, g: int) -> float:
-    """
-    Compute the mean of a hypoexponential distribution summing exponentials with rates
-    n choose o, n+g choose o, n+2*g choose o, ..., n+(k-1)*g choose o.
-
-    This is a general implementation that works for any value of o, using the pattern
-    observed in mean_hypo_o1 through mean_hypo_o8. The formula computes two weighted
-    sums of polygamma/psi function calls, where the weights are binomial coefficients
-    from the o'th row of Pascal's triangle with alternating signs.
-
-    Args:
-        n: Starting value for the binomial coefficient
-        k: Number of exponentials to sum
-        o: Order parameter (the 'o' in 'n choose o')
-        g: Step size between consecutive binomial coefficients
-
-    Returns:
-        The mean of the hypoexponential distribution
-    """
-    assert g >= 1, "g must be at least 1"
-    assert o >= 1, "o must be at least 1"
-
-    terms = []
-
-    for m in range(int(o)):
-        coeff = math.comb(int(o - 1), int(m))
-        if m % 2 == 1:
-            coeff = -coeff
-
-        arg2 = (mpf(n) - (o - 1 - m)) / g
-        arg1 = arg2 + k
-
-        terms.extend([coeff * psi(0, arg1), -coeff * psi(0, arg2)])
-
-    return mp.fsum(terms) * o / g
 
 
 def format_time(seconds):
@@ -407,17 +378,19 @@ def format_time(seconds):
     else:
         return f"{seconds*1e9:.3g} ns"
 
-def smart_timeit(stmt, print_: bool=True, setup: str='pass', repeat=7):
+
+def smart_timeit(stmt, print_: bool = True, setup: str = "pass", repeat=7):
     """timeit with automatic scaling and %timeit-like output"""
     import timeit
+
     timer = timeit.Timer(stmt, setup)
-    
+
     # Auto-determine number of loops
     number, _ = timer.autorange()
 
     if number > 10:
         number = int(number / 10)
-    
+
     # Take multiple measurements
     times = timer.repeat(repeat=repeat, number=number)
     # best_time = min(times) if number > 1 else float(np.median(times))
@@ -426,9 +399,12 @@ def smart_timeit(stmt, print_: bool=True, setup: str='pass', repeat=7):
 
     if print_:
         # best_str = 'best' if number > 1 else 'median'
-        best_str = 'median'
-        print(f"{format_time(time_per_loop)} per loop; {number} loops, {best_str} of {repeat}")
+        best_str = "median"
+        print(
+            f"{format_time(time_per_loop)} per loop; {number} loops, {best_str} of {repeat}"
+        )
     return time_per_loop
+
 
 ##########################################################
 # Functions below here are early ideas not used anymore.
@@ -689,27 +665,14 @@ def adaptive_precision(func: Callable[..., T]) -> Callable[..., T]:
     return wrapper
 
 
-def adaptive_precision_sum(
-    num_terms: int, compute_term: Callable[[int], float]
-) -> float:
-    """
-    Given a number of terms and a function to compute each term as a function of its index,
-    this function computes the sum of those terms with adaptive precision.
-    """
-    terms = [compute_term(i) for i in range(num_terms)]
-    precision = precision_for_sum(terms)
-    with mp.workprec(precision):
-        print(f"{precision=}")
-        terms = [compute_term(i) for i in range(num_terms)]
-        s = mp.fsum(terms)
-    return float(s)
-
 
 ###################################################
 ## more direct ways to compute; used to verify faster ways give same answer
 ## these assume g = 1; rewrite for general g
 
 import scipy
+
+
 def reciprocals(n: int, k: int, o: int, g: int) -> npt.NDArray[np.float64]:
     top_values = np.arange(k) * g + n
     binomial_values = scipy.special.comb(top_values, o)
@@ -756,55 +719,68 @@ def var_direct(n: int, k: int, o: int, g: int) -> float:
     s = mp.fsum(terms, squared=True)
     return s
 
+
 def generate_running_time_data():
     import numpy as np
     import math
     import importlib
     import gamma
+
     importlib.reload(gamma)
     from tqdm.auto import tqdm
     from tqdm.contrib import itertools
     import json
-    
+
     rng = np.random.default_rng(42)
     running_time_data_sample_hypo = []
     running_time_data_sample_gamma = []
     trials_each_input = 5
     for g, o, exponent, k_multiplier in itertools.product(
-            # range(1, 2), 
-            # range(1, 2),
-            # range(2, 6, 2), 
-            range(1, 6), 
-            range(1, 6), 
-            range(14, 1, -2),
-            [5, 1, 1/5],
-        ):
-            n = 10**exponent
-            sqrt_n = round(math.sqrt(n))
-            k = int(sqrt_n * k_multiplier)
-            for trial in range(1, trials_each_input+1):
-                if trial == 1:
-                    print(f'{"*"*80}\n* {g=}, {o=}, n = 10^{exponent}, k = {k:,} (sqrt(n) * {k_multiplier})')
-                print(f'| trial {trial}:', end=' ')
+        # range(1, 2),
+        # range(1, 2),
+        # range(2, 6, 2),
+        range(1, 6),
+        range(1, 6),
+        range(14, 1, -2),
+        [5, 1, 1 / 5],
+    ):
+        n = 10**exponent
+        sqrt_n = round(math.sqrt(n))
+        k = int(sqrt_n * k_multiplier)
+        for trial in range(1, trials_each_input + 1):
+            if trial == 1:
+                print(
+                    f'{"*"*80}\n* {g=}, {o=}, n = 10^{exponent}, k = {k:,} (sqrt(n) * {k_multiplier})'
+                )
+            print(f"| trial {trial}:", end=" ")
 
-                print(f'hypo:  ', end='')
-                mean_time_sample_hypo = gamma.smart_timeit(lambda: gamma.sample_hypo(rng, n, k, o, g))
-                print(f'|          gamma: ', end='')
-                mean_time_sample_gamma = gamma.smart_timeit(lambda: gamma.sample_gamma_matching_hypo(rng, n, k, o, g))
-                print(f'|          hypo/gamma ratio: {mean_time_sample_hypo / mean_time_sample_gamma}')
+            print(f"hypo:  ", end="")
+            mean_time_sample_hypo = gamma.smart_timeit(
+                lambda: gamma.sample_hypo(rng, n, k, o, g)
+            )
+            print(f"|          gamma: ", end="")
+            mean_time_sample_gamma = gamma.smart_timeit(
+                lambda: gamma.sample_gamma_matching_hypo(rng, n, k, o, g)
+            )
+            print(
+                f"|          hypo/gamma ratio: {mean_time_sample_hypo / mean_time_sample_gamma}"
+            )
 
-                running_time_data_sample_hypo.append((n, k, o, g, mean_time_sample_hypo))
-                running_time_data_sample_gamma.append((n, k, o, g, mean_time_sample_gamma))
+            running_time_data_sample_hypo.append((n, k, o, g, mean_time_sample_hypo))
+            running_time_data_sample_gamma.append((n, k, o, g, mean_time_sample_gamma))
 
-                # output every iteration so we can check out the data even as it's running
-                running_time_data = {
-                    'sample_hypo': running_time_data_sample_hypo,
-                    'sample_gamma': running_time_data_sample_gamma,
-                }
-                with open('running_time_data_vary_k.json', 'w') as f:
-                    json.dump(running_time_data, f, indent=4)
+            # output every iteration so we can check out the data even as it's running
+            running_time_data = {
+                "sample_hypo": running_time_data_sample_hypo,
+                "sample_gamma": running_time_data_sample_gamma,
+            }
+            with open("running_time_data_vary_k.json", "w") as f:
+                json.dump(running_time_data, f, indent=4)
 
-def num_with_prefix(prefix: Sequence[float], sequences: Sequence[Sequence[float]]) -> int:
+
+def num_with_prefix(
+    prefix: Sequence[float], sequences: Sequence[Sequence[float]]
+) -> int:
     """
     Returns number of sequences in `sequences` that start with `prefix`.
     """
@@ -819,26 +795,28 @@ def num_with_prefix(prefix: Sequence[float], sequences: Sequence[Sequence[float]
             num_with_prefix += 1
     return num_with_prefix
 
+
 def generate_running_time_data_mean_var(
-        fn: str, 
-        f1: Callable[[int, int, int, int], float], 
-        f1name: str, 
-        f2: Callable[[int, int, int, int], float], 
-        f2name: str,
-    ) -> None:
+    fn: str,
+    f1: Callable[[int, int, int, int], float],
+    f1name: str,
+    f2: Callable[[int, int, int, int], float],
+    f2name: str,
+) -> None:
     import numpy as np
     import math
     import importlib
     import gamma
+
     importlib.reload(gamma)
     from tqdm.contrib import itertools
     import json
     import os
 
     name_length_max = max(len(f1name), len(f2name))
-    
+
     if os.path.exists(fn):
-        with open(fn, 'r') as f:
+        with open(fn, "r") as f:
             json_data = json.load(f)
     else:
         json_data = {
@@ -851,67 +829,67 @@ def generate_running_time_data_mean_var(
     rng = np.random.default_rng(42)
     trials_each_input = 5
     for g, o, exponent, k_multiplier in itertools.product(
-            # range(1, 2), 
-            # range(1, 2),
-            # range(2, 6, 2), 
-            range(1, 6), 
-            range(1, 6), 
-            range(2, 15, 2),
-            # range(14, 1, -2),
-            # [5, 1, 1/5],
-            [1/2, 1, 2],
-        ):
-            n = 10**exponent
-            sqrt_n = round(math.sqrt(n))
-            k = int(sqrt_n * k_multiplier)
-            for trial in range(1, trials_each_input+1):
-                num_with_prefix_1 = num_with_prefix(
-                    [n, k, o, g],
-                    running_time_data_1
+        # range(1, 2),
+        # range(1, 2),
+        # range(2, 6, 2),
+        range(1, 6),
+        range(1, 6),
+        range(2, 15, 2),
+        # range(14, 1, -2),
+        # [5, 1, 1/5],
+        [1 / 2, 1, 2],
+    ):
+        n = 10**exponent
+        sqrt_n = round(math.sqrt(n))
+        k = int(sqrt_n * k_multiplier)
+        for trial in range(1, trials_each_input + 1):
+            num_with_prefix_1 = num_with_prefix([n, k, o, g], running_time_data_1)
+            num_with_prefix_2 = num_with_prefix([n, k, o, g], running_time_data_2)
+
+            if trial == 1:
+                print(
+                    f'{"*"*80}\n* {g=}, {o=}, n = 10^{exponent}, k = {k:,} (sqrt(n) * {k_multiplier})'
                 )
-                num_with_prefix_2 = num_with_prefix(
-                    [n, k, o, g],
-                    running_time_data_2
+
+            need1 = num_with_prefix_1 < trials_each_input
+            need2 = num_with_prefix_2 < trials_each_input
+
+            if not need1 and not need2:
+                print(
+                    f"skipping since we already have {trials_each_input} trials for {n=}, {k=}, {o=}, {g=}"
                 )
-                
-                if trial == 1:
-                    print(f'{"*"*80}\n* {g=}, {o=}, n = 10^{exponent}, k = {k:,} (sqrt(n) * {k_multiplier})')
-                
-                need1 = num_with_prefix_1 < trials_each_input
-                need2 = num_with_prefix_2 < trials_each_input
-                
-                if not need1 and not need2:
-                    print(f'skipping since we already have {trials_each_input} trials for {n=}, {k=}, {o=}, {g=}')
-                    break
+                break
 
-                print(f'| trial {trial}:', end=' ')
+            print(f"| trial {trial}:", end=" ")
 
-                if need1:
-                    print(f'{f1name:{name_length_max}}: ', end='')
-                    mean_time_1 = gamma.smart_timeit(lambda: f1(n, k, o, g))
-                    running_time_data_1.append((n, k, o, g, mean_time_1))
-                
-                if need2:
-                    print(f'|          {f2name:{name_length_max}}: ', end='')
-                    mean_time_2 = gamma.smart_timeit(lambda: f2(n, k, o, g))
-                    running_time_data_2.append((n, k, o, g, mean_time_2))
+            if need1:
+                print(f"{f1name:{name_length_max}}: ", end="")
+                mean_time_1 = gamma.smart_timeit(lambda: f1(n, k, o, g))
+                running_time_data_1.append((n, k, o, g, mean_time_1))
 
-                if need1 and need2:
-                    print(f'|          log_2({f1name}/{f2name}): {math.log(mean_time_1) - math.log(mean_time_2):.1f}') # type: ignore
+            if need2:
+                print(f"|          {f2name:{name_length_max}}: ", end="")
+                mean_time_2 = gamma.smart_timeit(lambda: f2(n, k, o, g))
+                running_time_data_2.append((n, k, o, g, mean_time_2))
 
-                # output every iteration where we actually generated new trials,
-                # so we can check out the data even as it's running
-                running_time_data = {
-                    f1name: running_time_data_1,
-                    f2name: running_time_data_2,
-                }
-                with open(fn, 'w') as f:
-                    json.dump(running_time_data, f, indent=4)
+            if need1 and need2:
+                print(f"|          log_2({f1name}/{f2name}): {math.log(mean_time_1) - math.log(mean_time_2):.1f}")  # type: ignore
+
+            # output every iteration where we actually generated new trials,
+            # so we can check out the data even as it's running
+            running_time_data = {
+                f1name: running_time_data_1,
+                f2name: running_time_data_2,
+            }
+            with open(fn, "w") as f:
+                json.dump(running_time_data, f, indent=4)
+
 
 # hard-won empirical measurements of running times
-# These are very difficult to fit with any precision, 
+# These are very difficult to fit with any precision,
 # but empirically these almost always seem with 2x or 3x
 # of the actual running time (the latter of which has very high variance).
+
 
 def predicted_mean_direct_np(n: int, k: int, o: int, g: int) -> float:
     offset = 10**-5
@@ -941,15 +919,17 @@ def predicted_var_direct_np(n: int, k: int, o: int, g: int) -> float:
 def predicted_var_hypo(n: int, k: int, o: int, g: int) -> float:
     n_offset = o * max(0.0, 1.2 * 10**-3 - n * 0.5 * 10**-5 / g)
     coef = 0.000035
-    return coef * o**3 + n_offset + 3*10**-4 / o**2
+    return coef * o**3 + n_offset + 3 * 10**-4 / o**2
 
 
 if __name__ == "__main__":
     # main()
     generate_running_time_data_mean_var(
-        'running_time_data_compute_mean.json',
-        mean_direct_np, 'mean_direct_np',
-        mean_hypo, 'mean_hypo',
+        "running_time_data_compute_mean.json",
+        mean_direct_np,
+        "mean_direct_np",
+        mean_hypo,
+        "mean_hypo",
     )
     # generate_running_time_data_mean_var(
     #     'running_time_data_compute_var.json',
