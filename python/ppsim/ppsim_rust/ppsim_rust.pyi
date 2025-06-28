@@ -48,14 +48,14 @@ class Simulator(ABC):
         
     def run(
             self,
-            t_max: int,
+            t_max: int | float,
             max_wallclock_time: float = 3600.0
     ) -> None:
         """
         Run the simulation for a specified number of steps or until max time is reached.
         
         Args:
-            t_max: Maximum number of simulation steps to execute
+            t_max: Maximum number of simulation steps to execute or continuous time to simulate
             max_wallclock_time: Maximum wall clock time in seconds before stopping (default: 1 hour)
         """
         ...
@@ -133,6 +133,9 @@ class SimulatorCRNMultiBatch(Simulator):
     """
     Simulator for CRNs using TODO cite paper once citeable.
     """
+    
+    continuous_time: float
+    """TODO"""
 
     do_gillespie: bool
     """TODO"""

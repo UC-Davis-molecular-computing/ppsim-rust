@@ -615,26 +615,32 @@ class Simulation:
 
         # add max_wall_clock to be the minimum snapshot update time, to put a time bound on calls to simulator.run
         max_wallclock_time = [min([s.update_time for s in self.snapshots])] if len(self.snapshots) > 0 else []
-        num_calls_to_run = 0
         while not self.silent() and not stop_condition():
         # while not stop_condition(): # XXX: this while condition was from the Cython implementation; 
                                       # not sure why it didn't cause a bug there
-            num_calls_to_run += 1
             if self.time >= next_time:
                 next_time = get_next_time()
                 next_step = self.time_to_steps(next_time)
             current_step = self.simulator.t
             # the next line is overly clever: max_wallclock_time is a list of length 1 or 0;
             # if 0, the default value is used; if 1, the value is used with the * unpacking operator
-            self.simulator.run(next_step, *max_wallclock_time)
-            if self.simulator.t == next_step:
+            if self.simulator_method.lower() == 'crn':
+                self.simulator.run(next_time, *max_wallclock_time)
+                # print(f"First thing: {self.simulator.continuous_time} and {max_wallclock_time}") # type: ignore
+                # print(f"Second thing: {next_time}")
+                # print(f"Third thing: {self.simulator.config}")
+                assert self.simulator.continuous_time == next_time, "Haven't yet implemented behavior when crn simulation runs past max_wallclock_time" # type: ignore
                 self.time = next_time
-            elif self.simulator.t < next_step:
-                # simulator exited early from hitting max_wallclock_time
-                # add a fraction of the time until next_time equal to the fractional progress made by simulator
-                self.time += (next_time - self.time) * (self.simulator.t - current_step) / (next_step - current_step)
             else:
-                raise RuntimeError(f'The simulator ran to step {self.simulator.t} past the next step {next_step}.')
+                self.simulator.run(next_step, *max_wallclock_time)
+                if self.simulator.t == next_step:
+                    self.time = next_time
+                elif self.simulator.t < next_step:
+                    # simulator exited early from hitting max_wallclock_time
+                    # add a fraction of the time until next_time equal to the fractional progress made by simulator
+                    self.time += (next_time - self.time) * (self.simulator.t - current_step) / (next_step - current_step)
+                else:
+                    raise RuntimeError(f'The simulator ran to step {self.simulator.t} past the next step {next_step}.')
             if self.time >= next_history_time:
                 assert self.time == next_history_time, \
                     f'self.time = {self.time} overshot next_history_time = {next_history_time}'
@@ -893,10 +899,16 @@ class Simulation:
         samples = []
         t = self.simulator.t
         for _ in tqdm(range(num_samples)):
-            self.simulator.reset(np.array(self.configs[-1], dtype=np.uint), t)
-            end_step = t + self.time_to_steps(time)
-            self.simulator.run(end_step)
-            samples.append(np.array(self.simulator.config))
+            if self.simulator_method.lower() == 'crn':
+                self.simulator.reset(np.array(self.configs[-1], dtype=np.uint), t)
+                end_time = t + time
+                self.simulator.run(end_time)
+                samples.append(np.array(self.simulator.config))
+            else:
+                self.simulator.reset(np.array(self.configs[-1], dtype=np.uint), t)
+                end_step = t + self.time_to_steps(time)
+                self.simulator.run(end_step)
+                samples.append(np.array(self.simulator.config))
         return pd.DataFrame(data=samples, index=pd.Index(range(num_samples), name='trial #'),
                             columns=self._history.columns)
 

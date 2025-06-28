@@ -39,7 +39,7 @@ def test_time_scaling():
     plt.show()
     return
 
-def get_rebop_samples(pop_exponent, trials, predator_fraction, state, steps):
+def get_rebop_samples(pop_exponent, trials, predator_fraction, state, final_time):
     n = 10 ** pop_exponent
     output = []
     for _ in tqdm(range(trials)):
@@ -54,8 +54,10 @@ def get_rebop_samples(pop_exponent, trials, predator_fraction, state, steps):
         # of steps, it should be safe to run for, say, 3 times that much time
         while True:
             try:
-                results_rebop = crn.run(inits, 1 * steps / float(n), 0)
-                output.append(int(results_rebop[state][steps]))
+                results_rebop = crn.run(inits, final_time, 1)
+                # print(f"There are {len(results_rebop[state])} total steps in rebop simulation.")
+                # print(results_rebop[state])
+                output.append(int(results_rebop[state][-1]))
                 break
             except IndexError:
                 pass
@@ -63,12 +65,12 @@ def get_rebop_samples(pop_exponent, trials, predator_fraction, state, steps):
     return output
 
 def test_distribution():
-    pop_exponent = 2
-    trials_exponent = 3
+    pop_exponent = 6
+    trials_exponent = 2
     a,b = pp.species('A B')
     
     predator_fraction = 0.5
-    num_steps = 10000
+    final_time = 1
 
     rxns = [
         (a+b >> 2*b).k(0.1 ** pop_exponent),
@@ -80,14 +82,14 @@ def test_distribution():
     a_init = int(n * (1 - predator_fraction))
     b_init = n - a_init
     inits = {a: a_init, b: b_init}
-    sim = pp.Simulation(inits, rxns, simulator_method="crn")
+    sim = pp.Simulation(inits, rxns, simulator_method="crn", continuous_time=True)
     trials = 10 ** trials_exponent
     
     # The simulator multiplies by n currently so just gonna be lazy here.
-    results_batching = sim.sample_future_configuration(num_steps / n, num_samples=trials)
+    results_batching = sim.sample_future_configuration(final_time, num_samples=trials)
     # state = 'A'
     state = 'B'
-    results_rebop = get_rebop_samples(pop_exponent, trials, predator_fraction, state, num_steps)
+    results_rebop = get_rebop_samples(pop_exponent, trials, predator_fraction, state, final_time)
     
     fig, ax = plt.subplots(figsize = (10,4))
     # print((results_batching).shape)
@@ -101,7 +103,7 @@ def test_distribution():
 
     ax.set_xlabel(f'Count of state {state}')
     ax.set_ylabel(f'Number of samples')
-    ax.set_title(f'State {state} distribution sampled at simulated steps {num_steps} ($10^{trials_exponent}$ samples)')
+    ax.set_title(f'State {state} distribution sampled at simulated time {final_time} ($10^{trials_exponent}$ samples)')
     
     # plt.ylim(0, 200_000)
 

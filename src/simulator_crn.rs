@@ -16,6 +16,8 @@ use numpy::PyReadonlyArray1;
 use rand::rngs::SmallRng;
 use rand::Rng;
 use rand::SeedableRng;
+use rand_distr::Distribution;
+use rand_distr::Exp;
 #[allow(unused_imports)]
 use statrs::distribution::{Geometric, Uniform};
 
@@ -53,6 +55,9 @@ pub struct UniformCRN {
     // The CRN's reactions. If multiple reactions share the same reactants, they are stored in
     // the same Reaction object, for ease of iterating over reactions.
     pub reactions: Vec<CombinedReactions>,
+    // The correction factor for running reactions in continuous time. The whole CRN is treated
+    // as having a total propensity equal to (n choose o) * continuous_time_correction_factor.
+    pub continuous_time_correction_factor: f64,
 }
 
 // A struct combining all reactions with the same reactants into a single piece.
@@ -65,16 +70,7 @@ impl UniformCRN {
     // Make sure that a set of reactions is uniform and the reactions valid, and combine reactions
     // that share the same set of reactants for easier iteration.
     fn verify_and_combine_reactions(reactions: Vec<Reaction>, k: State, w: State) -> UniformCRN {
-        if reactions.len() == 0 {
-            return UniformCRN {
-                o: 0,
-                g: 0,
-                q: 0,
-                k: 0,
-                w: 0,
-                reactions: Vec::new(),
-            };
-        }
+        assert!(reactions.len() > 0, "Cannot run CRN with no reactions.");
         let first_reaction = &reactions[0];
         let o = first_reaction.0.len();
         let g = first_reaction.1.len() - o;
@@ -123,6 +119,7 @@ impl UniformCRN {
             k,
             w,
             reactions: reactions_out,
+            continuous_time_correction_factor: 1.0,
         };
     }
     // Build or rebuild random_transitions, random_outputs, and transition_probabilities.
@@ -130,7 +127,7 @@ impl UniformCRN {
     // which we may want to change throughout the execution.
     // Returns a tuple of these three objects in that order.
     fn construct_transition_arrays(
-        &self,
+        &mut self,
         k_count: usize,
     ) -> (ArrayD<usize>, Vec<StateList>, Vec<f64>) {
         flame::start("construct_transition_arrays");
@@ -139,15 +136,37 @@ impl UniformCRN {
         // are being added, and for symmetry that results from the scheduler having different
         // orders it can pick, so that the adjusted CRN keeps the original dynamics.
         for reaction in &self.reactions {
-            let mut total_rate_constant = 0.0;
             let reactants = &reaction.reactants;
-            let correction_factor = self.correction_factor(reactants, k_count);
+            let symmetry_degree = Self::symmetry_degree(reactants);
+            let k_count_correction_factor = self.k_count_correction_factor(reactants, k_count);
+            // We artificially speed up any reaction with K in it.
+            // We also artificially speed up any reaction that can have its reactants written in
+            // many different orders (i.e., with many distinct reactions) because there are
+            // many ways for the batching algorithm to pick its reactants, so we effectively
+            // slow down any reaction with many equivalent orderings.
+            // We correct for those here.
+            let artificial_speedup_factor: f64 =
+                k_count_correction_factor as f64 / symmetry_degree as f64;
+            let mut total_rate_constant = 0.0;
             for output in &reaction.outputs {
-                let adjusted_rate_constant: f64 = output.1 * correction_factor;
-                total_rate_constant += adjusted_rate_constant;
+                total_rate_constant += output.1;
             }
-            max_total_adjusted_rate_constant =
-                max_total_adjusted_rate_constant.max(total_rate_constant);
+            let total_adjusted_rate_constant = total_rate_constant / artificial_speedup_factor;
+            // The batching algorithm needs to know how much continuous time one step corresponds to.
+            // This function is doing the calculation that can determine this.
+            // When batching, the reactant set with the highest total rate constant always causes a
+            // non-null reaction when chosen, and the number of ways to choose it is equal to
+            // its propensity times its symmetry degree.
+            // The missing factor to convert between the expected time to this reaction in the
+            // original CRN and the batching CRN is the total rate constant.
+            // TODO I'm not sure if I'm handling symmetry factor correction right here.
+            // Make sure to test it on, say, a CRN with A + A -> blah and A + B -> blah,
+            // in both the case where the first and the second reaction are much faster.
+
+            if total_adjusted_rate_constant > max_total_adjusted_rate_constant {
+                max_total_adjusted_rate_constant = total_adjusted_rate_constant;
+                self.continuous_time_correction_factor = total_adjusted_rate_constant;
+            }
         }
         // random_transitions has o+1 dimensions, the first o of which have length q,
         // and the last of which has length 2.
@@ -160,8 +179,12 @@ impl UniformCRN {
         let mut cur_output_index = 0;
         for reaction in &self.reactions {
             // Add info from this reaction to all possible permutations of reactants.
+            let reactants = &reaction.reactants;
+            let symmetry_degree = Self::symmetry_degree(reactants);
+            let k_count_correction_factor = self.k_count_correction_factor(reactants, k_count);
+            let artificial_speedup_factor = symmetry_degree * k_count_correction_factor;
             for output in &reaction.outputs {
-                let probability = output.1 * self.correction_factor(&reaction.reactants, k_count)
+                let probability = (output.1 / artificial_speedup_factor as f64)
                     / max_total_adjusted_rate_constant;
                 random_outputs.push(output.0.clone());
                 random_probabilities.push(probability);
@@ -189,13 +212,13 @@ impl UniformCRN {
         return (random_transitions, random_outputs, random_probabilities);
     }
 
-    fn correction_factor(&self, reactants: &Vec<State>, k_count: usize) -> f64 {
-        let mut correction_factor = Self::symmetry_degree(reactants) as f64;
+    fn k_count_correction_factor(&self, reactants: &Vec<State>, k_count: usize) -> usize {
+        let mut correction_factor = 1;
         let k_multiplicity = reactants.iter().filter(|&s| *s == self.k).count();
         // We've artificially sped up this reaction by |K| * (|K| - 1) * ... * (|K| - k_multiplicity + 1).
         // This loop undoes that artificial speedup.
         for i in 0..k_multiplicity {
-            correction_factor /= (k_count - i) as f64;
+            correction_factor *= k_count - i;
         }
         return correction_factor;
     }
@@ -237,13 +260,16 @@ pub struct SimulatorCRNMultiBatch {
     /// The population size of all species except k and w.
     #[pyo3(get, set)]
     pub n: usize,
+    /// The amount of continuous time that has been simulated so far.
+    #[pyo3(get, set)]
+    pub continuous_time: f64,
     /// The current number of elapsed interaction steps that actually simulated something in
     /// the original CRN, rather than being a "null reaction".
     #[pyo3(get, set)]
-    pub t: usize,
+    pub discrete_steps_not_including_nulls: usize,
     /// The current number of elapsed interaction steps in this CRN, including null reactions.
     #[pyo3(get, set)]
-    pub t_including_nulls: usize,
+    pub discrete_steps_including_nulls: usize,
     /// The total number of states (length of urn.config).
     pub q: usize,
     /// An (o + 1)-dimensional array. The first o dimensions represent reactants. After indexing through
@@ -381,8 +407,9 @@ impl SimulatorCRNMultiBatch {
             .map(|x| x.outputs.len())
             .fold(0, |acc, x| acc.max(x));
 
-        let t = 0;
-        let t_including_nulls = 0;
+        let continuous_time = 0.0;
+        let discrete_steps_not_including_nulls = 0;
+        let discrete_steps_including_nulls = 0;
         let rng = if let Some(s) = seed {
             SmallRng::seed_from_u64(s)
         } else {
@@ -420,8 +447,9 @@ impl SimulatorCRNMultiBatch {
             crn,
             n,
             n_including_extra_species,
-            t,
-            t_including_nulls,
+            continuous_time,
+            discrete_steps_not_including_nulls,
+            discrete_steps_including_nulls,
             q,
             random_transitions,
             random_outputs,
@@ -440,7 +468,6 @@ impl SimulatorCRNMultiBatch {
             // coll_table_r_values,
             // coll_table_u_values,
         };
-
         simulator.reset_k_count();
         (simulator, Simulator::default())
     }
@@ -452,20 +479,16 @@ impl SimulatorCRNMultiBatch {
 
     /// Run the simulation for a specified number of steps or until max time is reached
     #[pyo3(signature = (t_max, max_wallclock_time=3600.0))]
-    pub fn run(&mut self, t_max: usize, max_wallclock_time: f64) -> PyResult<()> {
+    pub fn run(&mut self, t_max: f64, max_wallclock_time: f64) -> PyResult<()> {
         if self.silent {
             return Err(PyValueError::new_err("Simulation is silent; cannot run."));
         }
         let max_wallclock_milliseconds = (max_wallclock_time * 1_000.0).ceil() as u64;
         let duration = Duration::from_millis(max_wallclock_milliseconds);
         let start_time = Instant::now();
-        while self.t < t_max && start_time.elapsed() < duration {
+        while self.continuous_time < t_max && start_time.elapsed() < duration {
             if self.silent {
                 return Ok(());
-            } else if self.do_gillespie {
-                flame::start("gillespie step");
-                self.gillespie_step(t_max);
-                flame::end("gillespie step");
             } else {
                 self.batch_step(t_max);
                 self.reset_k_count();
@@ -476,19 +499,24 @@ impl SimulatorCRNMultiBatch {
                 self.silent = true;
             }
         }
+        // println!(
+        //     "I took {:?} steps, and {:?} including nulls.",
+        //     self.discrete_steps_not_including_nulls, self.discrete_steps_including_nulls
+        // );
         Ok(())
     }
 
     /// Run the simulation until it is silent, i.e., no reactions are applicable.
     #[pyo3()]
     pub fn run_until_silent(&mut self) {
-        while !self.silent {
-            if self.do_gillespie {
-                self.gillespie_step(0);
-            } else {
-                self.batch_step(0);
-            }
-        }
+        unimplemented!();
+        // while !self.silent {
+        //     if self.do_gillespie {
+        //         self.gillespie_step(0);
+        //     } else {
+        //         self.batch_step(0);
+        //     }
+        // }
     }
 
     /// Reset the simulation with a new configuration
@@ -496,15 +524,17 @@ impl SimulatorCRNMultiBatch {
     /// Args:
     ///     config: The configuration array to reset to.
     ///     t: The new value of :any:`t`. Defaults to 0.
-    #[pyo3(signature = (config, t=0))]
-    pub fn reset(&mut self, config: PyReadonlyArray1<State>, t: usize) -> PyResult<()> {
+    #[pyo3(signature = (config, t=0.0))]
+    pub fn reset(&mut self, config: PyReadonlyArray1<State>, t: f64) -> PyResult<()> {
         let config = config.to_vec().unwrap();
         self.urn.reset_config(&config);
-        self.n = config.iter().sum();
         self.reset_k_count();
         self.n_including_extra_species = self.urn.size;
-        self.t = t;
-        self.t_including_nulls = t;
+        self.n = self.n_including_extra_species
+            - (self.urn.config[self.crn.k] + self.urn.config[self.crn.w]);
+        self.continuous_time = t;
+        self.discrete_steps_not_including_nulls = 0;
+        self.discrete_steps_including_nulls = 0;
         self.silent = self.n == 0;
         Ok(())
     }
@@ -569,6 +599,23 @@ impl SimulatorCRNMultiBatch {
             pop_size += self.crn.o + self.crn.g;
             num_seen += self.crn.o + self.crn.g;
         }
+    }
+
+    /// Sample from the length of how long this batch would take to run, in continuous time.
+    pub fn sample_batch_time(&mut self, batch_size: usize) -> f64 {
+        assert!(batch_size > 0);
+        // For now, we're just gonna do the geometric mean thing.
+        let first_term = 1.0 / self.get_exponential_rate(self.n_including_extra_species);
+        let last_term = 1.0
+            / self.get_exponential_rate(
+                self.n_including_extra_species + self.crn.g * (batch_size - 1),
+            );
+        // println!(
+        //     "The first and last terms are {:?}, {:?}",
+        //     first_term, last_term
+        // );
+        let geom_mean = (first_term * last_term).sqrt();
+        return batch_size as f64 * geom_mean;
     }
 }
 
@@ -732,12 +779,17 @@ fn make_batch_result(dimensions: usize, length: usize) -> NDBatchResult {
 // const CAP_BATCH_THRESHOLD: bool = true;
 
 impl SimulatorCRNMultiBatch {
-    fn batch_step(&mut self, t_max: usize) -> () {
+    fn batch_step(&mut self, t_max: f64) -> () {
         self.updated_counts.reset();
         let uniform = Uniform::standard();
         assert_eq!(
             self.n_including_extra_species, self.urn.size,
             "Self.n_including_extra_species should match self.urn.size."
+        );
+        assert_eq!(
+            self.n,
+            self.urn.size - (self.urn.config[self.crn.k] + self.urn.config[self.crn.w]),
+            "Self.n should match self.urn.size minus counts of K and W."
         );
 
         let u = self.rng.sample(uniform);
@@ -748,27 +800,57 @@ impl SimulatorCRNMultiBatch {
         flame::end("sample_coll");
 
         let mut rxns_before_coll = l;
-        let initial_t_including_nulls = self.t_including_nulls;
 
         assert!(l > 0, "sample_coll must return at least 1 for batching");
-
-        // If the sampled collision happens after t_max, then include delayed agents up until t_max
-        // and do not perform the collision.
-        // TODO: There's some awkwardness here: if there *might* be enough collisions to go past
-        // t_max, then we need to stop early. But this means that, for instance, if there are
-        // 100 reactions left until t_max, and our typical batch size is 200, we'll just keep
-        // running batches of size equal to t_max - t until getting t = t_max, since t only
-        // actually increases in response to "real" reactions. So if lots of null reactions happen,
-        // this will be super inefficient. Lots of possible options - the simplest might be,
-        // just run Gillespie during the last little bit of each batch.
-        // Alternatively, probably the right thing to do: I think it's still correct if
-        // we are willing to sample past t_max, but then manually choose some of the sampled
-        // non-null reactions to actually run and ignore the rest.
+        let batch_time = self.sample_batch_time(l);
         let mut do_collision = true;
-        if t_max > 0 && self.t + l >= t_max {
-            assert!(t_max > self.t);
-            rxns_before_coll = t_max - self.t;
+        // println!(
+        //     "Sampled batch size of {:?}, batch time is {:?} and full n is {:?}",
+        //     l, batch_time, self.n_including_extra_species
+        // );
+        if self.continuous_time + batch_time <= t_max {
+            self.continuous_time += batch_time;
+            // It's possible that all of the reactions *except* the collision happen before t_max,
+            // but then the collision happens after t_max.
+            let collision_time = self.sample_exponential(
+                self.get_exponential_rate(self.n_including_extra_species + self.crn.g * l),
+            );
+            // println!("Collision time is {:?}.", collision_time);
+            if self.continuous_time + collision_time < t_max {
+                self.continuous_time += collision_time;
+            } else {
+                do_collision = false;
+                self.continuous_time = t_max;
+            }
+        } else {
+            // println!("About to do the risky part with {:?}", l);
+            // The next collision happens after t_max. In order to stop at t_max, we need to
+            // figure out how many reactions happen before t_max. We do this by rejection sampling:
+            // we check how long each individual reaction would take to run until the total time
+            // exceeds t_max. If the total time fails to exceed t_max after running l reactions,
+            // we reject and start over.
+            // There is some probability p of having the next collision after t_max; we will have
+            // to do this rejection sampling with probability p, and it will succeed with
+            // probability p, meaning we will have to run it about 1/p times, so about once per
+            // checkpoint that the user wants.
             do_collision = false;
+            let mut time_exceeded = false;
+            // println!("Batch time was {:?}.", batch_time);
+            while !time_exceeded {
+                let mut partial_batch_time = 0.0;
+                for i in 0..l {
+                    let rate =
+                        self.get_exponential_rate(self.n_including_extra_species + i * self.crn.g);
+                    partial_batch_time += self.sample_exponential(rate);
+                    if partial_batch_time + self.continuous_time > t_max {
+                        time_exceeded = true;
+                        rxns_before_coll = i;
+                        break;
+                    }
+                }
+            }
+            self.continuous_time = t_max;
+            // println!("succeeded.");
         }
 
         // The idea here is to iterate through random_transitions and array_sums together; they should
@@ -779,6 +861,7 @@ impl SimulatorCRNMultiBatch {
             .sample_batch_result(rxns_before_coll, &mut self.urn);
         flame::end("sample batch");
 
+        let initial_t_including_nulls = self.discrete_steps_including_nulls;
         flame::start("process batch");
         let mut done = false;
         let reactions_iter = self.random_transitions.lanes(Axis(self.crn.o)).into_iter();
@@ -815,7 +898,7 @@ impl SimulatorCRNMultiBatch {
                     .add_to_entry(self.crn.w, (quantity * self.crn.g) as i64);
             } else {
                 // We'll add this for now, then subtract off the probabilistically null reactions later.
-                self.t += quantity;
+                self.discrete_steps_not_including_nulls += quantity;
                 let mut probabilities =
                     self.transition_probabilities[first_idx..first_idx + num_outputs].to_vec();
                 let non_null_probability_sum: f64 = probabilities.iter().sum();
@@ -852,7 +935,7 @@ impl SimulatorCRNMultiBatch {
                         self.updated_counts
                             .add_to_entry(reactant, null_count as i64);
                     }
-                    self.t -= null_count;
+                    self.discrete_steps_not_including_nulls -= null_count;
                 }
             }
             // println!("update config afterward is {:?}.", self.updated_counts.config);
@@ -956,7 +1039,7 @@ impl SimulatorCRNMultiBatch {
                 self.updated_counts
                     .add_to_entry(self.crn.w, (self.crn.g) as i64);
             } else {
-                self.t += 1;
+                self.discrete_steps_not_including_nulls += 1;
                 let mut probabilities =
                     self.transition_probabilities[first_idx..first_idx + num_outputs].to_vec();
                 let non_null_probability_sum: f64 = probabilities.iter().sum();
@@ -992,7 +1075,7 @@ impl SimulatorCRNMultiBatch {
                         self.updated_counts
                             .add_to_entry(reactant, null_count as i64);
                     }
-                    self.t -= null_count;
+                    self.discrete_steps_not_including_nulls -= null_count;
                 }
             }
             assert_eq!(
@@ -1000,19 +1083,19 @@ impl SimulatorCRNMultiBatch {
                 self.crn.o + self.crn.g - num_resampled,
                 "Collision failed to add exactly one thing to updated_counts"
             );
-            self.t_including_nulls += 1;
+            self.discrete_steps_including_nulls += 1;
         }
         flame::end("sample collision");
 
         // TODO move this line to a more sensible place
-        self.t_including_nulls += rxns_before_coll;
+        self.discrete_steps_including_nulls += rxns_before_coll;
 
         self.urn.add_vector(&self.updated_counts.config);
         self.urn.sort();
         // Check that we added the right number of things to the urn.
         assert_eq!(
             self.urn.size - self.n_including_extra_species,
-            (self.t_including_nulls - initial_t_including_nulls) * self.crn.g,
+            (self.discrete_steps_including_nulls - initial_t_including_nulls) * self.crn.g,
             "Inconsistency between number of reactions simulated and population size change."
         );
         self.n_including_extra_species = self.urn.size;
@@ -1057,39 +1140,6 @@ impl SimulatorCRNMultiBatch {
     //     }
     // }
 
-    /// Chooses sender/receiver, then applies delta to input states a, b.
-    // fn unordered_delta(&mut self, a: State, b: State) -> (State, State) {
-    //     unimplemented!()
-    //     // let heads = self.rng.gen_bool(0.5); // fair coin flip
-    //     // let mut i1 = a;
-    //     // let mut i2 = b;
-    //     // // swap roles of a, b and swap return order if heads is true
-    //     // if heads {
-    //     //     (i2, i1) = (i1, i2);
-    //     // }
-    //     // let o1: State;
-    //     // let o2: State;
-    //     // if self.is_random && self.random_transitions[i1][i2].0 > 0 {
-    //     //     // find the appropriate random output by linear search
-    //     //     let mut k = self.random_transitions[i1][i2].1;
-    //     //     let uniform = Uniform::standard();
-    //     //     let mut u = self.rng.sample(uniform) - self.transition_probabilities[k];
-    //     //     while u > 0.0 {
-    //     //         k += 1;
-    //     //         u -= self.transition_probabilities[k];
-    //     //     }
-    //     //     (o1, o2) = self.random_outputs[k];
-    //     // } else {
-    //     //     (o1, o2) = self.delta[i1][i2];
-    //     // }
-    //     // // swap outputs if heads is true
-    //     // if heads {
-    //     //     (o2, o1)
-    //     // } else {
-    //     //     (o1, o2)
-    //     // }
-    // }
-
     /// Perform a Gillespie step.
     /// Samples the time until the next non-null interaction and updates.
     /// Args:
@@ -1099,6 +1149,8 @@ impl SimulatorCRNMultiBatch {
     ///     be set to num_steps and no reaction will be performed.
     ///     (Because of the memoryless property of the geometric, this gives a
     ///     faithful simulation up to step num_steps).
+
+    #[allow(dead_code)]
     fn gillespie_step(&mut self, _t_max: usize) -> () {
         unimplemented!()
         // let total_propensity = self.get_total_propensity();
@@ -1331,5 +1383,17 @@ impl SimulatorCRNMultiBatch {
         // Return t_lo instead of t_hi (which simulator_pp_multibatch returns) because the CDF here
         // is written in terms of p(l >= t) instead of p(l > t).
         t_lo
+    }
+
+    /// Helper function to get the rate of the exponential representing the time to the next reaction
+    /// at some particular population size.
+    pub fn get_exponential_rate(&self, pop_size: usize) -> f64 {
+        return self.crn.continuous_time_correction_factor
+            * binomial(pop_size as u64, self.crn.o as u64);
+    }
+    /// Sample from an exponential distribution.
+    pub fn sample_exponential(&mut self, rate: f64) -> f64 {
+        let exp = Exp::new(rate).unwrap();
+        return exp.sample(&mut self.rng);
     }
 }

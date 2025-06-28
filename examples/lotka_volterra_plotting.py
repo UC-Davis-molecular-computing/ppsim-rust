@@ -31,7 +31,7 @@ import timeit
 
 def main():
     crn = rb.Gillespie()
-    pop_exponent = 2
+    pop_exponent = 6
     crn.add_reaction(.1 ** pop_exponent, ['A', 'B'], ['B', 'B'])
     crn.add_reaction(1, ['A'], ['A', 'A'])
     crn.add_reaction(1, ['B'], [])
@@ -41,16 +41,41 @@ def main():
     a_init = int(n * p)
     b_init = n - a_init
     inits = {"A": a_init, "B": b_init}
-    end_time = 0
+    end_time = 10.0
+    num_samples = 50
     results_rebop = {}
-    results_rebop = crn.run(inits, 10, sampling_increment)
+    results_rebop = crn.run(inits, end_time, sampling_increment)
 
+    a,b = pp.species('A B')
+    rxns = [
+        (a+b >> 2*b).k(0.1 ** pop_exponent),
+        (a >> 2*a).k(1),
+        (b >> None).k(1),
+    ]
+    
+    n = 10 ** pop_exponent
+    inits = {a: a_init, b: b_init}
+    sim = pp.Simulation(inits, rxns, simulator_method="crn", continuous_time=True)
+
+    sim.run(end_time, end_time / num_samples)
+    # sim.history.plot(figsize = (15,4))
+    # plt.ylim(0, 2.1 * n)
+    # plt.title('lotka volterra (with batching)')
+    
     print(f"Total reactions simulated: {sampling_increment * len(results_rebop['A'])}")
 
-    fig, ax = plt.subplots(figsize = (10,4))
+    f, ax = plt.subplots()
 
-    ax.plot(results_rebop['time'], results_rebop['B'], label='B')
-    ax.plot(results_rebop['time'], results_rebop['A'], label='A')
+    ax.plot(results_rebop['time'], results_rebop['B'], label='B (rebop)')
+    ax.plot(results_rebop['time'], results_rebop['A'], label='A (rebop)')
+    # print(sim.history)
+    # print(results_rebop)
+    # print(np.linspace(0, end_time, num_samples + 1))
+    # print(sim.history['A'])
+    ax.plot(sim.history['A'], label = 'A (ppsim)')
+    ax.plot(sim.history['B'], label = 'B (ppsim)')
+    # ax2.plot(np.linspace(0, end_time, num_samples + 1), sim.history['A'], label='A (ppsim)')
+    # ax2.plot(np.linspace(0, end_time, num_samples + 1), sim.history['B'], label='B (ppsim)')
     # ax.hist([results_rebop['A'], results_rebop['B']], bins = np.linspace(0, n, 20), 
     #         alpha = 1, label=['A', 'B']) #, density=True, edgecolor = 'k', linewidth = 0.5)
     ax.legend()
