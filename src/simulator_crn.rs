@@ -135,6 +135,7 @@ impl UniformCRN {
         // Iterate through reactions, adjusting rate constants to account for how many K
         // are being added, and for symmetry that results from the scheduler having different
         // orders it can pick, so that the adjusted CRN keeps the original dynamics.
+        flame::start("construct_transition_arrays: first reaction loop");
         for reaction in &self.reactions {
             let reactants = &reaction.reactants;
             let symmetry_degree = Self::symmetry_degree(reactants);
@@ -168,6 +169,7 @@ impl UniformCRN {
                 self.continuous_time_correction_factor = total_adjusted_rate_constant;
             }
         }
+        flame::end("construct_transition_arrays: first reaction loop");
         // random_transitions has o+1 dimensions, the first o of which have length q,
         // and the last of which has length 2.
         let mut shape_vec = vec![self.q; self.o];
@@ -177,6 +179,7 @@ impl UniformCRN {
         let mut random_probabilities: Vec<f64> = Vec::new();
         // Add any non-null reactions. Null reactions don't need any special handling.
         let mut cur_output_index = 0;
+        flame::start("construct_transition_arrays: second reaction loop");
         for reaction in &self.reactions {
             // Add info from this reaction to all possible permutations of reactants.
             let reactants = &reaction.reactants;
@@ -203,6 +206,7 @@ impl UniformCRN {
             }
             cur_output_index += reaction.outputs.len();
         }
+        flame::end("construct_transition_arrays: second reaction loop");
         assert_eq!(
             random_outputs.len(),
             random_probabilities.len(),
@@ -325,6 +329,8 @@ pub struct SimulatorCRNMultiBatch {
     /// A boolean determining if the configuration is silent (all interactions are null).
     #[pyo3(get, set)]
     pub silent: bool,
+    /// The last count of K that was used in construct_transition_arrays.
+    pub last_k_count: usize,
     // /// A list of reactions, as (input, input, output, output). TODO: re-add these when re-adding the ability to do gillespie.
     // #[pyo3(get, set)]
     // pub reactions: Vec<(State, State, State, State)>,
@@ -424,6 +430,7 @@ impl SimulatorCRNMultiBatch {
         let m = vec![0; random_depth + 1];
         let silent = false;
         let do_gillespie = false; // this changes during run
+        let last_k_count = 0;
 
         // next three fields are only used with Gillespie steps;
         // they will be set accordingly if we switch to Gillespie
@@ -463,6 +470,7 @@ impl SimulatorCRNMultiBatch {
             m,
             do_gillespie,
             silent,
+            last_k_count,
             // gillespie_threshold,
             // coll_table,
             // coll_table_r_values,
@@ -740,17 +748,22 @@ impl NDBatchResult {
         );
         let mut done = false;
         if self.dimensions == 1 {
+            flame::start("base case processing");
             let mut curr_reaction = vec![0; self.o];
             curr_reaction[self.o - self.dimensions] = self.curr_species;
             self.curr_species += 1;
+            flame::end("base case processing");
             return (
                 curr_reaction,
                 self.counts[self.curr_species - 1],
                 self.curr_species == self.q,
             );
         } else {
+            flame::start("recursive case processing");
             let curr_subresult = &mut self.subresults.as_mut().unwrap()[self.curr_species];
+            flame::end("recursive case processing");
             let (mut curr_reaction, count, subresult_done) = curr_subresult.get_next();
+            flame::start("recursive case processing");
             curr_reaction[self.o - self.dimensions] = self.curr_species;
             if subresult_done {
                 self.curr_species += 1;
@@ -758,6 +771,7 @@ impl NDBatchResult {
                     done = true;
                 }
             }
+            flame::end("recursive case processing");
             return (curr_reaction, count, done);
         }
     }
@@ -776,7 +790,9 @@ fn make_batch_result(dimensions: usize, length: usize) -> NDBatchResult {
     result
 }
 
-// const CAP_BATCH_THRESHOLD: bool = true;
+// TODO: if we're using this, figure out a sensible value for it? It will only matter really
+// for CRNs whose population size fluctuates a lot.
+const K_COUNT_RATIO_THRESHOLD: f64 = 0.7;
 
 impl SimulatorCRNMultiBatch {
     fn batch_step(&mut self, t_max: f64) -> () {
@@ -833,6 +849,7 @@ impl SimulatorCRNMultiBatch {
             // to do this rejection sampling with probability p, and it will succeed with
             // probability p, meaning we will have to run it about 1/p times, so about once per
             // checkpoint that the user wants.
+            flame::start("checkpoint rejection sampling");
             do_collision = false;
             let mut time_exceeded = false;
             // println!("Batch time was {:?}.", batch_time);
@@ -850,7 +867,7 @@ impl SimulatorCRNMultiBatch {
                 }
             }
             self.continuous_time = t_max;
-            // println!("succeeded.");
+            flame::end("checkpoint rejection sampling");
         }
 
         // The idea here is to iterate through random_transitions and array_sums together; they should
@@ -874,6 +891,7 @@ impl SimulatorCRNMultiBatch {
                 !done,
                 "self.array_sums finished iterating before self.random_transitions"
             );
+            flame::start("pre-reaction-checking");
             let next_array_sum = self.array_sums.get_next();
             // TODO maybe add an assert check that the two structures are iterated through
             // in the same order, i.e. reactants match
@@ -882,6 +900,7 @@ impl SimulatorCRNMultiBatch {
             // println!("Handling {:?} reactions of type {:?}.", quantity, reactants);
             // println!("update config at this point is {:?}.", self.updated_counts.config);
             if quantity == 0 {
+                flame::end("pre-reaction-checking");
                 continue;
             }
             let initial_updated_counts_size = self.updated_counts.size;
@@ -889,14 +908,18 @@ impl SimulatorCRNMultiBatch {
             // TODO and WARNING: this code is more or less copy-paste with the collision sampling code.
             // They do the same thing. But it's apparently very annoying to reafactor this into a
             // helper method in rust because of the immutable borrow of self above.
+            flame::end("pre-reaction-checking");
             if num_outputs == 0 {
+                flame::start("null reaction");
                 // Null reaction. Move the reactants from self.urn to self.updated_counts (for collision sampling), and add W.
                 for reactant in reactants {
                     self.updated_counts.add_to_entry(reactant, quantity as i64);
                 }
                 self.updated_counts
                     .add_to_entry(self.crn.w, (quantity * self.crn.g) as i64);
+                flame::end("null reaction");
             } else {
+                flame::start("non-null reaction");
                 // We'll add this for now, then subtract off the probabilistically null reactions later.
                 self.discrete_steps_not_including_nulls += quantity;
                 let mut probabilities =
@@ -937,6 +960,7 @@ impl SimulatorCRNMultiBatch {
                     }
                     self.discrete_steps_not_including_nulls -= null_count;
                 }
+                flame::end("non-null reaction");
             }
             // println!("update config afterward is {:?}.", self.updated_counts.config);
             // println!("Size changed by {:?}, compared to quantity being {:?}.", self.updated_counts.size - initial_updated_counts_size, quantity)
@@ -1220,17 +1244,27 @@ impl SimulatorCRNMultiBatch {
     /// We will try to choose a value for the count of K that maximizes the expected amount
     /// of progress we make in simulating the original CRN.
     fn reset_k_count(&mut self) {
-        // TODO: do something more complicated than this to actually be efficient.
-        // This is just making sure that half of everything is always k.
-        let delta_k = self.n as i64 - self.urn.config[self.crn.k] as i64;
-        assert!(self.n_including_extra_species as i64 + delta_k >= 0);
-        self.n_including_extra_species = (self.n_including_extra_species as i64 + delta_k) as usize;
-        self.urn.add_to_entry(self.crn.k, delta_k);
-        (
-            self.random_transitions,
-            self.random_outputs,
-            self.transition_probabilities,
-        ) = self.crn.construct_transition_arrays(self.n);
+        // TODO: maybe do something more complicated than this to actually be efficient.
+        // For now, it looks like construct_transition_arrays is a bottleneck, so we're only going
+        // to change the count of K if the population size has significantly changed.
+        let current_k_count = self.urn.config[self.crn.k];
+        if self.last_k_count == 0
+            || (current_k_count.min(self.last_k_count) as f64)
+                / (current_k_count.max(self.last_k_count) as f64)
+                < K_COUNT_RATIO_THRESHOLD
+        {
+            let delta_k = self.n as i64 - current_k_count as i64;
+            assert!(self.n_including_extra_species as i64 + delta_k >= 0);
+            self.n_including_extra_species =
+                (self.n_including_extra_species as i64 + delta_k) as usize;
+            self.urn.add_to_entry(self.crn.k, delta_k);
+            (
+                self.random_transitions,
+                self.random_outputs,
+                self.transition_probabilities,
+            ) = self.crn.construct_transition_arrays(self.n);
+            self.last_k_count = self.urn.config[self.crn.k];
+        }
     }
 
     /// Get rid of W from self.urn.

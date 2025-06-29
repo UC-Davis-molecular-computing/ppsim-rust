@@ -66,11 +66,11 @@ def get_rebop_samples(pop_exponent, trials, predator_fraction, state, final_time
 
 def test_distribution():
     pop_exponent = 6
-    trials_exponent = 2
+    trials_exponent = 1
     a,b = pp.species('A B')
     
     predator_fraction = 0.5
-    final_time = 1
+    final_time = 10
 
     rxns = [
         (a+b >> 2*b).k(0.1 ** pop_exponent),
@@ -108,6 +108,7 @@ def test_distribution():
     # plt.ylim(0, 200_000)
 
     # plt.savefig(pdf_fn, bbox_inches='tight')
+    sim.simulator.write_profile() # type: ignore
     plt.show()
 
 
