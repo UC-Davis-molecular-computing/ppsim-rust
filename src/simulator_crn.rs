@@ -622,7 +622,9 @@ impl SimulatorCRNMultiBatch {
         //     "The first and last terms are {:?}, {:?}",
         //     first_term, last_term
         // );
-        let geom_mean = (first_term * last_term).sqrt();
+        let prod = first_term * last_term;
+        assert!(prod > 0.0);
+        let geom_mean = prod.sqrt();
         return batch_size as f64 * geom_mean;
     }
 }
