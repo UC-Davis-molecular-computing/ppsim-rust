@@ -625,7 +625,7 @@ class Simulation:
             # the next line is overly clever: max_wallclock_time is a list of length 1 or 0;
             # if 0, the default value is used; if 1, the value is used with the * unpacking operator
             if self.simulator_method.lower() == 'crn':
-                self.simulator.run(next_time, *max_wallclock_time)
+                self.simulator.run(next_time, 10000)
                 # print(f"First thing: {self.simulator.continuous_time} and {max_wallclock_time}") # type: ignore
                 # print(f"Second thing: {next_time}")
                 # print(f"Third thing: {self.simulator.config}")

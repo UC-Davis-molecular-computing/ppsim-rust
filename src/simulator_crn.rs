@@ -12,12 +12,14 @@ use pyo3::prelude::*;
 use ndarray::{ArrayD, Axis};
 use pyo3::types::PyNone;
 
+use compensated_summation::KahanBabuskaNeumaier;
 use numpy::PyReadonlyArray1;
 use rand::rngs::SmallRng;
 use rand::Rng;
 use rand::SeedableRng;
 use rand_distr::Distribution;
 use rand_distr::Exp;
+use rand_distr::Gamma;
 #[allow(unused_imports)]
 use statrs::distribution::{Geometric, Uniform};
 
@@ -185,13 +187,14 @@ impl UniformCRN {
             let reactants = &reaction.reactants;
             let symmetry_degree = Self::symmetry_degree(reactants);
             let k_count_correction_factor = self.k_count_correction_factor(reactants, k_count);
-            let artificial_speedup_factor = symmetry_degree * k_count_correction_factor;
+            let artificial_speedup_factor =
+                k_count_correction_factor as f64 / symmetry_degree as f64;
             for output in &reaction.outputs {
-                let probability = (output.1 / artificial_speedup_factor as f64)
-                    / max_total_adjusted_rate_constant;
+                let probability =
+                    (output.1 / artificial_speedup_factor) / max_total_adjusted_rate_constant;
                 random_outputs.push(output.0.clone());
                 random_probabilities.push(probability);
-                for permutation in reaction.reactants.iter().permutations(self.o) {
+                for permutation in reaction.reactants.iter().permutations(self.o).unique() {
                     let mut view = random_transitions.view_mut();
                     // This loop indexes into random_transitions.
                     for dimension in 0..self.o {
@@ -488,6 +491,11 @@ impl SimulatorCRNMultiBatch {
     /// Run the simulation for a specified number of steps or until max time is reached
     #[pyo3(signature = (t_max, max_wallclock_time=3600.0))]
     pub fn run(&mut self, t_max: f64, max_wallclock_time: f64) -> PyResult<()> {
+        // self.n_including_extra_species = 1999944;
+        // for i in 0..200 {
+        //     println!("{:?}", self.sample_hypo_directly(850));
+        // }
+        // assert!(false);
         if self.silent {
             return Err(PyValueError::new_err("Simulation is silent; cannot run."));
         }
@@ -618,15 +626,66 @@ impl SimulatorCRNMultiBatch {
             / self.get_exponential_rate(
                 self.n_including_extra_species + self.crn.g * (batch_size - 1),
             );
-        // println!(
-        //     "The first and last terms are {:?}, {:?}",
-        //     first_term, last_term
-        // );
         let prod = first_term * last_term;
         assert!(prod > 0.0);
         let geom_mean = prod.sqrt();
-        return batch_size as f64 * geom_mean;
+        let estimated_mean = batch_size as f64 * geom_mean;
+
+        // Also copying the simplest variance estimation method
+        let mut estimated_variance = 0.0;
+        let last_term = 1.0
+            / self
+                .get_exponential_rate(
+                    self.n_including_extra_species + (batch_size - 1) * self.crn.g,
+                )
+                .powf(2.0);
+        if last_term == 0.0 {
+            println!("Last term is 0!");
+        } else {
+            let first_term = 1.0
+                / self
+                    .get_exponential_rate(self.n_including_extra_species)
+                    .powf(2.0);
+            let _relative_error_first_last_term = relative_error(first_term, last_term);
+            let var_prod = first_term * last_term;
+            estimated_variance = batch_size as f64 * var_prod.sqrt();
+            // println!("estimated variance: {:?}", estimated_variance);
+            // println!("we have {:?}, {:?}, {:?}", first_term, last_term, var_prod);
+        }
+        let shape = estimated_mean.powf(2.0) / estimated_variance;
+        let scale = estimated_variance / estimated_mean;
+        let gamma = Gamma::new(shape, scale).unwrap();
+        let val = gamma.sample(&mut self.rng);
+        // println!(
+        //     "val, variance, mean, popsize, batchsize: {:?}, {:?}, {:?}, {:?}, {:?}",
+        //     val, estimated_variance, estimated_mean, self.n_including_extra_species, batch_size
+        // );
+        // println!(
+        //     "Correction factor: {:?}",
+        //     self.crn.continuous_time_correction_factor
+        // );
+        return val;
     }
+
+    pub fn sample_hypo_directly(&mut self, batch_size: usize) -> f64 {
+        let mut answer = 0.0;
+        for i in 0..batch_size {
+            answer += self.sample_exponential(
+                self.get_exponential_rate(self.n_including_extra_species + i * self.crn.g),
+            );
+        }
+        return answer;
+    }
+}
+
+fn relative_error(a: f64, b: f64) -> f64 {
+    if a == 0.0 {
+        return b.abs();
+    }
+    if b == 0.0 {
+        return a.abs();
+    }
+    return (a - b).abs() / a.abs().min(b.abs());
 }
 
 fn write_span_data(content: &mut String, span_data_map: &HashMap<String, SpanData>, depth: usize) {
@@ -750,22 +809,22 @@ impl NDBatchResult {
         );
         let mut done = false;
         if self.dimensions == 1 {
-            flame::start("base case processing");
+            // flame::start("base case processing");
             let mut curr_reaction = vec![0; self.o];
             curr_reaction[self.o - self.dimensions] = self.curr_species;
             self.curr_species += 1;
-            flame::end("base case processing");
+            // flame::end("base case processing");
             return (
                 curr_reaction,
                 self.counts[self.curr_species - 1],
                 self.curr_species == self.q,
             );
         } else {
-            flame::start("recursive case processing");
+            // flame::start("recursive case processing");
             let curr_subresult = &mut self.subresults.as_mut().unwrap()[self.curr_species];
-            flame::end("recursive case processing");
+            // flame::end("recursive case processing");
             let (mut curr_reaction, count, subresult_done) = curr_subresult.get_next();
-            flame::start("recursive case processing");
+            // flame::start("recursive case processing");
             curr_reaction[self.o - self.dimensions] = self.curr_species;
             if subresult_done {
                 self.curr_species += 1;
@@ -773,7 +832,7 @@ impl NDBatchResult {
                     done = true;
                 }
             }
-            flame::end("recursive case processing");
+            // flame::end("recursive case processing");
             return (curr_reaction, count, done);
         }
     }
@@ -818,9 +877,13 @@ impl SimulatorCRNMultiBatch {
         flame::end("sample_coll");
 
         let mut rxns_before_coll = l;
-
+        if l == 0 {
+            println!("params are {:?}, {:?}, {:?}", self.urn.config, self.n, u);
+        }
         assert!(l > 0, "sample_coll must return at least 1 for batching");
+        // println!("about to sample batch time");
         let batch_time = self.sample_batch_time(l);
+        // println!("Sampled batch time");
         let mut do_collision = true;
         // println!(
         //     "Sampled batch size of {:?}, batch time is {:?} and full n is {:?}",
@@ -924,6 +987,12 @@ impl SimulatorCRNMultiBatch {
                 flame::start("non-null reaction");
                 // We'll add this for now, then subtract off the probabilistically null reactions later.
                 self.discrete_steps_not_including_nulls += quantity;
+                // println!(
+                //     "Probabilities: {:?}. Self.m: {:?}.",
+                //     self.transition_probabilities, self.m
+                // );
+                // println!("transition array: {:?}.", self.random_transitions);
+                // println!("outputs: {:?}.", self.random_outputs);
                 let mut probabilities =
                     self.transition_probabilities[first_idx..first_idx + num_outputs].to_vec();
                 let non_null_probability_sum: f64 = probabilities.iter().sum();
@@ -1326,13 +1395,22 @@ impl SimulatorCRNMultiBatch {
         let mut t_lo: usize;
         let mut t_hi: usize;
 
+        // We use a compensated summation algorithm to minimze floating point issues.
+        let mut lhs = KahanBabuskaNeumaier::new();
+
         let logu = u.ln();
         let diff = self.n_including_extra_species + 1 - r;
         let ln_gamma_diff = ln_factorial(diff - 1);
 
         // lhs tracks all of the terms that don't include t, i.e., those that we don't need to
         // update each iteration of binary search.
-        let mut lhs = ln_gamma_diff - logu;
+        lhs += ln_gamma_diff;
+        lhs -= logu;
+        // if lhs == ln_gamma_diff {
+        //     // TODO: this is a temporary hack/fix for the case where population size blows up.
+        //     println!("Uh oh! u, ln_gamma_diff: {:?}, {:?}", u, ln_gamma_diff);
+        //     return 1;
+        // }
 
         if self.crn.g > 0 {
             for j in 0..self.crn.o {
@@ -1377,7 +1455,8 @@ impl SimulatorCRNMultiBatch {
             let t_mid = (t_lo + t_hi) / 2;
             // rhs tracks all of the terms that include t, i.e., those that we need to
             // update each iteration of binary search.
-            let mut rhs: f64 =
+            let mut rhs = KahanBabuskaNeumaier::new();
+            rhs +=
                 ln_gamma((self.n_including_extra_species - r - (t_mid * self.crn.o)) as f64 + 1.0);
             if self.crn.g > 0 {
                 for j in 0..self.crn.o {
@@ -1409,7 +1488,16 @@ impl SimulatorCRNMultiBatch {
                 }
             }
 
-            if lhs < rhs {
+            // There's a nasty floating-point precision bug here. If u (the sampled 0-1 uniform
+            // value) is equal to 1.0, then lhs and rhs will fundamentally contain the same terms
+            // added together in a different order. This is unavoidable, but means they might not
+            // be equal as floating point numbers.
+            // Of course, u will never equal 1.0, but on large enough population sizes, the values
+            // of lhs and rhs have high enough magnitudes that for values of u very close to 1.0,
+            // ln(u) might be smaller than the lowest-precision part of lhs and rhs. For example
+            // if u = 1 - 10^-7, then ln(u) is around 10^-7, but at population size 10^9 the
+            // order of magnitude of floating point error in lhs and rhs is greater than this.
+            if lhs.total() < rhs.total() {
                 t_hi = t_mid;
             } else {
                 t_lo = t_mid;
@@ -1418,6 +1506,13 @@ impl SimulatorCRNMultiBatch {
 
         // Return t_lo instead of t_hi (which simulator_pp_multibatch returns) because the CDF here
         // is written in terms of p(l >= t) instead of p(l > t).
+
+        // TODO: this is a duct tape fix for the returning 0 bug
+        if t_lo == 0 {
+            println!("The bug has come! u was {:?}", u);
+            return 1;
+        }
+
         t_lo
     }
 

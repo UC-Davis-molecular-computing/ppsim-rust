@@ -41,7 +41,7 @@ def main():
     a_init = int(n * p)
     b_init = n - a_init
     inits = {"A": a_init, "B": b_init}
-    end_time = 10.0
+    end_time = 40.0
     num_samples = 50
     results_rebop = {}
     results_rebop = crn.run(inits, end_time, sampling_increment)
@@ -53,7 +53,6 @@ def main():
         (b >> None).k(1),
     ]
     
-    n = 10 ** pop_exponent
     inits = {a: a_init, b: b_init}
     sim = pp.Simulation(inits, rxns, simulator_method="crn", continuous_time=True)
 
@@ -79,6 +78,7 @@ def main():
     # ax.hist([results_rebop['A'], results_rebop['B']], bins = np.linspace(0, n, 20), 
     #         alpha = 1, label=['A', 'B']) #, density=True, edgecolor = 'k', linewidth = 0.5)
     ax.legend()
+    sim.simulator.write_profile() # type: ignore
 
     plt.show()
     # We could just write gpac reactions directly, but this is ensuring the gpac_format function works.
