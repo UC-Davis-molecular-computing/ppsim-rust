@@ -7,6 +7,7 @@ use crate::flame;
 
 use numpy::PyArrayMethods;
 use pyo3::exceptions::PyValueError;
+use pyo3::ffi::c_str;
 use pyo3::prelude::*;
 // use ndarray::prelude::*;
 use ndarray::{ArrayD, Axis};
@@ -334,6 +335,8 @@ pub struct SimulatorCRNMultiBatch {
     pub silent: bool,
     /// The last count of K that was used in construct_transition_arrays.
     pub last_k_count: usize,
+    /// A module containing code for calling python-implemented collision sampling.
+    pub python_module: Py<PyModule>,
     // /// A list of reactions, as (input, input, output, output). TODO: re-add these when re-adding the ability to do gillespie.
     // #[pyo3(get, set)]
     // pub reactions: Vec<(State, State, State, State)>,
@@ -452,6 +455,19 @@ impl SimulatorCRNMultiBatch {
         let random_transitions = ArrayD::<usize>::zeros(Vec::new());
         let random_outputs = Vec::new();
         let transition_probabilities = Vec::new();
+        let python_code = c_str!(include_str!("sample_coll.py"));
+        let python_module = Python::with_gil(|py| {
+            let module: Py<PyModule> = PyModule::from_code(
+                py,
+                python_code,
+                c_str!("sample.py"),
+                c_str!("sample_module"),
+            )
+            .unwrap()
+            .into();
+
+            module
+        });
 
         let mut simulator = SimulatorCRNMultiBatch {
             crn,
@@ -474,6 +490,7 @@ impl SimulatorCRNMultiBatch {
             do_gillespie,
             silent,
             last_k_count,
+            python_module,
             // gillespie_threshold,
             // coll_table,
             // coll_table_r_values,
@@ -590,7 +607,29 @@ impl SimulatorCRNMultiBatch {
 
     #[pyo3(signature = (r, u, has_bounds=false))]
     pub fn sample_collision(&self, r: usize, u: f64, has_bounds: bool) -> usize {
-        self.sample_coll(r, u, has_bounds)
+        flame::start("Rust code.");
+        let a = self.sample_collision_fast(r, u, has_bounds);
+        flame::end("Rust code.");
+        flame::start("Python code.");
+        let _b = self.sample_collision_fast_python(r, u, has_bounds);
+        flame::end("Python code.");
+        return a;
+    }
+
+    /// Sample from collision distribution using python's mpmath library, which allows us to
+    /// do arbitrary-precision floating point arithmetic without rolling our own loggamma function.
+    pub fn sample_collision_fast_python(&self, r: usize, u: f64, _has_bounds: bool) -> usize {
+        let args = (self.n_including_extra_species, r, self.crn.o, self.crn.g, u);
+        let result = Python::with_gil(|py| -> PyResult<usize> {
+            let result = self
+                .python_module
+                .getattr(py, "sample_coll")?
+                .call1(py, args)?
+                .extract(py);
+            result
+        })
+        .unwrap();
+        return result;
     }
 
     /// Sample from birthday-like distribution "directly". This is the number of times
@@ -638,21 +677,21 @@ impl SimulatorCRNMultiBatch {
                 .get_exponential_rate(
                     self.n_including_extra_species + (batch_size - 1) * self.crn.g,
                 )
-                .powf(2.0);
+                .powi(2);
         if last_term == 0.0 {
             println!("Last term is 0!");
         } else {
             let first_term = 1.0
                 / self
                     .get_exponential_rate(self.n_including_extra_species)
-                    .powf(2.0);
+                    .powi(2);
             let _relative_error_first_last_term = relative_error(first_term, last_term);
             let var_prod = first_term * last_term;
             estimated_variance = batch_size as f64 * var_prod.sqrt();
             // println!("estimated variance: {:?}", estimated_variance);
             // println!("we have {:?}, {:?}, {:?}", first_term, last_term, var_prod);
         }
-        let shape = estimated_mean.powf(2.0) / estimated_variance;
+        let shape = estimated_mean.powi(2) / estimated_variance;
         let scale = estimated_variance / estimated_mean;
         let gamma = Gamma::new(shape, scale).unwrap();
         let val = gamma.sample(&mut self.rng);
@@ -873,7 +912,7 @@ impl SimulatorCRNMultiBatch {
 
         let has_bounds = false;
         flame::start("sample_coll");
-        let l = self.sample_coll(0, u, has_bounds);
+        let l = self.sample_collision(0, u, has_bounds);
         flame::end("sample_coll");
 
         let mut rxns_before_coll = l;
@@ -1386,7 +1425,7 @@ impl SimulatorCRNMultiBatch {
     ///     The number of interactions that will happen before the next collision.
     ///     Note that this is a different convention from :any:`SimulatorMultiBatch`, which
     ///     returns the index at which an agent collision occurs.
-    pub fn sample_coll(&self, r: usize, u: f64, _has_bounds: bool) -> usize {
+    pub fn sample_collision_fast(&self, r: usize, u: f64, _has_bounds: bool) -> usize {
         // If every agent counts as a collision, the next reaction is a collision.
         assert!(r <= self.n_including_extra_species);
         if r == self.n_including_extra_species {

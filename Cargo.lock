@@ -146,9 +146,9 @@ checksum = "c19937216e9d3aa9956d9bb8dfc0b0c8beb6058fc4f7a4dc4d850edf86a237d6"
 
 [[package]]
 name = "libm"
-version = "0.2.11"
+version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8355be11b20d696c8f18f6cc018c4e372165b1fa8126cef092399c9951984ffa"
+checksum = "f9fbbcab51052fe104eb5e5d351cf728d30a5be1fe14d9be8a3b097481fb97de"
 
 [[package]]
 name = "matrixmultiply"
@@ -329,11 +329,13 @@ dependencies = [
  "flame",
  "itertools",
  "lazy_static 1.5.0",
+ "libm",
  "nalgebra",
  "ndarray",
  "num-format",
  "numpy",
  "pyo3",
+ "qd",
  "rand",
  "rand_distr",
  "special",
@@ -421,6 +423,11 @@ dependencies = [
  "quote",
  "syn",
 ]
+
+[[package]]
+name = "qd"
+version = "0.2.0-alpha"
+source = "git+https://github.com/Barandis/qd#0fb276d70346f11f4b2a5b30568d8a26d0dd88df"
 
 [[package]]
 name = "quote"
