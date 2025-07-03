@@ -5,6 +5,7 @@ use std::vec;
 
 use crate::flame;
 
+use compensated_summation::KahanBabuskaNeumaier;
 use numpy::PyArrayMethods;
 use pyo3::exceptions::PyValueError;
 use pyo3::ffi::c_str;
@@ -13,7 +14,6 @@ use pyo3::prelude::*;
 use ndarray::{ArrayD, Axis};
 use pyo3::types::PyNone;
 
-use compensated_summation::KahanBabuskaNeumaier;
 use numpy::PyReadonlyArray1;
 use rand::rngs::SmallRng;
 use rand::Rng;
@@ -26,11 +26,15 @@ use statrs::distribution::{Geometric, Uniform};
 
 use itertools::Itertools;
 use statrs::function::factorial::binomial;
+use statrs::function::gamma::ln_gamma;
 
 use crate::simulator_abstract::Simulator;
 
 use crate::urn::Urn;
-use crate::util::{ln_factorial, ln_gamma, multinomial_sample};
+use crate::util::{
+    ln_f128, ln_factorial, ln_gamma_manual_high_precision, ln_gamma_small_rational,
+    multinomial_sample,
+};
 
 type State = usize;
 type RateConstant = f64;
@@ -508,11 +512,6 @@ impl SimulatorCRNMultiBatch {
     /// Run the simulation for a specified number of steps or until max time is reached
     #[pyo3(signature = (t_max, max_wallclock_time=3600.0))]
     pub fn run(&mut self, t_max: f64, max_wallclock_time: f64) -> PyResult<()> {
-        // self.n_including_extra_species = 1999944;
-        // for i in 0..200 {
-        //     println!("{:?}", self.sample_hypo_directly(850));
-        // }
-        // assert!(false);
         if self.silent {
             return Err(PyValueError::new_err("Simulation is silent; cannot run."));
         }
@@ -607,13 +606,16 @@ impl SimulatorCRNMultiBatch {
 
     #[pyo3(signature = (r, u, has_bounds=false))]
     pub fn sample_collision(&self, r: usize, u: f64, has_bounds: bool) -> usize {
-        flame::start("Rust code.");
-        let a = self.sample_collision_fast(r, u, has_bounds);
-        flame::end("Rust code.");
-        flame::start("Python code.");
-        let _b = self.sample_collision_fast_python(r, u, has_bounds);
-        flame::end("Python code.");
-        return a;
+        // flame::start("Old rust code.");
+        // let a = self.sample_collision_fast_legacy(r, u, has_bounds);
+        // flame::end("Old rust code.");
+        // flame::start("New rust code.");
+        let c = self.sample_collision_fast(r, u, has_bounds);
+        // flame::end("New rust code.");
+        // flame::start("Python code.");
+        // let b = self.sample_collision_fast_python(r, u, has_bounds);
+        // flame::end("Python code.");
+        return c;
     }
 
     /// Sample from collision distribution using python's mpmath library, which allows us to
@@ -1435,6 +1437,154 @@ impl SimulatorCRNMultiBatch {
         let mut t_hi: usize;
 
         // We use a compensated summation algorithm to minimze floating point issues.
+        let mut lhs: f128 = 0.0;
+
+        // We take ln(u) before converting. This is fine, because we don't need high precision
+        // for ln(u) itself; its lowest-order bits aren't affecting the calculation.
+        // This allows the hand-rolled ln_f128 to assume its input is at least 1, since this
+        // is the only call to ln on something greater, since small inputs to ln_gamma
+        // are handled by rational special casing.
+        let ln_u = u.ln() as f128;
+        let ln_g = ln_f128(self.crn.g as f128);
+        let ln_gamma_diff =
+            ln_gamma_manual_high_precision((self.n_including_extra_species + 1 - r) as f128);
+
+        // lhs tracks all of the terms that don't include t, i.e., those that we don't need to
+        // update each iteration of binary search.
+        lhs += ln_gamma_diff;
+        lhs -= ln_u;
+        // if lhs == ln_gamma_diff {
+        //     // TODO: this is a temporary hack/fix for the case where population size blows up.
+        //     println!("Uh oh! u, ln_gamma_diff: {:?}, {:?}", u, ln_gamma_diff);
+        //     return 1;
+        // }
+
+        if self.crn.g > 0 {
+            for j in 0..self.crn.o {
+                // Calculates a = ceil((n-g-j)/g). This is the number of terms in the expansion of
+                // a multifactorial. For example, 11!^(3) (the third multifactorial of 11) is
+                // 11 * 8 * 5 * 2 so there are 4 terms in it. The way we calculate the log of a
+                // multifactorial is to "factor out" the amount each term decreases by (in this example 3,
+                // in general it will always equal g for the multifactorials we care about) from
+                // every term (whether or not they're divisible by it), then rewrite it using gamma.
+                // In this example, 11 * 8 * 5 * 2 = 3^4 * (11 / 3) * (8 / 3) * (5 / 3) * (2 / 3).
+                // So, log(11!^(3)) = 4*log(3) + log((11 / 3) * (8 / 3) * (5 / 3) * (2 / 3))
+                // = 4*log(3) * log(Gamma(14/3) / Gamma(2/3)) [because Gamma(x) = (x-1)*Gamma(x-1)]
+                // = 4*log(3) + lgamma(14/3) - lgamma(2/3).
+                // These three terms are the three terms that are added and subtracted from lhs, to
+                // account for the term log((n-g-j)!(g)).
+                let num_static_terms: usize = (((self.n_including_extra_species - j) as f64
+                    - self.crn.g as f64)
+                    / self.crn.g as f64)
+                    .ceil() as usize;
+                lhs += num_static_terms as f128 * ln_g;
+                lhs += ln_gamma_manual_high_precision(
+                    ((self.n_including_extra_species - j) as f128) / (self.crn.g as f128),
+                );
+
+                lhs -= ln_gamma_small_rational(
+                    self.n_including_extra_species - (num_static_terms * self.crn.g) - j,
+                    self.crn.g,
+                );
+            }
+        } else {
+            // Nothing to do here. There are no other static terms in the g = 0 case.
+        }
+
+        // TODO: it might be worth adding some code to jump-start the search with precomputed values,
+        // as can be done in the population protocols case.
+        // For now, we start with bounds that always hold.
+
+        t_lo = 0;
+        t_hi = 1 + ((self.n_including_extra_species - r) / self.crn.o);
+
+        // We maintain the invariant that P(l >= t_lo) >= u and P(l >= t_hi) < u
+        while t_lo < t_hi - 1 {
+            let t_mid = (t_lo + t_hi) / 2;
+            // rhs tracks all of the terms that include t, i.e., those that we need to
+            // update each iteration of binary search.
+            let mut rhs = ln_gamma_manual_high_precision(
+                (self.n_including_extra_species - r - (t_mid * self.crn.o)) as f128 + 1.0,
+            );
+            if self.crn.g > 0 {
+                for j in 0..self.crn.o {
+                    // Calculates b = ceil((n+g(t-1)-j)/g).
+                    // See the comment in the loop above where num_static_terms is defined for an explanation.
+                    // This is the same thing, for the term log((n+g(t-1)-j)!(g)).
+                    let num_dynamic_terms = (((self.n_including_extra_species
+                        + (self.crn.g as usize * (t_mid - 1))
+                        - j) as f64)
+                        / self.crn.g as f64)
+                        .ceil() as usize;
+                    rhs += (num_dynamic_terms as f128) * ln_g;
+                    rhs += ln_gamma_manual_high_precision(
+                        (self.n_including_extra_species + (self.crn.g * t_mid) - j) as f128
+                            / self.crn.g as f128,
+                    );
+                    rhs -= ln_gamma_small_rational(
+                        self.n_including_extra_species + (self.crn.g * (t_mid - num_dynamic_terms))
+                            - j,
+                        self.crn.g,
+                    );
+                }
+            } else {
+                // g = 0 case is much simpler; there's no multifactorial, as it's analogous
+                // to the population protocols case.
+                for j in 0..self.crn.o {
+                    rhs += (t_mid as f128) * ln_f128((self.n_including_extra_species - j) as f128);
+                }
+            }
+
+            // There's a nasty floating-point precision bug here. If u (the sampled 0-1 uniform
+            // value) is equal to 1.0, then lhs and rhs will fundamentally contain the same terms
+            // added together in a different order. This is unavoidable, but means they might not
+            // be equal as floating point numbers.
+            // Of course, u will never equal 1.0, but on large enough population sizes, the values
+            // of lhs and rhs have high enough magnitudes that for values of u very close to 1.0,
+            // ln(u) might be smaller than the lowest-precision part of lhs and rhs. For example
+            // if u = 1 - 10^-7, then ln(u) is around 10^-7, but at population size 10^9 the
+            // order of magnitude of floating point error in lhs and rhs is greater than this.
+            if lhs < rhs {
+                t_hi = t_mid;
+            } else {
+                t_lo = t_mid;
+            }
+        }
+
+        // Return t_lo instead of t_hi (which simulator_pp_multibatch returns) because the CDF here
+        // is written in terms of p(l >= t) instead of p(l > t).
+
+        // TODO: this is a duct tape fix for the returning 0 bug
+        if t_lo == 0 {
+            println!("The bug has come! u was {:?}", u);
+            return 1;
+        }
+
+        t_lo
+    }
+
+    /// Helper function to get the rate of the exponential representing the time to the next reaction
+    /// at some particular population size.
+    pub fn get_exponential_rate(&self, pop_size: usize) -> f64 {
+        return self.crn.continuous_time_correction_factor
+            * binomial(pop_size as u64, self.crn.o as u64);
+    }
+    /// Sample from an exponential distribution.
+    pub fn sample_exponential(&mut self, rate: f64) -> f64 {
+        let exp = Exp::new(rate).unwrap();
+        return exp.sample(&mut self.rng);
+    }
+
+    pub fn sample_collision_fast_legacy(&self, r: usize, u: f64, _has_bounds: bool) -> usize {
+        // If every agent counts as a collision, the next reaction is a collision.
+        assert!(r <= self.n_including_extra_species);
+        if r == self.n_including_extra_species {
+            return 0;
+        }
+        let mut t_lo: usize;
+        let mut t_hi: usize;
+
+        // We use a compensated summation algorithm to minimze floating point issues.
         let mut lhs = KahanBabuskaNeumaier::new();
 
         let logu = u.ln();
@@ -1553,17 +1703,5 @@ impl SimulatorCRNMultiBatch {
         }
 
         t_lo
-    }
-
-    /// Helper function to get the rate of the exponential representing the time to the next reaction
-    /// at some particular population size.
-    pub fn get_exponential_rate(&self, pop_size: usize) -> f64 {
-        return self.crn.continuous_time_correction_factor
-            * binomial(pop_size as u64, self.crn.o as u64);
-    }
-    /// Sample from an exponential distribution.
-    pub fn sample_exponential(&mut self, rate: f64) -> f64 {
-        let exp = Exp::new(rate).unwrap();
-        return exp.sample(&mut self.rng);
     }
 }

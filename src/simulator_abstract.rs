@@ -1,6 +1,6 @@
 use pyo3::prelude::*;
 
-use numpy::{PyReadonlyArray1};
+use numpy::PyReadonlyArray1;
 
 type State = usize;
 
@@ -28,8 +28,7 @@ pub struct Simulator {
 impl Simulator {
     /// Initializes the simulator.
     #[new]
-    pub fn new(
-    ) -> Self {
+    pub fn new() -> Self {
         unimplemented!()
     }
 
@@ -62,6 +61,4 @@ impl Simulator {
     pub fn reset(&mut self, config: PyReadonlyArray1<State>, t: usize) -> PyResult<()> {
         unimplemented!()
     }
-
 }
-

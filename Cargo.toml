@@ -38,7 +38,6 @@ lazy_static = "1"
 stybulate = "1"
 itertools = "0.14.0"
 compensated-summation = "0.3.1"
-qd = { git = "https://github.com/Barandis/qd", version = "0.2.0-alpha" }
 libm = "0.2.15"
 # micromath = "2"
 # const-ln = "0.1.2"
