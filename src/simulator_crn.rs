@@ -26,15 +26,12 @@ use statrs::distribution::{Geometric, Uniform};
 
 use itertools::Itertools;
 use statrs::function::factorial::binomial;
-use statrs::function::gamma::ln_gamma;
+// use statrs::function::gamma::ln_gamma;
 
 use crate::simulator_abstract::Simulator;
 
 use crate::urn::Urn;
-use crate::util::{
-    ln_f128, ln_factorial, ln_gamma_manual_high_precision, ln_gamma_small_rational,
-    multinomial_sample,
-};
+use crate::util::{ln_factorial, ln_gamma, multinomial_sample};
 
 type State = usize;
 type RateConstant = f64;
@@ -1437,17 +1434,16 @@ impl SimulatorCRNMultiBatch {
         let mut t_hi: usize;
 
         // We use a compensated summation algorithm to minimze floating point issues.
-        let mut lhs: f128 = 0.0;
+        let mut lhs: f64 = 0.0;
 
         // We take ln(u) before converting. This is fine, because we don't need high precision
         // for ln(u) itself; its lowest-order bits aren't affecting the calculation.
         // This allows the hand-rolled ln_f128 to assume its input is at least 1, since this
         // is the only call to ln on something greater, since small inputs to ln_gamma
         // are handled by rational special casing.
-        let ln_u = u.ln() as f128;
-        let ln_g = ln_f128(self.crn.g as f128);
-        let ln_gamma_diff =
-            ln_gamma_manual_high_precision((self.n_including_extra_species + 1 - r) as f128);
+        let ln_u = u.ln();
+        let ln_g = (self.crn.g as f64).ln();
+        let ln_gamma_diff = ln_gamma((self.n_including_extra_species + 1 - r) as f64);
 
         // lhs tracks all of the terms that don't include t, i.e., those that we don't need to
         // update each iteration of binary search.
@@ -1477,14 +1473,13 @@ impl SimulatorCRNMultiBatch {
                     - self.crn.g as f64)
                     / self.crn.g as f64)
                     .ceil() as usize;
-                lhs += num_static_terms as f128 * ln_g;
-                lhs += ln_gamma_manual_high_precision(
-                    ((self.n_including_extra_species - j) as f128) / (self.crn.g as f128),
-                );
+                lhs += num_static_terms as f64 * ln_g;
+                lhs +=
+                    ln_gamma(((self.n_including_extra_species - j) as f64) / (self.crn.g as f64));
 
-                lhs -= ln_gamma_small_rational(
-                    self.n_including_extra_species - (num_static_terms * self.crn.g) - j,
-                    self.crn.g,
+                lhs -= ln_gamma(
+                    (self.n_including_extra_species - (num_static_terms * self.crn.g) - j) as f64
+                        / self.crn.g as f64,
                 );
             }
         } else {
@@ -1503,9 +1498,8 @@ impl SimulatorCRNMultiBatch {
             let t_mid = (t_lo + t_hi) / 2;
             // rhs tracks all of the terms that include t, i.e., those that we need to
             // update each iteration of binary search.
-            let mut rhs = ln_gamma_manual_high_precision(
-                (self.n_including_extra_species - r - (t_mid * self.crn.o)) as f128 + 1.0,
-            );
+            let mut rhs =
+                ln_gamma((self.n_including_extra_species - r - (t_mid * self.crn.o)) as f64 + 1.0);
             if self.crn.g > 0 {
                 for j in 0..self.crn.o {
                     // Calculates b = ceil((n+g(t-1)-j)/g).
@@ -1516,22 +1510,23 @@ impl SimulatorCRNMultiBatch {
                         - j) as f64)
                         / self.crn.g as f64)
                         .ceil() as usize;
-                    rhs += (num_dynamic_terms as f128) * ln_g;
-                    rhs += ln_gamma_manual_high_precision(
-                        (self.n_including_extra_species + (self.crn.g * t_mid) - j) as f128
-                            / self.crn.g as f128,
+                    rhs += (num_dynamic_terms as f64) * ln_g;
+                    rhs += ln_gamma(
+                        (self.n_including_extra_species + (self.crn.g * t_mid) - j) as f64
+                            / self.crn.g as f64,
                     );
-                    rhs -= ln_gamma_small_rational(
-                        self.n_including_extra_species + (self.crn.g * (t_mid - num_dynamic_terms))
-                            - j,
-                        self.crn.g,
+                    rhs -= ln_gamma(
+                        (self.n_including_extra_species
+                            + (self.crn.g * (t_mid - num_dynamic_terms))
+                            - j) as f64
+                            / self.crn.g as f64,
                     );
                 }
             } else {
                 // g = 0 case is much simpler; there's no multifactorial, as it's analogous
                 // to the population protocols case.
                 for j in 0..self.crn.o {
-                    rhs += (t_mid as f128) * ln_f128((self.n_including_extra_species - j) as f128);
+                    rhs += (t_mid as f64) * ln_gamma((self.n_including_extra_species - j) as f64);
                 }
             }
 

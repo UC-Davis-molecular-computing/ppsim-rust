@@ -1,5 +1,3 @@
-#![feature(f128)]
-#![feature(float_gamma)]
 use pyo3::prelude::*;
 
 pub mod simulator_abstract;

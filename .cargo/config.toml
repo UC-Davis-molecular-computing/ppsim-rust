@@ -1,2 +1,11 @@
 [env]
 PYTHON_SYS_EXECUTABLE = "C:/Dropbox/git/ppsim-rust/.venv/Scripts/python.exe"
+# Tell gmp-mpfr-sys to use system libraries instead of building from source
+GMP_MPFR_SYS_USE_SYSTEM = "1"
+# Point to MSYS2 libraries
+PKG_CONFIG_PATH = "C:/msys64/mingw64/lib/pkgconfig"
+LIBRARY_PATH = "C:/msys64/mingw64/lib"
+CPATH = "C:/msys64/mingw64/include"
+
+[target.x86_64-pc-windows-gnu]
+linker = "gcc"
