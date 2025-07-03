@@ -6,7 +6,9 @@
     "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
     "python.terminal.activateEnvironment": false,
     "terminal.integrated.env.windows": {
-        "CONDA_AUTO_ACTIVATE_BASE": "false"
+        "CONDA_AUTO_ACTIVATE_BASE": "false",
+        "MSYSTEM": "MINGW64",
+        "PATH": "C:\\msys64\\mingw64\\bin;C:\\msys64\\usr\\bin;${env:PATH}"
     },
     "terminal.integrated.defaultProfile.windows": "PowerShell",
     "terminal.integrated.profiles.windows": {
@@ -27,6 +29,15 @@
         "Command Prompt": {
             "path": "cmd.exe",
             "icon": "terminal-cmd"
+        },
+        "MSYS2": {
+            "path": "C:\\msys64\\usr\\bin\\bash.exe",
+            "args": ["--login", "-i"],
+            "env": {
+                "CHERE_INVOKING": "1",
+                "MSYSTEM": "MINGW64"
+            },
+            "icon": "terminal-bash"
         }
     },
     "terminal.integrated.shellIntegration.enabled": true,
@@ -38,12 +49,14 @@
     "rust-analyzer.cargo.extraEnv": {
         "PYTHON_SYS_EXECUTABLE": "${workspaceFolder}/.venv/Scripts/python.exe",
         "PYO3_PYTHON": "${workspaceFolder}/.venv/Scripts/python.exe",
-        "VIRTUAL_ENV": "${workspaceFolder}/.venv"
+        "VIRTUAL_ENV": "${workspaceFolder}/.venv",
+        "PATH": "C:\\msys64\\mingw64\\bin;C:\\msys64\\usr\\bin;${env:PATH}"
     },
     "rust-analyzer.server.extraEnv": {
         "PYTHON_SYS_EXECUTABLE": "${workspaceFolder}/.venv/Scripts/python.exe",
         "PYO3_PYTHON": "${workspaceFolder}/.venv/Scripts/python.exe",
-        "VIRTUAL_ENV": "${workspaceFolder}/.venv"
+        "VIRTUAL_ENV": "${workspaceFolder}/.venv",
+        "PATH": "C:\\msys64\\mingw64\\bin;C:\\msys64\\usr\\bin;${env:PATH}"
     },
     "[rust]": {
         "editor.defaultFormatter": "rust-lang.rust-analyzer",

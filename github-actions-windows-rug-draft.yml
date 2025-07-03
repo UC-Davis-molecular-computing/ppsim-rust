@@ -1,0 +1,61 @@
+# Draft GitHub Actions configuration for Windows builds with rug crate
+# This will need to be integrated into the existing build_and_publish.yml
+
+windows-rug:
+  runs-on: windows-latest
+  steps:
+    - uses: actions/checkout@v4
+    
+    - uses: actions/setup-python@v5
+      with:
+        python-version: 3.x
+        architecture: x64
+    
+    # Install Rust with GNU toolchain
+    - name: Install Rust GNU toolchain
+      run: |
+        rustup toolchain install stable-x86_64-pc-windows-gnu
+        rustup default stable-x86_64-pc-windows-gnu
+    
+    # Install MSYS2
+    - name: Setup MSYS2
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: MINGW64
+        install: >-
+          base-devel
+          mingw-w64-x86_64-toolchain
+          mingw-w64-x86_64-gcc
+    
+    # Install and configure VCPKG
+    - name: Setup VCPKG
+      run: |
+        git clone https://github.com/Microsoft/vcpkg.git C:\vcpkg
+        C:\vcpkg\bootstrap-vcpkg.bat
+        C:\vcpkg\vcpkg.exe install gmp:x64-mingw-dynamic
+        C:\vcpkg\vcpkg.exe install mpfr:x64-mingw-dynamic
+    
+    # Set environment variables
+    - name: Configure build environment
+      run: |
+        echo "MSYSTEM=MINGW64" >> $env:GITHUB_ENV
+        echo "CC=gcc" >> $env:GITHUB_ENV
+        echo "CXX=g++" >> $env:GITHUB_ENV
+        echo "CFLAGS=-O2" >> $env:GITHUB_ENV
+        echo "CXXFLAGS=-O2" >> $env:GITHUB_ENV
+        echo "VCPKG_ROOT=C:\vcpkg" >> $env:GITHUB_ENV
+        echo "C:\msys64\mingw64\bin;C:\msys64\usr\bin" >> $env:GITHUB_PATH
+    
+    # Build wheels
+    - name: Build wheels
+      shell: msys2 {0}
+      run: |
+        export MSYSTEM=MINGW64
+        export PATH="/mingw64/bin:/usr/bin:/bin:$PATH"
+        maturin build --release --out dist --find-interpreter
+    
+    - name: Upload wheels
+      uses: actions/upload-artifact@v4
+      with:
+        name: wheels-windows-rug
+        path: dist

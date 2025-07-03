@@ -38,8 +38,8 @@ lazy_static = "1"
 stybulate = "1"
 itertools = "0.14.0"
 compensated-summation = "0.3.1"
-qd = { git = "https://github.com/Barandis/qd", version = "0.2.0-alpha" }
-libm = "0.2.15"
+# Use rug for high-precision floating point operations (ln_gamma, etc.)
+rug = { version = "1.26", features = ["float"], default-features = false }
 # micromath = "2"
 # const-ln = "0.1.2"
 # rgsl = "7"

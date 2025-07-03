@@ -1,0 +1,18 @@
+[env]
+PYTHON_SYS_EXECUTABLE = "C:/Dropbox/git/ppsim-rust/.venv/Scripts/python.exe"
+# MSYS2 environment for building native dependencies
+MSYSTEM = "MINGW64"
+# Use Unix-style paths for configure scripts
+CC = "gcc"
+CXX = "g++"
+CFLAGS = "-O2"
+CXXFLAGS = "-O2"
+PATH = "/mingw64/bin:/usr/bin:/bin"
+# Use MSYS2 libraries directly
+PKG_CONFIG_PATH = "/mingw64/lib/pkgconfig"
+LIBRARY_PATH = "/mingw64/lib"
+CPATH = "/mingw64/include"
+
+[target.x86_64-pc-windows-gnu]
+# Ensure we use the MSYS2 linker
+linker = "C:/msys64/mingw64/bin/gcc.exe"
