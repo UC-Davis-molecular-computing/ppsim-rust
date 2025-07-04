@@ -23,8 +23,8 @@ flm = ["flame"]  # Enable flame profiling to be switched on/off
 
 
 [dependencies]
-rug = { version = "1", default-features = false, features = ["float"] }
-gmp-mpfr-sys = {version = "1.6", features = ["use-system-libs"]}
+# rug = { version = "1", default-features = false, features = ["float"] }
+# gmp-mpfr-sys = {version = "1.6", features = ["use-system-libs"]}
 num-format = "0.4"
 pyo3 = { version = "0.24", features = ["extension-module"] }
 numpy = "0.24"

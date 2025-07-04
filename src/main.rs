@@ -7,7 +7,7 @@ fn main() {
     let x = Float::with_val(400, xf);
     println!("x = {}", x.clone());
 
-    // Test ln_gamma function - this was the original goal!
+    // Test ln_gamma function
     let ln_gamma_x = x.clone().ln_gamma();
     println!("ln_gamma({xf}) = {ln_gamma_x}");
 
@@ -18,8 +18,4 @@ fn main() {
     // Test gamma function
     let gamma_x = x.gamma();
     println!("gamma({xf}) = {gamma_x}",);
-
-    println!(
-        "✅ SUCCESS! High-precision arithmetic with ln_gamma is working correctly on Windows!"
-    );
 }

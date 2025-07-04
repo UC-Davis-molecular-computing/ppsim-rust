@@ -158,9 +158,9 @@ def get_rebop_samples(pop_exponent, trials, predator_count, state, final_time):
     return output
 
 def test_distribution():
-    pop_exponent = 11
-    trials_exponent = 0
-    final_time_exponent = -2
+    pop_exponent = 9
+    trials_exponent = 5
+    final_time_exponent = -6
     a,b = pp.species('A B')
     
     final_time = 10 ** final_time_exponent
