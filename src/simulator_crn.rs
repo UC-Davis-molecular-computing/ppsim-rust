@@ -665,14 +665,13 @@ impl SimulatorCRNMultiBatch {
     }
 
     /// Sample from the length of how long this batch would take to run, in continuous time.
-    pub fn sample_batch_time(&mut self, batch_size: usize) -> f64 {
+    /// Population size is included as a parameter for checkpoint rejection sampling, so that
+    /// this function can be called on population sizes other than n without updating n.
+    pub fn sample_batch_time(&mut self, initial_n: usize, batch_size: usize) -> f64 {
         assert!(batch_size > 0);
         // For now, we're just gonna do the geometric mean thing.
-        let first_term = 1.0 / self.get_exponential_rate(self.n_including_extra_species);
-        let last_term = 1.0
-            / self.get_exponential_rate(
-                self.n_including_extra_species + self.crn.g * (batch_size - 1),
-            );
+        let first_term = 1.0 / self.get_exponential_rate(initial_n);
+        let last_term = 1.0 / self.get_exponential_rate(initial_n + self.crn.g * (batch_size - 1));
         let prod = first_term * last_term;
         assert!(prod > 0.0);
         let geom_mean = prod.sqrt();
@@ -682,17 +681,12 @@ impl SimulatorCRNMultiBatch {
         let mut estimated_variance = 0.0;
         let last_term = 1.0
             / self
-                .get_exponential_rate(
-                    self.n_including_extra_species + (batch_size - 1) * self.crn.g,
-                )
+                .get_exponential_rate(initial_n + (batch_size - 1) * self.crn.g)
                 .powi(2);
         if last_term == 0.0 {
             println!("Last term is 0!");
         } else {
-            let first_term = 1.0
-                / self
-                    .get_exponential_rate(self.n_including_extra_species)
-                    .powi(2);
+            let first_term = 1.0 / self.get_exponential_rate(initial_n).powi(2);
             let _relative_error_first_last_term = relative_error(first_term, last_term);
             let var_prod = first_term * last_term;
             estimated_variance = batch_size as f64 * var_prod.sqrt();
@@ -705,7 +699,7 @@ impl SimulatorCRNMultiBatch {
         let val = gamma.sample(&mut self.rng);
         // println!(
         //     "val, variance, mean, popsize, batchsize: {:?}, {:?}, {:?}, {:?}, {:?}",
-        //     val, estimated_variance, estimated_mean, self.n_including_extra_species, batch_size
+        //     val, estimated_variance, estimated_mean, initial_n, batch_size
         // );
         // println!(
         //     "Correction factor: {:?}",
@@ -929,7 +923,7 @@ impl SimulatorCRNMultiBatch {
         }
         assert!(l > 0, "sample_coll must return at least 1 for batching");
         // println!("about to sample batch time");
-        let batch_time = self.sample_batch_time(l);
+        let batch_time = self.sample_batch_time(self.n_including_extra_species, l);
         // println!("Sampled batch time");
         let mut do_collision = true;
         // println!(
@@ -961,23 +955,24 @@ impl SimulatorCRNMultiBatch {
             // to do this rejection sampling with probability p, and it will succeed with
             // probability p, meaning we will have to run it about 1/p times, so about once per
             // checkpoint that the user wants.
-            flame::start("checkpoint rejection sampling");
             do_collision = false;
-            let mut time_exceeded = false;
+            flame::start("checkpoint rejection sampling");
             // println!("Batch time was {:?}.", batch_time);
-            while !time_exceeded {
-                let mut partial_batch_time = 0.0;
-                for i in 0..l {
-                    let rate =
-                        self.get_exponential_rate(self.n_including_extra_species + i * self.crn.g);
-                    partial_batch_time += self.sample_exponential(rate);
-                    if partial_batch_time + self.continuous_time > t_max {
-                        time_exceeded = true;
-                        rxns_before_coll = i;
-                        break;
-                    }
-                }
-            }
+            rxns_before_coll = self.checkpoint_rejection_sampling(l, t_max);
+            // let mut time_exceeded = false;
+            // while !time_exceeded {
+            //     let mut partial_batch_time = 0.0;
+            //     for i in 0..l {
+            //         let rate =
+            //             self.get_exponential_rate(self.n_including_extra_species + i * self.crn.g);
+            //         partial_batch_time += self.sample_exponential(rate);
+            //         if partial_batch_time + self.continuous_time > t_max {
+            //             time_exceeded = true;
+            //             rxns_before_coll = i;
+            //             break;
+            //         }
+            //     }
+            // }
             self.continuous_time = t_max;
             flame::end("checkpoint rejection sampling");
         }
@@ -1850,5 +1845,58 @@ impl SimulatorCRNMultiBatch {
         }
 
         t_lo
+    }
+
+    /// TODO: docstring
+    fn checkpoint_rejection_sampling(&mut self, l: usize, t_max: f64) -> usize {
+        // We assume (by preconditioning) initially that the CRN goes past t_max in l reactions.
+        // We binary search for the index of the interaction, indexing from 1, at which it goes over.
+        // We may need to change this preconditioning at some point, making a new "checkpoint".
+        let mut latest_possible_collision_index = l;
+        let mut time_at_checkpoint = self.continuous_time;
+        let mut done_reactions_at_checkpoint = 0;
+        let mut pop_size_at_checkpoint = self.n_including_extra_species;
+        let mut ran_over_end_time: bool = false;
+        while !ran_over_end_time {
+            // We're either starting for the first time, or just rejected a sample.
+            let mut current_simulated_time = time_at_checkpoint;
+            let mut current_simulated_reactions = done_reactions_at_checkpoint;
+            let mut current_simulated_population_size = pop_size_at_checkpoint;
+            while current_simulated_reactions < latest_possible_collision_index {
+                // Dunno what a good name for this variable is.
+                let halfway_point =
+                    (latest_possible_collision_index - current_simulated_reactions + 1) / 2;
+                // Check how long it would take to get halfway through the part of the batch
+                // that we have yet to figure out what to do with.
+                let time_to_halfway_point =
+                    self.sample_batch_time(current_simulated_population_size, halfway_point);
+                // Did it run past the end in that many reactions?
+                if current_simulated_time + time_to_halfway_point > t_max {
+                    // If so, then we know that it ran past t_max at some point in this range.
+                    // In fact, there's no way anymore for this sample to be a failure based on
+                    // our initial preconditioning. So now we need to change the failure
+                    // condition for the rejection sampling, essentially "locking in" *everything*
+                    // we have done so far.
+                    done_reactions_at_checkpoint = current_simulated_reactions;
+                    latest_possible_collision_index = current_simulated_reactions + halfway_point;
+                    time_at_checkpoint = current_simulated_time;
+                    pop_size_at_checkpoint = current_simulated_population_size;
+                    // If the number of reactions we know must happen is one less than the
+                    // latest possible index of the collision, we're done binary searching.
+                    if done_reactions_at_checkpoint + 1 == latest_possible_collision_index {
+                        ran_over_end_time = true;
+                    }
+                } else {
+                    // If not, then the first half of the reactions happen before a collision.
+                    // We just sampled how long they'll take, so we update accordingly.
+                    current_simulated_time += time_to_halfway_point;
+                    // We're now sampling the remaining reaction times from a larger population size.
+                    current_simulated_reactions += halfway_point;
+                    current_simulated_population_size += self.crn.g * halfway_point;
+                }
+            }
+            // If we get here and ran_over_end_time is false, that means we're rejecting a sample.
+        }
+        return done_reactions_at_checkpoint;
     }
 }
