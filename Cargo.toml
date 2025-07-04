@@ -35,6 +35,8 @@ nalgebra = "0.33"
 flame = { version = "0.2", optional = true }  # Make flame optional so we can turn it on/off
 special = "0.11"
 rand_distr = "0.4"
+num-bigint = "0.4"  # For high precision decimal conversion
+# lexical = "6.1"  # For f128 to string conversion - doesn't support f128 yet
 # puruspe = "0.4"
 lazy_static = "1"
 stybulate = "1"
