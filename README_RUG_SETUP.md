@@ -39,9 +39,14 @@ The rug crate provides Rust bindings for the GNU Multiple Precision Arithmetic L
 
 Open an MSYS2 terminal and install the necessary packages:
 
+TODO: I think we don't need `mingw-w64-x86_64-mpc`, but it was installed when I tried this originally, so try installing it with pacman as well if the below does not work.
+
 ```bash
+# Install compiler tools
+pacman -S mingw-w64-x86_64-toolchain mingw-w64-x86_64-gcc mingw-w64-x86_64-make
+
 # Install GMP, MPFR, and MPC libraries
-pacman -S mingw-w64-x86_64-gmp mingw-w64-x86_64-mpfr mingw-w64-x86_64-mpc
+pacman -S mingw-w64-x86_64-gmp mingw-w64-x86_64-mpfr 
 
 # Install pkg-config (optional but recommended)
 pacman -S mingw-w64-x86_64-pkg-config
