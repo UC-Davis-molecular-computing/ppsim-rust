@@ -183,6 +183,7 @@ def test_distribution():
     state = 'B'
     results_batching = sim.sample_future_configuration(final_time, num_samples=trials)
     print(f"total reactions simulated by batching: {sim.simulator.discrete_steps_not_including_nulls}") #type: ignore
+    sim.simulator.write_profile() # type: ignore
     results_rebop = get_rebop_samples(pop_exponent, trials, b_init, state, final_time)
     
     fig, ax = plt.subplots(figsize = (10,4))
@@ -203,7 +204,6 @@ def test_distribution():
     # plt.ylim(0, 200_000)
 
     # plt.savefig(pdf_fn, bbox_inches='tight')
-    sim.simulator.write_profile() # type: ignore
     plt.show()
 
 

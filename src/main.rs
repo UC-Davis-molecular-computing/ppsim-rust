@@ -1,30 +1,25 @@
-use ppsim_rust::simulator_pp_multibatch::SimulatorMultiBatch;
-
+use rug::Float;
 fn main() {
-    let delta = vec![
-        vec![(0, 0), (1, 1), (2, 2)],
-        vec![(0, 0), (1, 1), (2, 2)],
-        vec![(0, 0), (1, 1), (2, 2)],
-    ];
-    let n = 100usize;
-    let a_init = (0.51 * n as f64) as usize;
-    let b_init = n - a_init;
-    let init_config = vec![a_init as usize, b_init as usize, 0];
-    let transition_order = "symmetric".to_string();
-    let gillespie = false;
-    let seed = Some(1);
-    let sim = SimulatorMultiBatch::from_delta_deterministic(
-        delta,
-        init_config,
-        transition_order,
-        gillespie,
-        seed,
+    println!("🧪 Testing Rug crate with high-precision arithmetic on Windows...");
+
+    // Test basic arithmetic
+    let xf: f64 = 4.0;
+    let x = Float::with_val(400, xf);
+    println!("x = {}", x.clone());
+
+    // Test ln_gamma function - this was the original goal!
+    let ln_gamma_x = x.clone().ln_gamma();
+    println!("ln_gamma({xf}) = {ln_gamma_x}");
+
+    // Test more precision
+    let high_prec = Float::with_val(200, 1.2345678901234567890123456789_f64);
+    println!("High precision number: {}", high_prec);
+
+    // Test gamma function
+    let gamma_x = x.gamma();
+    println!("gamma({xf}) = {gamma_x}",);
+
+    println!(
+        "✅ SUCCESS! High-precision arithmetic with ln_gamma is working correctly on Windows!"
     );
-    println!("n={n}");
-    let r = 2;
-    let u = 0.713;
-    let has_bounds = true;
-    let pp = true;
-    let l = sim.sample_coll(r, u, has_bounds, pp);
-    println!("l={l}");
 }

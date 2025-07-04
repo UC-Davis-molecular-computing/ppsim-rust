@@ -2,18 +2,10 @@ use rand::rngs::SmallRng;
 use rand::Rng;
 
 use rand_distr::Distribution;
+use rug::Float;
 
 #[allow(unused_imports)]
 use crate::flame;
-
-// pub fn ln_gamma_double(x: Double) -> Double {
-//     if x > dd!(MIN_LARGE_LN_GAMMA_INPUT) {
-//         return ln_gamma_manual_high_precision(x);
-//     } else {
-//         // Doing this at least for now, to avoid rolling our own fully general loggamma implementation
-//         return dd!(ln_gamma(x.into()));
-//     }
-// }
 
 // #[cfg(feature = "ue")]
 pub fn ln_gamma(x: f64) -> f64 {
@@ -87,6 +79,7 @@ pub fn ln_gamma_special(x: f64) -> f64 {
 // Since we only call it on non-negative integers, we can simplify some of the code that was handling
 // negative integers and NaN values.
 const M_LN_SQRT_2PI: f64 = 0.918938533204672741780329736406; // log(sqrt(2*pi)) == log(2*pi)/2
+const M_LN_SQRT_2PI_128: f128 = 0.918938533204672741780329736406; // log(sqrt(2*pi)) == log(2*pi)/2
 
 const MAX_NEEDED_PRECISION: f128 = 1.0e-30;
 // See OEIS A046969, A046968.
@@ -136,20 +129,56 @@ pub fn ln_gamma_manual_high_precision_large(x: f128) -> f128 {
         x > MIN_LARGE_LN_GAMMA_INPUT,
         "high precision ln_gamma requires large input."
     );
-    flame::start("manual_high_precision");
+    // flame::start("manual_high_precision");
 
+    // flame::start("ln call");
     let lnx = ln_f128(x);
+    // flame::end("ln call");
 
-    let mut ret = M_LN_SQRT_2PI as f128 + (x - 0.5) * lnx - x;
+    // flame::start("f64 ln call");
+    // let _lnf64 = (x as f64).ln();
+    // flame::end("f64 ln call");
+
+    // let a64: f64 = 123.456;
+    // let b64: f64 = 789.124;
+    // flame::start("f64 random arithmetic");
+    // let _ = a64 + b64;
+    // let _ = a64 - b64;
+    // let _ = a64 * b64;
+    // let _ = a64 / b64;
+    // flame::end("f64 random arithmetic");
+
+    // let a128: f128 = 123.456;
+    // let b128: f128 = 789.124;
+    // flame::start("f128 random arithmetic");
+    // let _ = a128 + b128;
+    // let _ = a128 - b128;
+    // let _ = a128 * b128;
+    // let _ = a128 / b128;
+    // flame::end("f128 random arithmetic");
+
+    // flame::start("initial computation");
+    let mut ret = M_LN_SQRT_2PI_128 + (x - 0.5) * lnx - x;
+    // flame::end("initial computation");
     // Stirling's series converges quickly when x >> 1.
     for i in 0..MAX_BERNOULLI_TERMS {
+        // if i == 0 {
+        //     flame::start("iteration 1");
+        // } else {
+        //     flame::start("iteration 2+");
+        // }
         let delta = BERNOULLI_COEFFS[i] / x.powi((2 * i + 1) as i32);
         ret += delta;
+        // if i == 0 {
+        //     flame::end("iteration 1");
+        // } else {
+        //     flame::end("iteration 2+");
+        // }
         if delta < MAX_NEEDED_PRECISION {
             break;
         }
     }
-    flame::end("manual_high_precision");
+    // flame::end("manual_high_precision");
     ret
 }
 
@@ -279,7 +308,7 @@ const PRECOMPUTED_SMALL_RATIONAL_LN_GAMMAS: [[f128; MAX_PRECOMPUTED_DENOMINATOR]
 ];
 
 pub fn ln_gamma_small_rational(num: usize, den: usize) -> f128 {
-    flame::start("small_rational");
+    // flame::start("small_rational");
     assert!(
         den <= MAX_PRECOMPUTED_DENOMINATOR,
         "For now, we're assuming generativity is less than 10."
@@ -288,12 +317,31 @@ pub fn ln_gamma_small_rational(num: usize, den: usize) -> f128 {
         num <= den,
         "ln_gamma_small_rational should only be called on values between 0 and 1."
     );
-    flame::end("small_rational");
+    // flame::end("small_rational");
     PRECOMPUTED_SMALL_RATIONAL_LN_GAMMAS[num - 1][den - 1]
+}
+
+pub fn ln_gamma_small_rational_rug(prec: u32, num: usize, den: usize) -> Float {
+    // flame::start("small_rational");
+    assert!(
+        den <= MAX_PRECOMPUTED_DENOMINATOR,
+        "For now, we're assuming generativity is less than 10."
+    );
+    assert!(
+        num <= den,
+        "ln_gamma_small_rational should only be called on values between 0 and 1."
+    );
+    // flame::end("small_rational");
+    Float::with_val(
+        prec,
+        PRECOMPUTED_SMALL_RATIONAL_LN_GAMMAS[num - 1][den - 1] as f64,
+    )
 }
 
 const LN2: f128 = 0.693147180559945309417232121458179; /* 3fe62e42 fee00000 */
 // const LN2_LO: f128 = 1.90821492927058770002e-10; /* 3dea39ef 35793c76 */
+// Thanks to Danny Hermes for publishing a script that could be easily tweaked to compute
+// enough of these values at high precision: https://gist.github.com/dhermes/105da2a3c9861c90ea39
 const LG1: f128 =
     0.66666666666666666666666666875815545229093281985458066108081113465975841990625437013082687;
 const LG2: f128 =
@@ -324,33 +372,52 @@ const SQRT2: f128 = 1.41421356237309504880168872420977;
 
 // f128 natural log. Mostly copied from https://github.com/rust-lang/libm/blob/master/libm/src/math/log.rs
 pub fn ln_f128(x: f128) -> f128 {
-    assert!(x >= 1.0, "ln_f128 assumes its input is at least 1.");
+    // flame::start("Part 1");
+    // assert!(x >= 1.0, "ln_f128 assumes its input is at least 1.");
     // Get the exponent from the f128. It has one sign bit followed by 15 exponent bits.
     // https://en.wikipedia.org/wiki/Quadruple-precision_floating-point_format
+    // flame::start("bitshift");
     let exponent_raw = (x.to_bits() << 1) >> 113;
-    let mut exponent = exponent_raw.cast_signed() - 0x3FFF;
-    assert!(exponent >= 0);
+    // TODO: try making exponent 16 or 32 bits.
+    // flame::end("bitshift");
+    // flame::start("cast_signed");
+    let exponent = exponent_raw.cast_signed() - 0x3FFF;
+    // flame::end("cast_signed");
+    // We don't expect to call ln on anything less than 1.
+    // assert!(
+    //     exponent >= 0,
+    //     "exponent should be nonnegative, since we assume x >= 1.0"
+    // );
 
+    // flame::end("Part 1");
+    // flame::start("Part 2");
     // Get a value betwen 1 and 2.
+    // TODO: try something smaller than 2u64
+    // TODO: rename/add extra variables to make it easier to go back and understand this in comparison
+    // with the document that explains it well.
     let mut normalized_x = x / 2u64.pow(exponent as u32) as f128;
+    let mut k = exponent;
     if normalized_x > SQRT2 {
         normalized_x *= 0.5;
-        exponent += 1;
+        k += 1;
     }
-    let ln_2_term = exponent as f128 * LN2;
-    // We don't actually need that much precision on this normalized value. I think.
-    // So we can just use f64's ln from here.
+    let k_times_ln_2 = k as f128 * LN2;
+    // flame::end("Part 2");
+    // flame::start("Part 3");
 
     let f: f128 = normalized_x - 1.0;
     let hfsq: f128 = 0.5 * f * f;
     let s: f128 = f / (2.0 + f);
     let z: f128 = s * s;
     let w: f128 = z * z;
+    // flame::end("Part 3");
+    // flame::start("Part 4");
     let t1: f128 = w * (LG2 + w * (LG4 + w * (LG6 + w * (LG8 + w * (LG10 + w * LG12)))));
     let t2: f128 =
         z * (LG1 + w * (LG3 + w * (LG5 + w * (LG7 + w * (LG9 + w * (LG11 + w * LG13))))));
     let r: f128 = t2 + t1;
-    s * (hfsq + r) - hfsq + f + ln_2_term
+    // flame::end("Part 4");
+    s * (hfsq + r) - hfsq + f + k_times_ln_2
 }
 
 const ALGMCS: [f64; 15] = [
