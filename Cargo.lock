@@ -332,6 +332,7 @@ dependencies = [
  "libm",
  "nalgebra",
  "ndarray",
+ "num-bigint",
  "num-format",
  "numpy",
  "pyo3",
