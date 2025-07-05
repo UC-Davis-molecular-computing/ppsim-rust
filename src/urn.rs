@@ -130,7 +130,7 @@ impl Urn {
         while n > 0 && i < self.config.len() - 1 {
             let index = self.order[i];
             let successes = self.config[index];
-            let h = hypergeometric_sample(total, successes, n, &mut self.rng)?;
+            let h = hypergeometric_sample(total, successes, n, &mut self.rng);
             total -= self.config[index];
 
             v[index] = h;

@@ -32,7 +32,7 @@ pub fn hypergeometric_sample(
     good: usize,
     draws: usize,
     rng: &mut SmallRng,
-) -> Result<usize, String> {
+) -> usize {
     // println!("hypergeometric_sample_manual");
     hypergeometric_sample_manual(popsize, good, draws, rng)
 }
@@ -546,20 +546,18 @@ pub fn hypergeometric_sample_manual(
     good: usize,
     draws: usize,
     rng: &mut SmallRng,
-) -> Result<usize, String> {
+) -> usize {
     if good > popsize {
         panic!("good must be less than or equal to popsize");
     }
     if draws > popsize {
         panic!("sample must be less than or equal to popsize");
     }
-    let h: usize;
     if draws >= 10 && draws <= popsize - 10 {
-        h = hypergeometric_hrua(popsize, good, draws, rng);
+        hypergeometric_hrua(popsize, good, draws, rng)
     } else {
-        h = hypergeometric_sample_naive(popsize, good, draws, rng);
+        hypergeometric_sample_naive(popsize, good, draws, rng)
     }
-    Ok(h)
 }
 
 fn hypergeometric_sample_naive(
