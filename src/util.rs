@@ -1,3 +1,4 @@
+use num_bigint::BigInt;
 use rand::rngs::SmallRng;
 use rand::Rng;
 
@@ -7,14 +8,16 @@ use rand_distr::{Distribution, Hypergeometric, StandardUniform};
 #[allow(unused_imports)]
 use crate::flame;
 
-// copied from statrs
-// https://github.com/statrs-dev/statrs/blob/526e85e20b833f1825ec65e6c0893ec2b06db0cf/src/function/factorial.rs#L42C1-L48C2
 pub fn binomial_as_f64(n: usize, k: usize) -> f64 {
-    if k > n {
-        0.0
-    } else {
-        (0.5 + (ln_factorial(n) - ln_factorial(k) - ln_factorial(n - k)).exp()).floor()
+    // We're hand-implementing this as a loop because statrs's algorithm winds up with floating
+    // point errors and naive algorithms that multiply ints will overflow. And k is going to
+    // be the order of the CRN, so it's very few iterations.
+    let mut out = n as f64;
+    for i in 1..k {
+        out *= (n - i) as f64;
+        out /= (i + 1) as f64;
     }
+    return out;
 }
 
 pub fn ln_gamma(x: f64) -> f64 {
@@ -329,47 +332,47 @@ pub fn ln_gamma_small_rational(num: usize, den: usize) -> f128 {
 //     )
 // }
 
-const LN2: f64 = 0.693147180559945309417232121458179; /* 3fe62e42 fee00000 */
-// const LN2_LO: f64 = 1.90821492927058770002e-10; /* 3dea39ef 35793c76 */
+const LN2: f128 = 0.693147180559945309417232121458179; /* 3fe62e42 fee00000 */
+// const LN2_LO: f128 = 1.90821492927058770002e-10; /* 3dea39ef 35793c76 */
 // Thanks to Danny Hermes for publishing a script that could be easily tweaked to compute
 // enough of these values at high precision: https://gist.github.com/dhermes/105da2a3c9861c90ea39
-const LG1: f64 =
+const LG1: f128 =
     0.66666666666666666666666666875815545229093281985458066108081113465975841990625437013082687;
-const LG2: f64 =
+const LG2: f128 =
     0.39999999999999999999999440533548502210613316290926048049503731640033630216780851704019313;
-const LG3: f64 =
+const LG3: f128 =
     0.28571428571428571429094613297509361650334345377104797971745365245556418301332109522197954;
-const LG4: f64 =
+const LG4: f128 =
     0.22222222222222221975826738908555894301120591697217296006666261633589966652891750933338693;
-const LG5: f64 =
+const LG5: f128 =
     0.18181818181818250245686109265789351993548969174418157011902382456177825291397840701706558;
-const LG6: f64 =
+const LG6: f128 =
     0.1538461538460317890154588944351663231610679351082742582556706529319135758482086718167677;
-const LG7: f64 =
+const LG7: f128 =
     0.13333333334802997389443791002138961200581615283256823691072831395861433250848751297250711;
-const LG8: f64 =
+const LG8: f128 =
     0.11764705759536556953993447310433762572717017723371393550392034866773259858110658340392759;
-const LG9: f64 =
+const LG9: f128 =
     0.10526322994030205329396160427129955291121798214743001999261352557788817275781538560620414;
-const LG10: f64 =
+const LG10: f128 =
     0.095235140504843371935608507213095115484437687391731985549670821305657519885864575021233968;
-const LG11: f64 =
+const LG11: f128 =
     0.087039345837935769603583774487860193007973401003664029391266891327754138987831114010227144;
-const LG12: f64 =
+const LG12: f128 =
     0.078493794248594670268165101799026327271815909183231905843461379742199434030144534975373602;
-const LG13: f64 =
+const LG13: f128 =
     0.089908734431217458910014676930010764603174233285125307525098603452056911758204218409684487;
-const SQRT2: f64 = 1.41421356237309504880168872420977;
+const SQRT2: f128 = 1.41421356237309504880168872420977;
 
 // f128 natural log. Mostly copied from https://github.com/rust-lang/libm/blob/master/libm/src/math/log.rs
 pub fn ln_f128(x: f128) -> f128 {
-    let x = x as f64;
+    let print: bool = x == 156951994071usize as f128;
     // flame::start("Part 1");
     // assert!(x >= 1.0, "ln_f128 assumes its input is at least 1.");
     // Get the exponent from the f128. It has one sign bit followed by 15 exponent bits.
     // https://en.wikipedia.org/wiki/Quadruple-precision_floating-point_format
     // flame::start("bitshift");
-    let exponent_raw = (x.to_bits() << 1) >> 53;
+    let exponent_raw = (x.to_bits() << 1) >> 113;
     // TODO: try making exponent 16 or 32 bits.
     // flame::end("bitshift");
     // flame::start("cast_signed");
@@ -384,31 +387,44 @@ pub fn ln_f128(x: f128) -> f128 {
     // flame::end("Part 1");
     // flame::start("Part 2");
     // Get a value betwen 1 and 2.
-    // TODO: try something smaller than 2u64
     // TODO: rename/add extra variables to make it easier to go back and understand this in comparison
     // with the document that explains it well.
-    let mut normalized_x = x / 2u32.pow(exponent as u32) as f64;
+    // Need to use u64 for the base so that the result fits for large population sizes.
+    let mut normalized_x = x / 2u64.pow(exponent as u32) as f128;
     let mut k = exponent;
     if normalized_x > SQRT2 {
         normalized_x *= 0.5;
         k += 1;
     }
-    let k_times_ln_2 = k as f64 * LN2;
+    let k_times_ln_2 = k as f128 * LN2;
     // flame::end("Part 2");
     // flame::start("Part 3");
 
-    let f: f64 = normalized_x - 1.0;
-    let hfsq: f64 = 0.5 * f * f;
-    let s: f64 = f / (2.0 + f);
-    let z: f64 = s * s;
-    let w: f64 = z * z;
+    let f: f128 = normalized_x - 1.0;
+    let hfsq: f128 = 0.5 * f * f;
+    let s: f128 = f / (2.0 + f);
+    let z: f128 = s * s;
+    let w: f128 = z * z;
     // flame::end("Part 3");
     // flame::start("Part 4");
-    let t1: f64 = w * (LG2 + w * (LG4 + w * (LG6 + w * (LG8 + w * (LG10 + w * LG12)))));
-    let t2: f64 = z * (LG1 + w * (LG3 + w * (LG5 + w * (LG7 + w * (LG9 + w * (LG11 + w * LG13))))));
-    let r: f64 = t2 + t1;
+    let t1: f128 = w * (LG2 + w * (LG4 + w * (LG6 + w * (LG8 + w * (LG10 + w * LG12)))));
+    let t2: f128 =
+        z * (LG1 + w * (LG3 + w * (LG5 + w * (LG7 + w * (LG9 + w * (LG11 + w * LG13))))));
+    let r: f128 = t2 + t1;
     // flame::end("Part 4");
-    (s * (hfsq + r) - hfsq + f + k_times_ln_2) as f128
+    let out = s * (hfsq + r) - hfsq + f + k_times_ln_2;
+    if print {
+        println!(
+            "Out, normx, f, z, w, exponent: {:?}, {:?}, {:?}, {:?}, {:?}, {:?}",
+            f128_to_decimal(out),
+            f128_to_decimal(normalized_x),
+            f128_to_decimal(f),
+            f128_to_decimal(z),
+            f128_to_decimal(w),
+            exponent
+        );
+    }
+    out
 }
 
 const ALGMCS: [f64; 15] = [
@@ -772,4 +788,82 @@ pub fn multinomial_sample_manual(
         remaining_p -= pix[j];
     }
     result[d - 1] = dn as usize;
+}
+
+pub fn f128_to_decimal(x: f128) -> String {
+    // Handle special cases first
+    if x.is_nan() {
+        return "NaN".to_string();
+    }
+    if x.is_infinite() {
+        return if x.is_sign_positive() {
+            "inf".to_string()
+        } else {
+            "-inf".to_string()
+        };
+    }
+    if x == 0.0 {
+        return "0.0".to_string();
+    }
+
+    // Extract IEEE 754 binary128 components
+    let bits = x.to_bits();
+    let sign = (bits >> 127) != 0;
+    let exponent = ((bits >> 112) & 0x7FFF) as i32;
+    let mantissa = bits & 0x0000_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF;
+
+    // Handle sign
+    let sign_str = if sign { "-" } else { "" };
+
+    // IEEE 754 binary128 has:
+    // - 1 sign bit
+    // - 15 exponent bits (bias = 16383)
+    // - 112 mantissa bits
+
+    let bias = 16383;
+    let actual_exponent = exponent - bias;
+
+    // Build the significand (1.mantissa for normal numbers)
+    let mut significand = BigInt::from(1_u128 << 112); // Implicit leading 1
+    significand += BigInt::from(mantissa);
+
+    // Calculate the actual value: significand * 2^(actual_exponent - 112)
+    let power_of_2 = actual_exponent - 112;
+
+    let mut result = significand;
+
+    if power_of_2 >= 0 {
+        // Multiply by 2^power_of_2
+        result <<= power_of_2;
+        format!("{}{}.0", sign_str, result)
+    } else {
+        // Divide by 2^(-power_of_2)
+        // This is where we need to do decimal division
+        let divisor = BigInt::from(1_u128) << (-power_of_2);
+
+        // Perform long division to get decimal representation
+        let quotient = &result / &divisor;
+        let remainder = &result % &divisor;
+
+        if remainder == BigInt::from(0) {
+            format!("{}{}.0", sign_str, quotient)
+        } else {
+            // Calculate decimal places
+            let mut decimal_digits = String::new();
+            let mut current_remainder = remainder * 10;
+
+            for _ in 0..50 {
+                // Limit to 50 decimal places
+                let digit: BigInt = &current_remainder / &divisor;
+                decimal_digits.push_str(&digit.to_string());
+                current_remainder = (&current_remainder % &divisor) * 10;
+
+                if current_remainder == BigInt::from(0) {
+                    break;
+                }
+            }
+
+            format!("{}{}.{}", sign_str, quotient, decimal_digits)
+        }
+    }
 }

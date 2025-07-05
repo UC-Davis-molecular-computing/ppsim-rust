@@ -2,6 +2,48 @@
 
 use num_bigint::BigInt;
 
+const MAX_FACTORIAL: usize = 126;
+
+pub fn create_log_fact_cache() -> [f64; MAX_FACTORIAL] {
+    let mut cache = [0.0; MAX_FACTORIAL];
+
+    let mut i: usize = 1;
+    let mut ln_fact: f64 = 0.0;
+    while i < MAX_FACTORIAL {
+        // using the identity ln(k!) = ln((k-1)!) + ln(k)
+        ln_fact += (i as f64).ln();
+        cache[i] = ln_fact; // ln(0!) = 0 is a special case but we already populated with 0.0
+        i += 1;
+    }
+    cache
+}
+
+use lazy_static::lazy_static;
+lazy_static! {
+    static ref LOGFACT: [f64; MAX_FACTORIAL] = create_log_fact_cache();
+}
+
+fn binomial_as_f64(n: u64, k: u64) -> f64 {
+    if k > n {
+        0.0
+    } else {
+        (0.5 + (ln_factorial(n) - ln_factorial(k) - ln_factorial(n - k)).exp()).floor()
+    }
+}
+const HALFLN2PI: f64 = 0.9189385332046728;
+
+pub fn ln_factorial(k: u64) -> f64 {
+    if k < MAX_FACTORIAL as u64 {
+        let ret = LOGFACT[k as usize];
+        return ret;
+    }
+    // Use the Stirling approximation for large x
+    let k = k as f64;
+    let ret =
+        (k + 0.5) * k.ln() - k + (HALFLN2PI + (1.0 / k) * (1.0 / 12.0 - 1.0 / (360.0 * k * k)));
+    ret
+}
+
 fn f128_to_decimal(x: f128) -> String {
     // Handle special cases first
     if x.is_nan() {
@@ -81,7 +123,8 @@ fn f128_to_decimal(x: f128) -> String {
 }
 
 fn main() {
-    let x: f128 = 8.5829034758923475897234582348975908234758927348905723890589;
-
-    println!("x = {}", f128_to_decimal(x));
+    println!(
+        "binomial_to_f64 is {:?}",
+        binomial_as_f64(19053614116978, 2)
+    )
 }

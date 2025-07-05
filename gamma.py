@@ -187,6 +187,7 @@ def mean_hypo_adaptive(n: int, k: int, o: int, g: int) -> float:
     relative_error_first_last_term = relative_error(first_term, last_term)
     if relative_error_first_last_term < 0.1:
         geom_mean = math.sqrt(first_term * last_term)
+        print(f"first term: {first_term/ 1.0496696290309689e-13}, last term: {last_term/ 1.0496696290309689e-13}, geom_mean: {geom_mean/ 1.0496696290309689e-13}")
         return float(k * geom_mean)
 
     time_mean_direct_np = predicted_mean_direct_np(n, k, o, g)

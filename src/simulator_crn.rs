@@ -556,15 +556,23 @@ impl SimulatorCRNMultiBatch {
     #[pyo3(signature = (config, t=0.0))]
     pub fn reset(&mut self, config: PyReadonlyArray1<State>, t: f64) -> PyResult<()> {
         let config = config.to_vec().unwrap();
+        // println!(
+        //     "Before: {:?}, {:?}, {:?}",
+        //     self.urn.config, self.n_including_extra_species, self.continuous_time
+        // );
         self.urn.reset_config(&config);
-        self.reset_k_count();
         self.n_including_extra_species = self.urn.size;
         self.n = self.n_including_extra_species
             - (self.urn.config[self.crn.k] + self.urn.config[self.crn.w]);
+        self.reset_k_count();
         self.continuous_time = t;
         self.discrete_steps_not_including_nulls = 0;
         self.discrete_steps_including_nulls = 0;
         self.silent = self.n == 0;
+        // println!(
+        //     "After: {:?}, {:?}, {:?}",
+        //     self.urn.config, self.n_including_extra_species, self.continuous_time
+        // );
         Ok(())
     }
 
@@ -671,7 +679,6 @@ impl SimulatorCRNMultiBatch {
         assert!(prod > 0.0);
         let geom_mean = prod.sqrt();
         let estimated_mean = batch_size as f64 * geom_mean;
-
         // Also copying the simplest variance estimation method
         let mut estimated_variance = 0.0;
         let last_term = 1.0
@@ -692,23 +699,24 @@ impl SimulatorCRNMultiBatch {
         let scale = estimated_variance / estimated_mean;
         let gamma = Gamma::new(shape, scale).unwrap();
         let val = self.rng.sample(gamma);
-        // println!(
-        //     "val, variance, mean, popsize, batchsize: {:?}, {:?}, {:?}, {:?}, {:?}",
-        //     val, estimated_variance, estimated_mean, initial_n, batch_size
-        // );
-        // println!(
-        //     "Correction factor: {:?}",
-        //     self.crn.continuous_time_correction_factor
-        // );
+        // if print {
+        //     println!(
+        //         "val, variance, mean, popsize, batchsize: {:?}, {:?}, {:?}, {:?}, {:?}",
+        //         val, estimated_variance, estimated_mean, initial_n, batch_size
+        //     );
+        //     println!(
+        //         "Correction factor: {:?}",
+        //         self.crn.continuous_time_correction_factor
+        //     );
+        // }
         return val;
     }
 
-    pub fn sample_hypo_directly(&mut self, batch_size: usize) -> f64 {
+    pub fn sample_hypo_directly(&mut self, initial_n: usize, batch_size: usize) -> f64 {
         let mut answer = 0.0;
         for i in 0..batch_size {
-            answer += self.sample_exponential(
-                self.get_exponential_rate(self.n_including_extra_species + i * self.crn.g),
-            );
+            answer +=
+                self.sample_exponential(self.get_exponential_rate(initial_n + i * self.crn.g));
         }
         return answer;
     }
@@ -916,9 +924,7 @@ impl SimulatorCRNMultiBatch {
             println!("params are {:?}, {:?}, {:?}", self.urn.config, self.n, u);
         }
         assert!(l > 0, "sample_coll must return at least 1 for batching");
-        // println!("about to sample batch time");
         let batch_time = self.sample_batch_time(self.n_including_extra_species, l);
-        // println!("Sampled batch time");
         let mut do_collision = true;
         // println!(
         //     "Sampled batch size of {:?}, batch time is {:?} and full n is {:?}",
@@ -953,6 +959,7 @@ impl SimulatorCRNMultiBatch {
             flame::start("checkpoint rejection sampling");
             // println!("Batch time was {:?}.", batch_time);
             rxns_before_coll = self.checkpoint_rejection_sampling(l, t_max);
+
             // let mut time_exceeded = false;
             // while !time_exceeded {
             //     let mut partial_batch_time = 0.0;
@@ -1450,6 +1457,10 @@ impl SimulatorCRNMultiBatch {
         // lhs tracks all of the terms that don't include t, i.e., those that we don't need to
         // update each iteration of binary search.
         lhs += ln_gamma_diff;
+        if lhs.is_nan() {
+            println!("Moment 1");
+            println!("input: {:?}", self.n_including_extra_species + 1 - r)
+        }
         lhs -= ln_u;
         // if lhs == ln_gamma_diff {
         //     // TODO: this is a temporary hack/fix for the case where population size blows up.
@@ -1543,6 +1554,12 @@ impl SimulatorCRNMultiBatch {
             // ln(u) might be smaller than the lowest-precision part of lhs and rhs. For example
             // if u = 1 - 10^-7, then ln(u) is around 10^-7, but at population size 10^9 the
             // order of magnitude of floating point error in lhs and rhs is greater than this.
+            // println!(
+            //     "LHS: {:?}, RHS: {:?}",
+            //     f128_to_decimal(lhs),
+            //     f128_to_decimal(rhs)
+            // );
+            assert!(!lhs.is_nan() && !rhs.is_nan());
             if lhs < rhs {
                 t_hi = t_mid;
             } else {
@@ -1854,6 +1871,10 @@ impl SimulatorCRNMultiBatch {
         let mut done_reactions_at_checkpoint = 0;
         let mut pop_size_at_checkpoint = self.n_including_extra_species;
         let mut ran_over_end_time: bool = false;
+        // println!(
+        //     "Beginning: {:?}, {:?}, {:?}, {:?}",
+        //     time_at_checkpoint, pop_size_at_checkpoint, t_max, l
+        // );
         while !ran_over_end_time {
             // We're either starting for the first time, or just rejected a sample.
             let mut current_simulated_time = time_at_checkpoint;
@@ -1892,6 +1913,14 @@ impl SimulatorCRNMultiBatch {
                     current_simulated_population_size += self.crn.g * halfway_point;
                 }
             }
+            // println!(
+            //     "At iteration: {:?}, {:?}, {:?}, {:?}, {:?}",
+            //     time_at_checkpoint,
+            //     t_max,
+            //     latest_possible_collision_index,
+            //     done_reactions_at_checkpoint,
+            //     l
+            // );
             // If we get here and ran_over_end_time is false, that means we're rejecting a sample.
         }
         return done_reactions_at_checkpoint;
