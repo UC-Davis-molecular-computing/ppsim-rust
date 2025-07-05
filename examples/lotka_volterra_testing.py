@@ -12,12 +12,12 @@ def test_time_scaling_vs_population():
     ppsim_times = []
     rebop_times = []
     ns = []
-    num_ns = 20
+    num_ns = 7
     min_pop_exponent = 5
-    max_pop_exponent = 12
+    max_pop_exponent = 8
     num_checkpoints = 1
-    num_trials = 2
-    end_time = .001
+    num_trials = 1
+    end_time = .01
     for pop_exponent_increment in tqdm(range(num_ns)):
         pop_exponent = min_pop_exponent + (max_pop_exponent - min_pop_exponent) * (pop_exponent_increment / (float(num_ns) - 1))
         a,b = pp.species('A B')
@@ -30,15 +30,20 @@ def test_time_scaling_vs_population():
             (a >> 2*a).k(1),
             (b >> None).k(1),
         ]
-
+        
+        seed=76567
+        a_init = 1
+        b_init = 1
+        fake_inits = {a: a_init, b: b_init}
+        sim = pp.Simulation(fake_inits, rxns, simulator_method="crn", continuous_time=True, seed=seed)
         
         def timefn(n):
             a_init = int(n * (1 - predator_fraction))
             b_init = n - a_init
             inits = {a: a_init, b: b_init}
-            seed=76567
-            sim = pp.Simulation(inits, rxns, simulator_method="crn", continuous_time=True, seed=seed)
-            sim.run(end_time, end_time / float(num_checkpoints))
+            sim.reset(inits) # type: ignore
+            s = pp.Simulation(inits, rxns, simulator_method="crn", continuous_time=True, seed=seed)
+            s.run(end_time, end_time / float(num_checkpoints))
         # sim = pp.Simulation(inits, rxns, simulator_method="crn", continuous_time=True)
         
         crn = rb.Gillespie()
@@ -54,6 +59,7 @@ def test_time_scaling_vs_population():
 
         
         n = int(10 ** pop_exponent)
+        print(f"Iteration {pop_exponent_increment}! Population {n}.")
         ppsim_times.append(timeit.timeit(lambda: timefn(n), number=num_trials))
         rebop_times.append(timeit.timeit(lambda: timefnrebop(n), number=num_trials))
         ns.append(n)
@@ -72,11 +78,11 @@ def test_time_scaling_vs_end_time():
     ppsim_times = []
     rebop_times = []
     times = []
-    num_times = 2
+    num_times = 20
     pop_exponent = 9
     n = 10 ** pop_exponent
     min_time_exponent = -6
-    max_time_exponent = -2
+    max_time_exponent = -3
     num_checkpoints = 1
     num_trials = 1
     for time_exponent_increment in tqdm(range(num_times)):
@@ -113,7 +119,7 @@ def test_time_scaling_vs_end_time():
             b_init = n - a_init
             inits = {"A": a_init, "B": b_init}
             results_rebop = crn.run(inits, t, 1)
-            # get_rebop_samples(pop_exponent, 1, b_init, "B", t)
+            get_rebop_samples(pop_exponent, 1, b_init, "B", t)
         
         end_time = 10 ** time_exponent
         ppsim_times.append(timeit.timeit(lambda: timefn(end_time), number=num_trials))
@@ -121,11 +127,13 @@ def test_time_scaling_vs_end_time():
         times.append(end_time)
         
     fig, ax = plt.subplots(figsize = (10,4))
-    ax.loglog(times, ppsim_times, label="ppsim run time")
-    ax.loglog(times, rebop_times, label="rebop run time")
+    ax.plot(times, ppsim_times, label="ppsim run time")
+    ax.plot(times, rebop_times, label="rebop run time")
     # sim.simulator.write_profile() # type: ignore
     ax.set_xlabel(f'Simulated continuous time units)')
     ax.set_ylabel(f'Run time (s)')
+    ax.set_xscale("log")
+    ax.set_yscale("log")
     ax.legend()
     plt.show()
     return
@@ -159,7 +167,7 @@ def get_rebop_samples(pop_exponent, trials, predator_count, state, final_time):
 
 def test_distribution():
     pop_exponent = 9
-    trials_exponent = 6
+    trials_exponent = 3
     final_time_exponent = -6
     a,b = pp.species('A B')
     
@@ -208,9 +216,9 @@ def test_distribution():
 
 
 def main():
-    # test_time_scaling_vs_population()
+    test_time_scaling_vs_population()
     # test_time_scaling_vs_end_time()
-    test_distribution()
+    # test_distribution()
 
 if __name__ == "__main__":
     main()

@@ -2,6 +2,7 @@ use rand::rngs::SmallRng;
 use rand::Rng;
 
 use rand_distr::Distribution;
+use rand_distr::Uniform;
 // use rug::Float;
 
 #[allow(unused_imports)]
@@ -736,8 +737,26 @@ pub fn multinomial_sample_statrs(
         result[i] = sample[i] as usize;
     }
 }
-
+const SMALL_EXPECTED_FAILURE_THRESHOLD: f64 = 1.0 / 1_000.0;
 pub fn binomial_sample(n: usize, p: f64, mut rng: &mut SmallRng) -> usize {
+    // let n: usize = 2517438726;
+    // let p = 0.9999999999999994;
+    // TODO: this is a terrible, terrible hack, to get around a bug in rand_distr::Binomial
+    // that happens when called with the above n and p.
+    let expected_failures = n as f64 * (1.0 - p);
+    if expected_failures < SMALL_EXPECTED_FAILURE_THRESHOLD && n > core::i32::MAX as usize {
+        let uniform = Uniform::new(0.0, 1.0);
+        let mut out = n;
+        while out > 0 {
+            let val = rng.sample(uniform);
+            if val < expected_failures {
+                out -= 1;
+            } else {
+                println!("{:?}, {:?}, {:?}", out, n, expected_failures);
+                return out;
+            }
+        }
+    }
     let binomial_distribution = rand_distr::Binomial::new(n as u64, p).unwrap();
     let sample = binomial_distribution.sample(&mut rng);
     sample as usize
