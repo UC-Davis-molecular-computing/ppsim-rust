@@ -548,7 +548,7 @@ pub fn hypergeometric_sample_manual(
     rng: &mut SmallRng,
 ) -> Result<usize, String> {
     let h: usize;
-    if draws >= 10 && draws <= good + popsize - 10 {
+    if draws >= 10 && draws <= popsize - 10 {
         h = hypergeometric_hrua(popsize, good, draws, rng)?;
     } else {
         // This is the simpler naive implementation for small samples.
