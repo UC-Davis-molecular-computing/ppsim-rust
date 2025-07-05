@@ -554,7 +554,7 @@ pub fn hypergeometric_sample_manual(
         panic!("sample must be less than or equal to popsize");
     }
     if draws >= 10 && draws <= popsize - 10 {
-        hypergeometric_hrua(popsize, good, draws, rng)
+        hypergeometric_sample_hrua(popsize, good, draws, rng)
     } else {
         hypergeometric_sample_naive(popsize, good, draws, rng)
     }
@@ -605,7 +605,7 @@ fn hypergeometric_sample_naive(
 // https://github.com/numpy/numpy/blob/b76bb2329032809229e8a531ba3179c34b0a3f0a/numpy/random/src/distributions/random_hypergeometric.c#L119
 const D1: f64 = 1.7155277699214135; // 2*sqrt(2/e)
 const D2: f64 = 0.8989161620588988; // 3 - 2*sqrt(3/e)
-pub fn hypergeometric_hrua(
+pub fn hypergeometric_sample_hrua(
     popsize: usize,
     good: usize,
     sample: usize,
