@@ -547,45 +547,60 @@ pub fn hypergeometric_sample_manual(
     draws: usize,
     rng: &mut SmallRng,
 ) -> Result<usize, String> {
+    if good > popsize {
+        panic!("good must be less than or equal to popsize");
+    }
+    if draws > popsize {
+        panic!("sample must be less than or equal to popsize");
+    }
     let h: usize;
     if draws >= 10 && draws <= popsize - 10 {
-        h = hypergeometric_hrua(popsize, good, draws, rng)?;
+        h = hypergeometric_hrua(popsize, good, draws, rng);
     } else {
-        // This is the simpler naive implementation for small samples.
-        // https://github.com/numpy/numpy/blob/b76bb2329032809229e8a531ba3179c34b0a3f0a/numpy/random/src/distributions/random_hypergeometric.c#L46
-        // variable name translations from numpy source code:
-        //   total --> popsize
-        //   good  --> good
-        //   bad   --> popsize - good
-        //   draws --> sample
-        let mut remaining_total = popsize;
-        let mut remaining_good = good;
-        let mut computed_sample = draws;
-        if computed_sample > popsize / 2 {
-            computed_sample = remaining_total - computed_sample;
-        }
-        while computed_sample > 0 && remaining_good > 0 && remaining_total > remaining_good {
-            // random_range(0..=max) returns an integer in
-            // [0, max] *inclusive*, so we decrement remaining_total before
-            // passing it to random_range().
-            remaining_total -= 1;
-            if rng.random_range(0..=remaining_total) < remaining_good {
-                // Selected a "good" one, so decrement remaining_good.
-                remaining_good -= 1;
-            }
-            computed_sample -= 1;
-        }
-        if remaining_total == remaining_good {
-            // Only "good" choices are left.
-            remaining_good -= computed_sample;
-        }
-        if draws > popsize / 2 {
-            h = remaining_good;
-        } else {
-            h = good - remaining_good;
-        }
+        h = hypergeometric_sample_naive(popsize, good, draws, rng);
     }
     Ok(h)
+}
+
+fn hypergeometric_sample_naive(
+    popsize: usize,
+    good: usize,
+    draws: usize,
+    rng: &mut SmallRng,
+) -> usize {
+    // This is the simpler naive implementation for small samples.
+    // https://github.com/numpy/numpy/blob/b76bb2329032809229e8a531ba3179c34b0a3f0a/numpy/random/src/distributions/random_hypergeometric.c#L46
+    // variable name translations from numpy source code:
+    //   total --> popsize
+    //   good  --> good
+    //   bad   --> popsize - good
+    //   draws --> sample
+    let mut remaining_total = popsize;
+    let mut remaining_good = good;
+    let mut computed_sample = draws;
+    if computed_sample > popsize / 2 {
+        computed_sample = remaining_total - computed_sample;
+    }
+    while computed_sample > 0 && remaining_good > 0 && remaining_total > remaining_good {
+        // random_range(0..=max) returns an integer in
+        // [0, max] *inclusive*, so we decrement remaining_total before
+        // passing it to random_range().
+        remaining_total -= 1;
+        if rng.random_range(0..=remaining_total) < remaining_good {
+            // Selected a "good" one, so decrement remaining_good.
+            remaining_good -= 1;
+        }
+        computed_sample -= 1;
+    }
+    if remaining_total == remaining_good {
+        // Only "good" choices are left.
+        remaining_good -= computed_sample
+    }
+    if draws > popsize / 2 {
+        remaining_good
+    } else {
+        good - remaining_good
+    }
 }
 
 // adapted from numpy's implementation of the hypergeometric_hrua algorithm
@@ -597,13 +612,7 @@ pub fn hypergeometric_hrua(
     good: usize,
     sample: usize,
     rng: &mut SmallRng,
-) -> Result<usize, String> {
-    if good > popsize {
-        return Err("good must be less than or equal to popsize".to_string());
-    }
-    if sample > popsize {
-        return Err("sample must be less than or equal to popsize".to_string());
-    }
+) -> usize {
     let bad = popsize - good;
     let computed_sample = sample.min(popsize - sample);
     let mingoodbad = good.min(bad);
@@ -704,7 +713,7 @@ pub fn hypergeometric_hrua(
         k = good - k;
     }
 
-    Ok(k)
+    k
 }
 
 /////////////////////////////////////////////////////////////////////////////////
