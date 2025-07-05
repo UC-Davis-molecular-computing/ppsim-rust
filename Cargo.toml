@@ -14,12 +14,7 @@ name = "main"
 path = "src/main.rs"
 
 [features]
-# I'm using this to test whether my faster implementation of some functions/distributions
-# available in external libraries is inaccurate and causing the sampled distribution to be off.
-# Stands for "use external".
-ue = []
 flm = ["flame"]  # Enable flame profiling to be switched on/off
-
 
 
 [dependencies]
@@ -29,20 +24,14 @@ num-format = "0.4"
 pyo3 = { version = "0.24", features = ["extension-module"] }
 numpy = "0.24"
 ndarray = "0.16"
-statrs = { version = "0.18", features = ["rand"] }
-rand = { version = "0.8", features = ["small_rng"] } # need version 0.8 of rand to use it with statrs, fails with version 0.9
+rand = { version = "0.9", features = ["small_rng"] } # need version 0.8 of rand to use it with statrs, fails with version 0.9
 nalgebra = "0.33"
 flame = { version = "0.2", optional = true }  # Make flame optional so we can turn it on/off
 special = "0.11"
-rand_distr = "0.4"
-num-bigint = "0.4"  # For high precision decimal conversion
-# lexical = "6.1"  # For f128 to string conversion - doesn't support f128 yet
-# puruspe = "0.4"
+rand_distr = "0.5"
+num-integer = "0.1"
+num-bigint = "0.4"
 lazy_static = "1"
 stybulate = "1"
 itertools = "0.14.0"
 compensated-summation = "0.3.1"
-libm = "0.2.15"
-# micromath = "2"
-# const-ln = "0.1.2"
-# rgsl = "7"

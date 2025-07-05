@@ -12,7 +12,7 @@ type State = usize;
 pub fn sample_discrete_uniform(rng: &mut SmallRng, low: usize, high: usize) -> usize {
     // <DiscreteUniform as rand::distributions::Distribution<i64>>::sample(&discrete_uniform, rng)
     //     as usize
-    rng.gen_range(low as i64..=high as i64) as usize
+    rng.random_range(low..=high)
 }
 
 /// Data structure for a multiset that supports fast random sampling.
@@ -31,7 +31,7 @@ impl Urn {
         let rng = if let Some(s) = seed {
             SmallRng::seed_from_u64(s)
         } else {
-            SmallRng::from_entropy()
+            SmallRng::from_os_rng()
         };
 
         let mut urn = Urn {

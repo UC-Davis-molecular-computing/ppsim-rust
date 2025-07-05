@@ -14,7 +14,7 @@ use numpy::{PyReadonlyArray1, PyReadonlyArray2, PyReadonlyArray3};
 use rand::rngs::SmallRng;
 use rand::Rng;
 use rand::SeedableRng;
-use statrs::distribution::{Geometric, Uniform};
+use rand_distr::{Geometric, StandardUniform, Uniform};
 
 use crate::simulator_abstract::Simulator;
 
@@ -165,7 +165,6 @@ impl SimulatorMultiBatch {
         _reactions: Py<PyNone>,
         _k: Py<PyNone>,
         _w: Py<PyNone>,
-
     ) -> (Self, Simulator) {
         let init_config = init_config.to_vec().unwrap();
         let q: usize = init_config.len() as State;
@@ -218,16 +217,19 @@ impl SimulatorMultiBatch {
             "random_outputs and transition_probabilities length mismatch"
         );
 
-        (SimulatorMultiBatch::from_delta_random(
-            delta,
-            init_config,
-            random_transitions,
-            random_outputs,
-            transition_probabilities,
-            transition_order,
-            gillespie,
-            seed,
-        ), Simulator::default())
+        (
+            SimulatorMultiBatch::from_delta_random(
+                delta,
+                init_config,
+                random_transitions,
+                random_outputs,
+                transition_probabilities,
+                transition_order,
+                gillespie,
+                seed,
+            ),
+            Simulator::default(),
+        )
     }
 
     #[getter]
@@ -352,7 +354,7 @@ impl SimulatorMultiBatch {
         let mut prev_sample = usize::MAX;
         loop {
             idx += 1;
-            let sample = self.rng.gen_range(0..n);
+            let sample = self.rng.random_range(0..n);
             if sample < r {
                 return idx;
             }
@@ -445,12 +447,10 @@ impl SimulatorMultiBatch {
             end_step = end_step.min(t_max);
         }
 
-        let uniform = Uniform::standard();
-
         flame::start("process collisions");
 
         while self.t + num_delayed / 2 < end_step {
-            let mut u = self.rng.sample(uniform);
+            let mut u: f64 = self.rng.sample(StandardUniform);
 
             let pp = true;
             let has_bounds = false;
@@ -492,7 +492,7 @@ impl SimulatorMultiBatch {
             flame::start("process collision");
 
             // sample if initiator was delayed or updated
-            u = self.rng.sample(uniform);
+            u = self.rng.sample(StandardUniform);
             // initiator is delayed with probability num_delayed / (num_delayed + num_updated)
             let initiator_delayed =
                 u * ((num_delayed + self.updated_counts.size) as f64) < num_delayed as f64;
@@ -519,7 +519,7 @@ impl SimulatorMultiBatch {
                 responder = self.urn.sample_one().unwrap();
             } else {
                 // when l is odd, the collision is with the next agent, either untouched, delayed, or updated
-                u = self.rng.sample(uniform);
+                u = self.rng.sample(StandardUniform);
                 if (u * ((self.n - 1) as f64)) < self.updated_counts.size as f64 {
                     // responder is an updated agent, simply remove it
                     responder = self.updated_counts.sample_one().unwrap();
@@ -576,7 +576,12 @@ impl SimulatorMultiBatch {
                     let probabilities =
                         self.transition_probabilities[first_idx..first_idx + num_outputs].to_vec();
                     flame::start("multinomial sample");
-                    multinomial_sample(self.row[o_j], &probabilities, &mut self.m[0..num_outputs], &mut self.rng);
+                    multinomial_sample(
+                        self.row[o_j],
+                        &probabilities,
+                        &mut self.m[0..num_outputs],
+                        &mut self.rng,
+                    );
                     flame::end("multinomial sample");
                     assert_eq!(
                         self.m.iter().sum::<usize>(),
@@ -615,7 +620,7 @@ impl SimulatorMultiBatch {
 
     /// Chooses sender/receiver, then applies delta to input states a, b.
     fn unordered_delta(&mut self, a: State, b: State) -> (State, State) {
-        let heads = self.rng.gen_bool(0.5); // fair coin flip
+        let heads = self.rng.random_bool(0.5); // fair coin flip
         let mut i1 = a;
         let mut i2 = b;
         // swap roles of a, b and swap return order if heads is true
@@ -627,8 +632,8 @@ impl SimulatorMultiBatch {
         if self.is_random && self.random_transitions[i1][i2].0 > 0 {
             // find the appropriate random output by linear search
             let mut k = self.random_transitions[i1][i2].1;
-            let uniform = Uniform::standard();
-            let mut u = self.rng.sample(uniform) - self.transition_probabilities[k];
+            let mut u =
+                self.rng.sample::<f64, _>(StandardUniform) - self.transition_probabilities[k];
             while u > 0.0 {
                 k += 1;
                 u -= self.transition_probabilities[k];
@@ -1060,7 +1065,7 @@ impl SimulatorMultiBatch {
         let rng = if let Some(s) = seed {
             SmallRng::seed_from_u64(s)
         } else {
-            SmallRng::from_entropy()
+            SmallRng::from_os_rng()
         };
 
         let urn = Urn::new(config.clone(), seed);

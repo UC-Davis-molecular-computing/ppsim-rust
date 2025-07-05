@@ -1,64 +1,6 @@
 #![feature(f128)]
 
-// Define the flame module for the binary
-#[cfg(feature = "flm")]
-pub use flame;
-
-#[cfg(not(feature = "flm"))]
-pub mod flame {
-    pub fn start(_name: &str) {}
-    pub fn end(_name: &str) {}
-}
-
-mod util;
-
-use crate::util::ln_gamma_manual_high_precision;
 use num_bigint::BigInt;
-use std::fmt;
-
-// Wrapper type for f128 that implements Display
-#[derive(Debug, Clone, Copy)]
-pub struct F128Display(pub f128);
-
-impl fmt::Display for F128Display {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", f128_to_decimal(self.0))
-    }
-}
-
-impl From<f128> for F128Display {
-    fn from(x: f128) -> Self {
-        F128Display(x)
-    }
-}
-
-// Convenience function to wrap f128 values
-fn display_f128(x: f128) -> F128Display {
-    F128Display(x)
-}
-
-// Macro for easy f128 printing
-macro_rules! println_f128 {
-    ($($arg:tt)*) => {
-        println!($($arg)*);
-    };
-}
-
-// Much simpler: macro specifically for f128 printing that looks like println!
-macro_rules! println_f128 {
-    // No arguments case
-    () => {
-        std::println!();
-    };
-    // Just format string case  
-    ($fmt:literal) => {
-        std::println!($fmt);
-    };
-    // The main case: format string with f128 arguments
-    ($fmt:literal, $($arg:expr),* $(,)?) => {
-        std::println!($fmt, $(f128_to_decimal($arg)),*);
-    };
-}
 
 fn f128_to_decimal(x: f128) -> String {
     // Handle special cases first
@@ -139,20 +81,7 @@ fn f128_to_decimal(x: f128) -> String {
 }
 
 fn main() {
-    let x: f128 = 8.0;
-    let ln = ln_gamma_manual_high_precision(x);
+    let x: f128 = 8.5829034758923475897234582348975908234758927348905723890589;
 
-    // Method 1: Direct wrapper construction
-    println!("ln_gamma({}) = {}", F128Display(x), F128Display(ln));
-
-    // Method 2: Using convenience function
-    println!("ln_gamma({}) = {}", display_f128(x), display_f128(ln));
-
-    // Method 3: Using our custom macro - looks just like println!
-    println_f128!("ln_gamma({}) = {}", x, ln);
-    
-    // This is as close as we can get to `println!("{}", x)` 
-    // while maintaining type safety and not requiring unstable features
-    println_f128!("x = {}", x);
-    println_f128!("ln = {}", ln);
+    println!("x = {}", f128_to_decimal(x));
 }

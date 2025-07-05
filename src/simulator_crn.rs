@@ -16,26 +16,21 @@ use pyo3::prelude::*;
 use ndarray::{ArrayD, Axis};
 use pyo3::types::PyNone;
 
+use num_integer::binomial;
 use numpy::PyReadonlyArray1;
 use rand::rngs::SmallRng;
 use rand::Rng;
 use rand::SeedableRng;
-use rand_distr::Distribution;
-use rand_distr::Exp;
-use rand_distr::Gamma;
-#[allow(unused_imports)]
-use statrs::distribution::{Geometric, Uniform};
+use rand_distr::{Distribution, Exp, Gamma, StandardUniform};
 
 use itertools::Itertools;
-use statrs::function::factorial::binomial;
-use statrs::function::gamma::ln_gamma;
 
 use crate::simulator_abstract::Simulator;
 
 use crate::urn::Urn;
 use crate::util::{
-    ln_f128, ln_factorial, ln_gamma_manual_high_precision, ln_gamma_small_rational,
-    multinomial_sample,
+    binomial_as_f64, ln_f128, ln_factorial, ln_gamma, ln_gamma_manual_high_precision,
+    ln_gamma_small_rational, multinomial_sample,
 };
 
 type State = usize;
@@ -431,7 +426,7 @@ impl SimulatorCRNMultiBatch {
         let rng = if let Some(s) = seed {
             SmallRng::seed_from_u64(s)
         } else {
-            SmallRng::from_entropy()
+            SmallRng::from_os_rng()
         };
 
         let urn = Urn::new(config.clone(), seed);
@@ -652,7 +647,7 @@ impl SimulatorCRNMultiBatch {
         let mut pop_size = n;
         loop {
             for _ in 0..self.crn.o {
-                let sample = self.rng.gen_range(0..pop_size);
+                let sample = self.rng.random_range(0..pop_size);
                 if sample < num_seen {
                     return idx;
                 }
@@ -696,7 +691,7 @@ impl SimulatorCRNMultiBatch {
         let shape = estimated_mean.powi(2) / estimated_variance;
         let scale = estimated_variance / estimated_mean;
         let gamma = Gamma::new(shape, scale).unwrap();
-        let val = gamma.sample(&mut self.rng);
+        let val = self.rng.sample(gamma);
         // println!(
         //     "val, variance, mean, popsize, batchsize: {:?}, {:?}, {:?}, {:?}, {:?}",
         //     val, estimated_variance, estimated_mean, initial_n, batch_size
@@ -899,7 +894,6 @@ const K_COUNT_RATIO_THRESHOLD: f64 = 0.7;
 impl SimulatorCRNMultiBatch {
     fn batch_step(&mut self, t_max: f64) -> () {
         self.updated_counts.reset();
-        let uniform = Uniform::standard();
         assert_eq!(
             self.n_including_extra_species, self.urn.size,
             "Self.n_including_extra_species should match self.urn.size."
@@ -910,7 +904,7 @@ impl SimulatorCRNMultiBatch {
             "Self.n should match self.urn.size minus counts of K and W."
         );
 
-        let u = self.rng.sample(uniform);
+        let u: f64 = self.rng.sample(StandardUniform);
 
         let has_bounds = false;
         flame::start("sample_coll");
@@ -1120,12 +1114,16 @@ impl SimulatorCRNMultiBatch {
                         * binomial(self.crn.o as u64, num_updated_reactants_in_collision as u64)
                             as u128,
                 );
+                //XXX: note that binomial is from the num_integer crate and returns a u64:
+                // https://docs.rs/num-integer/latest/num_integer/fn.binomial.html
+                // use this only for small inputs, and use util::binomial_as_f64 for large inputs
+                // where the result might not fit into a u64.
             }
             // TODO: there should be some standard way to sample from this discrete probability distribution.
             // Should be rand::WeightedIndex. Also urn::sample_one.
             let total_ways_with_at_least_one_collision: u128 =
                 collision_count_num_ways.iter().sum();
-            let u2 = self.rng.sample(uniform);
+            let u2: f64 = self.rng.sample(StandardUniform);
             let mut num_colliding_molecules = 0;
             let mut total_ways_so_far = 0;
             for i in 0..self.crn.o {
@@ -1708,8 +1706,7 @@ impl SimulatorCRNMultiBatch {
     /// Helper function to get the rate of the exponential representing the time to the next reaction
     /// at some particular population size.
     pub fn get_exponential_rate(&self, pop_size: usize) -> f64 {
-        return self.crn.continuous_time_correction_factor
-            * binomial(pop_size as u64, self.crn.o as u64);
+        return self.crn.continuous_time_correction_factor * binomial_as_f64(pop_size, self.crn.o);
     }
     /// Sample from an exponential distribution.
     pub fn sample_exponential(&mut self, rate: f64) -> f64 {

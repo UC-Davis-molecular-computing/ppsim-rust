@@ -8,7 +8,7 @@ use numpy::{PyReadonlyArray1, PyReadonlyArray2, PyReadonlyArray3};
 use rand::rngs::SmallRng;
 use rand::Rng;
 use rand::SeedableRng;
-use statrs::distribution::Uniform;
+use rand_distr::StandardUniform;
 
 use crate::urn::sample_discrete_uniform;
 
@@ -65,7 +65,7 @@ impl SimulatorSequentialArray {
         let rng = if let Some(s) = seed {
             SmallRng::seed_from_u64(s)
         } else {
-            SmallRng::from_entropy()
+            SmallRng::from_os_rng()
         };
 
         assert_eq!(delta.shape()[0], q as usize, "delta shape mismatch");
@@ -174,7 +174,6 @@ impl SimulatorSequentialArray {
         let max_wallclock_milliseconds: u64 = (max_wallclock_time * 1_000.0).ceil() as u64;
         let duration = Duration::from_millis(max_wallclock_milliseconds);
         let start_time = Instant::now();
-        let uniform = Uniform::standard();
         let run_until_silent = self.t == t_max && max_wallclock_time == 0.0;
         while run_until_silent || self.t < t_max && start_time.elapsed() < duration {
             // rejection sampling to quickly get distinct pair
@@ -193,7 +192,8 @@ impl SimulatorSequentialArray {
                     let k = self.random_transitions[in1][in2].1;
                     // sample from a probability distribution whose support is [k, k+1, ..., k+num_outputs-1],
                     // where Pr[k+i] = transition_probabilities[k+i]
-                    let mut u = self.rng.sample(uniform) - self.transition_probabilities[k];
+                    let mut u = self.rng.sample::<f64, _>(StandardUniform)
+                        - self.transition_probabilities[k];
                     let mut k = k;
                     while u > 0.0 {
                         k += 1;

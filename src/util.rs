@@ -1,43 +1,32 @@
 use rand::rngs::SmallRng;
 use rand::Rng;
 
-use rand_distr::Distribution;
-use rand_distr::Uniform;
+use rand_distr::{Distribution, Hypergeometric, StandardUniform};
 // use rug::Float;
 
 #[allow(unused_imports)]
 use crate::flame;
 
-// #[cfg(feature = "ue")]
+// copied from statrs
+// https://github.com/statrs-dev/statrs/blob/526e85e20b833f1825ec65e6c0893ec2b06db0cf/src/function/factorial.rs#L42C1-L48C2
+pub fn binomial_as_f64(n: usize, k: usize) -> f64 {
+    if k > n {
+        0.0
+    } else {
+        (0.5 + (ln_factorial(n) - ln_factorial(k) - ln_factorial(n - k)).exp()).floor()
+    }
+}
+
 pub fn ln_gamma(x: f64) -> f64 {
     // println!("ue version called");
     ln_gamma_special(x)
 }
 
-#[cfg(feature = "ue")]
-pub fn ln_factorial(x: usize) -> f64 {
-    // println!("ue version called");
-    ln_factorial_statrs(x as u64)
-}
-
-#[cfg(not(feature = "ue"))]
 pub fn ln_factorial(x: usize) -> f64 {
     // println!("non ue version called");
     ln_factorial_manual(x as u64)
 }
 
-#[cfg(feature = "ue")]
-pub fn hypergeometric_sample(
-    popsize: usize,
-    good: usize,
-    draws: usize,
-    rng: &mut SmallRng,
-) -> Result<usize, String> {
-    // println!("hypergeometric_sample_statrs");
-    hypergeometric_sample_statrs(popsize, good, draws, rng)
-}
-
-#[cfg(not(feature = "ue"))]
 pub fn hypergeometric_sample(
     popsize: usize,
     good: usize,
@@ -48,12 +37,6 @@ pub fn hypergeometric_sample(
     hypergeometric_sample_manual(popsize, good, draws, rng)
 }
 
-#[cfg(feature = "ue")]
-pub fn multinomial_sample(n: usize, pix: &Vec<f64>, result: &mut [usize], rng: &mut SmallRng) {
-    multinomial_sample_statrs(n, pix, result, rng);
-}
-
-#[cfg(not(feature = "ue"))]
 pub fn multinomial_sample(n: usize, pix: &Vec<f64>, result: &mut [usize], rng: &mut SmallRng) {
     multinomial_sample_manual(n, pix, result, rng);
 }
@@ -490,10 +473,6 @@ fn chebyshev_eval(x: f64) -> f64 {
 /////////////////////////////////////////////////////////////////////////////////
 // log_factorial
 
-pub fn ln_factorial_statrs(k: u64) -> f64 {
-    statrs::function::factorial::ln_factorial(k)
-}
-
 // We precompuate log(k!) for k = 0, 1, ..., MAX_FACTORIAL-1
 // technically MAX_FACTORIAL is the SIZE of array, not the max k for which we compute ln(k!),
 // starting at ln(0!), so this goes up to ln((MAX_FACTORIAL-1)!).
@@ -540,8 +519,6 @@ pub fn ln_factorial_manual(k: u64) -> f64 {
 
 /////////////////////////////////////////////////////////////////////////////////
 // hypergeometric_sample
-
-use statrs::distribution::Hypergeometric;
 
 pub fn hypergeometric_sample_statrs(
     popsize: usize,
@@ -663,8 +640,8 @@ pub fn hypergeometric_hrua(
 
     let mut k: usize;
     loop {
-        let u = rng.gen::<f64>();
-        let v = rng.gen::<f64>(); // "U star" in Stadlober (1989)
+        let u = rng.random::<f64>();
+        let v = rng.random::<f64>(); // "U star" in Stadlober (1989)
         let x = a + h * (v - 0.5) / u;
 
         // fast rejection:
@@ -711,32 +688,6 @@ pub fn hypergeometric_hrua(
 /////////////////////////////////////////////////////////////////////////////////
 // multinomial_sample
 
-use nalgebra::DVector;
-use statrs::distribution::Multinomial;
-
-pub fn multinomial_sample_statrs(
-    n: usize,
-    pix: &Vec<f64>,
-    result: &mut [usize],
-    rng: &mut SmallRng,
-) {
-    assert_eq!(
-        pix.len(),
-        result.len(),
-        "pix and result must have the same length in multinomial_sample_statrs"
-    );
-    let multinomial = Multinomial::new(pix.clone(), n as u64).unwrap();
-    let sample: DVector<u64> = rng.sample(multinomial);
-
-    assert_eq!(
-        sample.len(),
-        result.len(),
-        "sample and result must have the same length in multinomial_sample_statrs"
-    );
-    for i in 0..result.len() {
-        result[i] = sample[i] as usize;
-    }
-}
 const SMALL_EXPECTED_FAILURE_THRESHOLD: f64 = 1.0 / 1_000.0;
 pub fn binomial_sample(n: usize, p: f64, mut rng: &mut SmallRng) -> usize {
     // let n: usize = 2517438726;
@@ -745,10 +696,9 @@ pub fn binomial_sample(n: usize, p: f64, mut rng: &mut SmallRng) -> usize {
     // that happens when called with the above n and p.
     let expected_failures = n as f64 * (1.0 - p);
     if expected_failures < SMALL_EXPECTED_FAILURE_THRESHOLD && n > core::i32::MAX as usize {
-        let uniform = Uniform::new(0.0, 1.0);
         let mut out = n;
         while out > 0 {
-            let val = rng.sample(uniform);
+            let val: f64 = rng.sample(StandardUniform);
             if val < expected_failures {
                 out -= 1;
             } else {
