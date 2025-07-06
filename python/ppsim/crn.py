@@ -665,7 +665,7 @@ class CRN:
             reactions.append((reactants, products, reaction.rate_constant))
         return reactions
 
-def convert_to_uniform(crn:CRN) -> CRN:
+def convert_to_uniform(crn:CRN, volume: float) -> CRN:
     """
     Convert a CRN to an equivalent uniform CRN.
     The new CRN will have two new species, K (catalyst) and W (waste).
@@ -673,7 +673,7 @@ def convert_to_uniform(crn:CRN) -> CRN:
 
     Args:
         crn: a CRN to be converted. Should not be an output of this function.
-        K_count: count of K to include in the configuration of the transformed CRN.
+        volume: volume of the CRN.
     """
     # Special species are added by this function, so there shouldn't be any yet.
     for specie in crn.species:
@@ -691,7 +691,7 @@ def convert_to_uniform(crn:CRN) -> CRN:
         W_to_add = max_generativity - reaction_generativity
         new_reactants = reaction.reactants + (K_to_add * K)
         new_products = reaction.products + (K_to_add * K) + (W_to_add * W)
-        new_k = reaction.rate_constant
+        new_k = reaction.rate_constant / volume**(reaction_order - 1)
         new_reactions.append(Reaction(reactants=new_reactants, products=new_products, k=new_k))
 
 

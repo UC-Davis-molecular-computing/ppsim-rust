@@ -41,14 +41,14 @@ def main():
     a_init = int(n * p)
     b_init = n - a_init
     inits = {"A": a_init, "B": b_init}
-    end_time = 40.0
-    num_samples = 50
+    end_time = 10.0
+    num_samples = 200
     results_rebop = {}
     results_rebop = crn.run(inits, end_time, sampling_increment)
 
     a,b = pp.species('A B')
     rxns = [
-        (a+b >> 2*b).k(0.1 ** pop_exponent),
+        (a+b >> 2*b).k(1),
         (a >> 2*a).k(1),
         (b >> None).k(1),
     ]

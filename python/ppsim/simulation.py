@@ -301,6 +301,7 @@ class Simulation:
             self.steps_per_time_unit *= rate_max
             # Default to continuous time for lists of reactions
             self.continuous_time = True
+            
 
         self._rule = rule
         self._rule_kwargs = kwargs
@@ -323,11 +324,14 @@ class Simulation:
             # on population protocols. It'll take some significant refactoring to get it to not
             # be ugly to also work easily with general CRNs. For now, I'm letting it be ugly.
             # All of the code paths are based on whether or not simulator_method.lower() == 'crn'.
-            states = list(init_config.keys())
+            states = []
             for reaction in rule: # type: ignore
                 states += reaction.reactants.species
                 states += reaction.products.species
             state_list = list(set(states))
+            for init_state in init_config.keys():
+                if init_state not in state_list:
+                    raise ValueError(f'state "{init_state}" not found in rule reactions: {rule}')
 
         else:
             # Otherwise, we use breadth-first search to find all reachable states
@@ -338,9 +342,11 @@ class Simulation:
 
         
         if simulator_method.lower() == "crn":
+            if volume is None:
+                volume = self.n
             # Build a CRN and modify it to make all reactions uniform in order and generativity.
             crn = CRN(list(rule), self.state_list) # type: ignore
-            self._crn = convert_to_uniform(crn)
+            self._crn = convert_to_uniform(crn, volume)
             # TODO we probably want to keep track of these separately, because we don't want to
             # report the counts of K and W to the end user, typically.
             self.state_list = natsorted(state_list + [catalyst_specie(), waste_specie()], key=lambda x: repr(x))
