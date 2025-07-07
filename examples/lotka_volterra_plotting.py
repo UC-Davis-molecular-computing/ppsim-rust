@@ -31,7 +31,7 @@ import timeit
 
 def main():
     crn = rb.Gillespie()
-    pop_exponent = 11
+    pop_exponent = 9
     crn.add_reaction(.1 ** pop_exponent, ['A', 'B'], ['B', 'B'])
     crn.add_reaction(1, ['A'], ['A', 'A'])
     crn.add_reaction(1, ['B'], [])
@@ -41,7 +41,7 @@ def main():
     a_init = int(n * p)
     b_init = n - a_init
     inits = {"A": a_init, "B": b_init}
-    end_time = 1.0
+    end_time = 10.0
     num_samples = 200
     results_rebop = {}
     # results_rebop = crn.run(inits, end_time, sampling_increment)
