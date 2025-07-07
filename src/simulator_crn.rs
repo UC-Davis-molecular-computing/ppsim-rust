@@ -1872,9 +1872,10 @@ impl SimulatorCRNMultiBatch {
     /// TODO: docstring
     fn checkpoint_rejection_sampling(&mut self, l: usize, t_max: f64) -> usize {
         // We assume (by preconditioning) initially that the CRN goes past t_max in l reactions.
-        // We binary search for the index of the interaction, indexing from 1, at which it goes over.
+        // We binary search for the index of the interaction, indexing from 0, at which it goes over.
+        // Equivalently, the number of reactions that happen before it goes over.
         // We may need to change this preconditioning at some point, making a new "checkpoint".
-        let mut latest_possible_collision_index = l;
+        let mut latest_possible_collision_index = l - 1;
         let mut time_at_checkpoint = self.continuous_time;
         let mut done_reactions_at_checkpoint = 0;
         let mut pop_size_at_checkpoint = self.n_including_extra_species;
@@ -1889,7 +1890,6 @@ impl SimulatorCRNMultiBatch {
             let mut current_simulated_reactions = done_reactions_at_checkpoint;
             let mut current_simulated_population_size = pop_size_at_checkpoint;
             while current_simulated_reactions < latest_possible_collision_index {
-                // Dunno what a good name for this variable is.
                 let halfway_point =
                     (latest_possible_collision_index - current_simulated_reactions + 1) / 2;
                 // Check how long it would take to get halfway through the part of the batch
@@ -1904,12 +1904,14 @@ impl SimulatorCRNMultiBatch {
                     // condition for the rejection sampling, essentially "locking in" *everything*
                     // we have done so far.
                     done_reactions_at_checkpoint = current_simulated_reactions;
-                    latest_possible_collision_index = current_simulated_reactions + halfway_point;
+                    // Subtract 1 because the collision is indexed from 0.
+                    latest_possible_collision_index =
+                        current_simulated_reactions + halfway_point - 1;
                     time_at_checkpoint = current_simulated_time;
                     pop_size_at_checkpoint = current_simulated_population_size;
                     // If the number of reactions we know must happen is one less than the
                     // latest possible index of the collision, we're done binary searching.
-                    if done_reactions_at_checkpoint + 1 == latest_possible_collision_index {
+                    if done_reactions_at_checkpoint == latest_possible_collision_index {
                         ran_over_end_time = true;
                     }
                 } else {
