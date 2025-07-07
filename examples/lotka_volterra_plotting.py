@@ -31,7 +31,7 @@ import timeit
 
 def main():
     crn = rb.Gillespie()
-    pop_exponent = 6
+    pop_exponent = 3
     crn.add_reaction(.1 ** pop_exponent, ['A', 'B'], ['B', 'B'])
     crn.add_reaction(1, ['A'], ['A', 'A'])
     crn.add_reaction(1, ['B'], [])
