@@ -22,21 +22,21 @@ def measure_time(fn, trials=1):
 def test_time_scaling_vs_population():
     ppsim_times = []
     rebop_times = []
-    ns = []
+    ns_rebop = []
+    ns_ppsim = []
     min_pop_exponent = 3
-    max_pop_exponent = 12
     max_pop_exponent_rebop = 10
-    num_checkpoints = 1
+    max_pop_exponent = 12
+    figsize = (5,3)
     num_trials = 1
-    end_time = 10.0
+    end_time = 1.0
     seed = 1
     # for pop_exponent_increment in tqdm(range(num_ns)):
     for pop_exponent in range(min_pop_exponent, max_pop_exponent + 1):
         print(f'n = 10^{pop_exponent}')
         a,b = pp.species('A B')
         
-        predator_fraction = 0.5 
-        # pop_exponent = 6
+        predator_fraction = 0.5
 
         rxns = [
             (a+b >> 2*b).k(0.1 ** pop_exponent),
@@ -49,7 +49,7 @@ def test_time_scaling_vs_population():
         fake_inits = {a: a_init, b: b_init}
         sim = pp.Simulation(fake_inits, rxns, simulator_method="crn", continuous_time=True, seed=seed)
         
-        def timefn(n):
+        def run_ppsim(n):
             a_init = int(n * (1 - predator_fraction))
             b_init = n - a_init
             inits = {a: a_init, b: b_init}
@@ -64,39 +64,46 @@ def test_time_scaling_vs_population():
         crn.add_reaction(1, ['A'], ['A', 'A'])
         crn.add_reaction(1, ['B'], [])
 
-        def timefnrebop(n, t):
+        def run_rebop(n, t):
             a_init = int(n * (1 - predator_fraction))
             b_init = n - a_init
             inits = {"A": a_init, "B": b_init}
-            results_rebop = crn.run(inits, t, 1, rng=seed)
-
+            crn.run(inits, t, 1, rng=seed)
         
         n = int(10 ** pop_exponent)
         
         if pop_exponent <= max_pop_exponent_rebop:
             if pop_exponent == min_pop_exponent:
                 # for some reason the first time it runs, rebop takes a long time
-                timefnrebop(n, end_time)
+                run_rebop(n, end_time)
+                run_rebop(n, end_time)
             print('rebop')
-            rebop_times.append(measure_time(lambda: timefnrebop(n, end_time), num_trials))
+            rebop_times.append(measure_time(lambda: run_rebop(n, end_time), num_trials))
+            ns_rebop.append(n)
         print('ppsim')
-        ppsim_times.append(measure_time(lambda: timefn(n), num_trials))
-        ns.append(n)
+        if pop_exponent == min_pop_exponent:
+            run_ppsim(n)
+        ppsim_times.append(measure_time(lambda: run_ppsim(n), num_trials))
+        ns_ppsim.append(n)
         
-    fig, ax = plt.subplots(figsize = (10,4))
-    rebop_label = "rebop run time"
-    ax.loglog(ns, ppsim_times, label="ppsim run time", marker="o")
-    ax.loglog(ns, rebop_times, label=rebop_label, marker="o")
+    _, ax = plt.subplots(figsize = figsize)
+    import matplotlib
+    # matplotlib.rcParams.update({'font.size': 16}) # default font is too small for paper figures
+    matplotlib.rcParams['mathtext.fontset'] = 'cm' # use Computer Modern font for LaTeX
+    ax.loglog(ns_ppsim, ppsim_times, label="batching run time", marker="o")
+    ax.loglog(ns_rebop, rebop_times, label="rebop run time", marker="o")
     ax.set_xlabel(f'Initial molecular count')
     ax.set_ylabel(f'Run time (s)')
+    ax.set_ylim(bottom=None, top=10**3)
     ax.legend()
+    plt.savefig("lotka_volterra_scaling_f128.pdf", bbox_inches='tight')
+    # plt.savefig("lotka_volterra_scaling_f64.pdf", bbox_inches='tight')
     plt.show()
-    plt.savefig("lotka_volterra_scaling.pdf", bbox_inches='tight')
-    print(stats.linregress([math.log(x) for x in ns], [math.log(x) for x in ppsim_times]))
-    print(stats.linregress([math.log(x) for x in ns], [math.log(x) for x in rebop_times]))
-    print(ns)
-    print(ppsim_times)
-    print(rebop_times)
+    # print(stats.linregress([math.log(x) for x in ns_ppsim], [math.log(x) for x in ppsim_times]))
+    # print(stats.linregress([math.log(x) for x in ns_ppsim], [math.log(x) for x in rebop_times]))
+    # print(ns_ppsim)
+    # print(ppsim_times)
+    # print(rebop_times)
     return
 
 # def test_time_scaling_vs_end_time():

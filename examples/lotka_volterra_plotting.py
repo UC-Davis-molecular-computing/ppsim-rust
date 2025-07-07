@@ -31,7 +31,7 @@ import timeit
 
 def main():
     crn = rb.Gillespie()
-    pop_exponent = 3
+    pop_exponent = 11
     crn.add_reaction(.1 ** pop_exponent, ['A', 'B'], ['B', 'B'])
     crn.add_reaction(1, ['A'], ['A', 'A'])
     crn.add_reaction(1, ['B'], [])
@@ -41,10 +41,10 @@ def main():
     a_init = int(n * p)
     b_init = n - a_init
     inits = {"A": a_init, "B": b_init}
-    end_time = 10.0
+    end_time = 1.0
     num_samples = 200
     results_rebop = {}
-    results_rebop = crn.run(inits, end_time, sampling_increment)
+    # results_rebop = crn.run(inits, end_time, sampling_increment)
 
     a,b = pp.species('A B')
     rxns = [
@@ -61,12 +61,12 @@ def main():
     # plt.ylim(0, 2.1 * n)
     # plt.title('lotka volterra (with batching)')
     
-    print(f"Total reactions simulated: {sampling_increment * len(results_rebop['A'])}")
+    # print(f"Total reactions simulated: {sampling_increment * len(results_rebop['A'])}")
 
     f, ax = plt.subplots()
 
-    ax.plot(results_rebop['time'], results_rebop['B'], label='B (rebop)')
-    ax.plot(results_rebop['time'], results_rebop['A'], label='A (rebop)')
+    # ax.plot(results_rebop['time'], results_rebop['B'], label='B (rebop)')
+    # ax.plot(results_rebop['time'], results_rebop['A'], label='A (rebop)')
     # print(sim.history)
     # print(results_rebop)
     # print(np.linspace(0, end_time, num_samples + 1))

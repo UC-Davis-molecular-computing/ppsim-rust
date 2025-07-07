@@ -615,7 +615,15 @@ impl SimulatorCRNMultiBatch {
         // let _a = self.sample_collision_fast_legacy(r, u, has_bounds);
         // flame::end("Old buggy rust code.");
         // flame::start("f128 rust code.");
+
+        // let c = if u <= 0.99 {
+        //     self.sample_collision_fast_legacy(r, u, has_bounds)
+        // } else {
+        //     self.sample_collision_fast_f128(r, u, has_bounds)
+        // };
+
         let c = self.sample_collision_fast_f128(r, u, has_bounds);
+
         // flame::end("f128 rust code.");
         // flame::start("Python code.");
         // let _b = self.sample_collision_fast_python(r, u, has_bounds);
