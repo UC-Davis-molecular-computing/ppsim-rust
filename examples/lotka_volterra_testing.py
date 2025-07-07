@@ -45,7 +45,7 @@ def test_time_scaling_vs_population():
         ]
         
         a_init = 1
-        b_init = 1
+        b_init = 0
         fake_inits = {a: a_init, b: b_init}
         sim = pp.Simulation(fake_inits, rxns, simulator_method="crn", continuous_time=True, seed=seed)
         
