@@ -288,6 +288,8 @@ class Expression:
             species_copy = list(self.species)
             species_copy.extend(other.species)
             return Expression(species_copy)
+        elif isinstance(other, Specie):
+            return self + Expression([other])
         else:
             raise NotImplementedError()
 

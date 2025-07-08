@@ -31,41 +31,39 @@ import timeit
 
 def main():
     crn = rb.Gillespie()
-    pop_exponent = 4
-    crn.add_reaction(30, ['X1'], ['X1', 'X1'])
-    crn.add_reaction(0.5 * .1 ** pop_exponent, ['X1', 'X1'], ['X1'])
-    crn.add_reaction(1 * .1 ** pop_exponent, ['X2', 'X1'], ['X2', 'X2'])
-    crn.add_reaction(10, ['X2'], [])
-    crn.add_reaction(1 * .1 ** pop_exponent, ['X1', 'X3'], [])
-    crn.add_reaction(16.5, ['X3'], ['X3', 'X3'])
-    crn.add_reaction(0.5 * .1 ** pop_exponent, ['X3', 'X3'], ['X3'])
+    pop_exponent = 8
+    crn.add_reaction(0.0871, ['X2'], ['X1'])
+    crn.add_reaction(1.6 * (10 ** 9) * (.1 ** pop_exponent), ['X2', 'X1'], [])
+    crn.add_reaction(520, ['X1'], ['X1', 'X1', 'X3'])
+    crn.add_reaction(4 * (10 ** 7) * (.1 ** pop_exponent), ['X1', 'X1'], [])
+    crn.add_reaction(443.324, ['X3'], ['X2'])
+    crn.add_reaction(2.676, ['X3'], [])
     n = int(10 ** pop_exponent)
-    x1_init = int(n / 3)
-    x2_init = int(n / 3)
-    x3_init = int(n / 3)
+    x1_init = int(n / 6)
+    x2_init = int(4 * n / 6)
+    x3_init = int(n / 6)
     inits = {"X1": x1_init, "X2": x2_init, "X3": x3_init}
-    end_time = 8
+    end_time = .001
     num_samples = 500
     results_rebop = {}
     results_rebop = crn.run(inits, end_time, num_samples)
+    print(results_rebop)
 
     x1,x2,x3 = pp.species('X1 X2 X3')
     rxns = [
-        (x1 >> 2*x1).k(30),
-        (2*x1 >> x1).k(0.5),
-        (x2+x1 >> 2*x2).k(1),
-        (x2 >> None).k(10),
-        (x1+x3 >> None).k(1),
-        (x3 >> 2*x3).k(16.5),
-        (2*x3 >> x3).k(0.5),
+        (x2 >> x1).k(0.0871),
+        (x2+x1 >> None).k(1.6 * 10 ** 9),
+        (x1 >> 2*x1+x3).k(520),
+        (2*x1 >> None).k(4 * 10 ** 7),
+        (x3 >> x2).k(443.324),
+        (x3 >> None).k(2.676),
     ]
     inits = {x1: x1_init, x2: x2_init, x3: x3_init}
-    print(inits) #type: ignore 
     sim = pp.Simulation(inits, rxns, simulator_method="crn", continuous_time=True)
-    print(sim.simulator.transition_probabilities) #type: ignore 
+    # print(sim.simulator.transition_probabilities) #type: ignore 
 
     sim.run(end_time, end_time / num_samples)
-    print(sim.simulator.transition_probabilities) #type: ignore
+    # print(sim.simulator.transition_probabilities) #type: ignore
     # sim.history.plot(figsize = (15,4))
     # plt.ylim(0, 2.1 * n)
     # plt.title('lotka volterra (with batching)')
@@ -82,9 +80,9 @@ def main():
     # print(np.linspace(0, end_time, num_samples + 1))
     # print(sim.history['A'])
     # ax.plot(sim.history['K'], label = 'K (ppsim)')
-    ax.plot(sim.history['X1'], label = 'X1 (ppsim)')
-    ax.plot(sim.history['X2'], label = 'X2 (ppsim)')
-    ax.plot(sim.history['X3'], label = 'X3 (ppsim)')
+    # ax.plot(sim.history['X1'], label = 'X1 (ppsim)')
+    # ax.plot(sim.history['X2'], label = 'X2 (ppsim)')
+    # ax.plot(sim.history['X3'], label = 'X3 (ppsim)')
     # ax2.plot(np.linspace(0, end_time, num_samples + 1), sim.history['A'], label='A (ppsim)')
     # ax2.plot(np.linspace(0, end_time, num_samples + 1), sim.history['B'], label='B (ppsim)')
     # ax.hist([results_rebop['A'], results_rebop['B']], bins = np.linspace(0, n, 20), 

@@ -1077,7 +1077,7 @@ impl SimulatorCRNMultiBatch {
                 if non_null_probability_sum < 1.0 {
                     let null_count = self.m[num_outputs];
                     self.updated_counts
-                        .add_to_entry(self.crn.w, null_count as i64);
+                        .add_to_entry(self.crn.w, (null_count * self.crn.g) as i64);
                     for reactant in reactants {
                         self.updated_counts
                             .add_to_entry(reactant, null_count as i64);
@@ -1222,7 +1222,7 @@ impl SimulatorCRNMultiBatch {
                 if non_null_probability_sum < 1.0 {
                     let null_count = self.m[num_outputs];
                     self.updated_counts
-                        .add_to_entry(self.crn.w, null_count as i64);
+                        .add_to_entry(self.crn.w, (null_count * self.crn.g) as i64);
                     for reactant in collision {
                         self.updated_counts
                             .add_to_entry(reactant, null_count as i64);
@@ -1233,7 +1233,7 @@ impl SimulatorCRNMultiBatch {
             assert_eq!(
                 self.updated_counts.size - num_new_molecules,
                 self.crn.o + self.crn.g - num_resampled,
-                "Collision failed to add exactly one thing to updated_counts"
+                "Collision failed to add exactly g things to updated_counts"
             );
             self.discrete_steps_including_nulls += 1;
         }
