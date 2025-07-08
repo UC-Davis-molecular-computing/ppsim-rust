@@ -65,6 +65,7 @@ pub struct UniformCRN {
 }
 
 // A struct combining all reactions with the same reactants into a single piece.
+#[derive(Debug)]
 pub struct CombinedReactions {
     pub reactants: StateList,
     pub outputs: Vec<ProductsAndRateConstant>,
@@ -167,7 +168,6 @@ impl UniformCRN {
             // TODO I'm not sure if I'm handling symmetry factor correction right here.
             // Make sure to test it on, say, a CRN with A + A -> blah and A + B -> blah,
             // in both the case where the first and the second reaction are much faster.
-
             if total_adjusted_rate_constant > max_total_adjusted_rate_constant {
                 max_total_adjusted_rate_constant = total_adjusted_rate_constant;
                 self.continuous_time_correction_factor = total_adjusted_rate_constant;
@@ -334,8 +334,6 @@ pub struct SimulatorCRNMultiBatch {
     /// A boolean determining if the configuration is silent (all interactions are null).
     #[pyo3(get, set)]
     pub silent: bool,
-    /// The last count of K that was used in construct_transition_arrays.
-    pub last_k_count: usize,
     /// A module containing code for calling python-implemented collision sampling.
     pub python_module: Py<PyModule>,
     // /// A list of reactions, as (input, input, output, output). TODO: re-add these when re-adding the ability to do gillespie.
@@ -437,7 +435,6 @@ impl SimulatorCRNMultiBatch {
         let m = vec![0; random_depth + 1];
         let silent = false;
         let do_gillespie = false; // this changes during run
-        let last_k_count = 0;
 
         // next three fields are only used with Gillespie steps;
         // they will be set accordingly if we switch to Gillespie
@@ -490,7 +487,6 @@ impl SimulatorCRNMultiBatch {
             m,
             do_gillespie,
             silent,
-            last_k_count,
             python_module,
             // gillespie_threshold,
             // coll_table,
@@ -1002,6 +998,10 @@ impl SimulatorCRNMultiBatch {
         // and taking advantage of sample_vector returning the highest state returned. Probably
         // in the current implementation, this would live in NDBatchResult and its iteration,
         // and we'd iterate over it instead of self.random_transitions.
+        // println!(
+        //     "Entering batch processing for run of length {:?}",
+        //     rxns_before_coll
+        // );
         for random_transition in reactions_iter {
             assert!(
                 !done,
@@ -1012,6 +1012,7 @@ impl SimulatorCRNMultiBatch {
             // TODO maybe add an assert check that the two structures are iterated through
             // in the same order, i.e. reactants match
             let (reactants, quantity) = (next_array_sum.0, next_array_sum.1);
+            // println!("Reactants {:?} has quantity {:?}.", reactants, quantity);
             done = next_array_sum.2;
             // println!("Handling {:?} reactions of type {:?}.", quantity, reactants);
             // println!("update config at this point is {:?}.", self.updated_counts.config);
@@ -1064,6 +1065,7 @@ impl SimulatorCRNMultiBatch {
                     "sample sum mismatch"
                 );
                 for offset in 0..num_outputs {
+                    // println!("We're actually running this one {:?} times", self.m[offset]);
                     let idx = first_idx + offset;
                     let outputs = &self.random_outputs[idx];
                     for output in outputs {
@@ -1374,9 +1376,8 @@ impl SimulatorCRNMultiBatch {
         // For now, it looks like construct_transition_arrays is a bottleneck, so we're only going
         // to change the count of K if the population size has significantly changed.
         let current_k_count = self.urn.config[self.crn.k];
-        if self.last_k_count == 0
-            || (current_k_count.min(self.last_k_count) as f64)
-                / (current_k_count.max(self.last_k_count) as f64)
+        if current_k_count == 0
+            || (current_k_count.min(self.n) as f64) / (current_k_count.max(self.n) as f64)
                 < K_COUNT_RATIO_THRESHOLD
         {
             let delta_k = self.n as i64 - current_k_count as i64;
@@ -1389,7 +1390,6 @@ impl SimulatorCRNMultiBatch {
                 self.random_outputs,
                 self.transition_probabilities,
             ) = self.crn.construct_transition_arrays(self.n);
-            self.last_k_count = self.urn.config[self.crn.k];
         }
     }
 

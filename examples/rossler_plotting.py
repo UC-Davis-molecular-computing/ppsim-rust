@@ -31,54 +31,65 @@ import timeit
 
 def main():
     crn = rb.Gillespie()
-    pop_exponent = 6
-    crn.add_reaction(.1 ** pop_exponent, ['A', 'B'], ['B', 'B'])
-    crn.add_reaction(1, ['A'], ['A', 'A'])
-    crn.add_reaction(1, ['B'], [])
-    sampling_increment = 1000
+    pop_exponent = 5
+    crn.add_reaction(30, ['X1'], ['X1', 'X1'])
+    crn.add_reaction(0.5 * .1 ** pop_exponent, ['X1', 'X1'], ['X1'])
+    crn.add_reaction(1 * .1 ** pop_exponent, ['X2', 'X1'], ['X2', 'X2'])
+    crn.add_reaction(10, ['X2'], [])
+    crn.add_reaction(1 * .1 ** pop_exponent, ['X1', 'X3'], [])
+    crn.add_reaction(16.5, ['X3'], ['X3', 'X3'])
+    crn.add_reaction(0.5 * .1 ** pop_exponent, ['X3', 'X3'], ['X3'])
     n = int(10 ** pop_exponent)
-    p = 0.5
-    a_init = int(n * p)
-    b_init = n - a_init
-    inits = {"A": a_init, "B": b_init}
-    end_time = 10.0
-    num_samples = 200
-    # results_rebop = {}
-    results_rebop = crn.run(inits, end_time, sampling_increment)
+    x1_init = int(n / 3)
+    x2_init = int(n / 3)
+    x3_init = int(n / 3)
+    inits = {"X1": x1_init, "X2": x2_init, "X3": x3_init}
+    end_time = .3
+    num_samples = 100
+    results_rebop = {}
+    results_rebop = crn.run(inits, end_time, num_samples)
 
-    a,b = pp.species('A B')
+    x1,x2,x3 = pp.species('X1 X2 X3')
     rxns = [
-        (a+b >> 2*b).k(1),
-        (a >> 2*a).k(1),
-        (b >> None).k(1),
+        (x1 >> 2*x1).k(30),
+        (2*x1 >> x1).k(0.5),
+        (x2+x1 >> 2*x1).k(1),
+        (x2 >> None).k(10),
+        (x1+x3 >> None).k(1),
+        (x3 >> 2*x3).k(16.5),
+        (2*x3 >> x3).k(0.5),
     ]
-    
-    inits = {a: a_init, b: b_init}
+    inits = {x1: x1_init, x2: x2_init, x3: x3_init}
     sim = pp.Simulation(inits, rxns, simulator_method="crn", continuous_time=True)
+    print(sim.simulator.transition_probabilities) #type: ignore 
 
     sim.run(end_time, end_time / num_samples)
+    print(sim.simulator.transition_probabilities) #type: ignore
     # sim.history.plot(figsize = (15,4))
     # plt.ylim(0, 2.1 * n)
     # plt.title('lotka volterra (with batching)')
     
-    # print(f"Total reactions simulated: {sampling_increment * len(results_rebop['A'])}")
+    # print(f"Total reactions simulated: {num_samples * len(results_rebop['X1'])}")
 
     f, ax = plt.subplots()
 
-    ax.plot(results_rebop['time'], results_rebop['B'], label='B (rebop)')
-    ax.plot(results_rebop['time'], results_rebop['A'], label='A (rebop)')
+    ax.plot(results_rebop['time'], results_rebop['X1'], label='X1 (rebop)')
+    ax.plot(results_rebop['time'], results_rebop['X2'], label='X2 (rebop)')
+    ax.plot(results_rebop['time'], results_rebop['X3'], label='X3 (rebop)')
     # print(sim.history)
     # print(results_rebop)
     # print(np.linspace(0, end_time, num_samples + 1))
     # print(sim.history['A'])
-    ax.plot(sim.history['A'], label = 'A (ppsim)')
-    ax.plot(sim.history['B'], label = 'B (ppsim)')
+    ax.plot(sim.history['K'], label = 'K (ppsim)')
+    ax.plot(sim.history['X1'], label = 'X1 (ppsim)')
+    ax.plot(sim.history['X2'], label = 'X2 (ppsim)')
+    ax.plot(sim.history['X3'], label = 'X3 (ppsim)')
     # ax2.plot(np.linspace(0, end_time, num_samples + 1), sim.history['A'], label='A (ppsim)')
     # ax2.plot(np.linspace(0, end_time, num_samples + 1), sim.history['B'], label='B (ppsim)')
     # ax.hist([results_rebop['A'], results_rebop['B']], bins = np.linspace(0, n, 20), 
     #         alpha = 1, label=['A', 'B']) #, density=True, edgecolor = 'k', linewidth = 0.5)
     ax.legend()
-    sim.simulator.write_profile() # type: ignore
+    # sim.simulator.write_profile() # type: ignore
 
     plt.show()
     # We could just write gpac reactions directly, but this is ensuring the gpac_format function works.

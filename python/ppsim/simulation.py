@@ -38,7 +38,7 @@ import numpy.typing as npt
 import pandas as pd
 from tqdm.auto import tqdm
 
-from ppsim.crn import Reaction, reactions_to_dict, CRN, convert_to_uniform, catalyst_specie, waste_specie
+from ppsim.crn import Reaction, reactions_to_dict, CRN, convert_to_uniform, catalyst_specie, waste_specie, extra_species
 from ppsim.snapshot import Snapshot, TimeUpdate
 from ppsim.ppsim_rust import Simulator, SimulatorSequentialArray, SimulatorMultiBatch, SimulatorCRNMultiBatch
 
@@ -349,7 +349,7 @@ class Simulation:
             self._crn = convert_to_uniform(crn, volume)
             # TODO we probably want to keep track of these separately, because we don't want to
             # report the counts of K and W to the end user, typically.
-            self.state_list = natsorted(state_list + [catalyst_specie(), waste_specie()], key=lambda x: repr(x))
+            self.state_list = natsorted(state_list, key=lambda x: repr(x)) + extra_species()
             self.state_dict = {state: i for i, state in enumerate(self.state_list)}
 
         if simulator_method.lower() in ('multibatch', 'gillespie'):

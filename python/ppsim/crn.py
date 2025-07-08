@@ -302,8 +302,11 @@ class Expression:
 
     __mul__ = __rmul__
 
-    def __rshift__(self, expr: Specie | Expression) -> Reaction:
-        return Reaction(self, expr)
+    def __rshift__(self, expr: Specie | Expression | None) -> Reaction:
+        if expr is not None:
+            return Reaction(self, expr)
+        else:
+            return Reaction(self, Expression([]))
 
     def __or__(self, other: Specie | Expression) -> Reaction:
         return Reaction(self, other, reversible=True)
@@ -665,6 +668,10 @@ class CRN:
             reactions.append((reactants, products, reaction.rate_constant))
         return reactions
 
+# For consistency, to ensure that the crn and the simulator see the reactants in the same order.
+def extra_species():
+    return [catalyst_specie(), waste_specie()]
+
 def convert_to_uniform(crn:CRN, volume: float) -> CRN:
     """
     Convert a CRN to an equivalent uniform CRN.
@@ -683,7 +690,7 @@ def convert_to_uniform(crn:CRN, volume: float) -> CRN:
     new_reactions:list[Reaction] = []
     K = catalyst_specie()
     W = waste_specie()
-    new_species = crn.species + [K, W]
+    new_species = crn.species + extra_species()
     for reaction in replace_reversible_rxns(crn.reactions):
         reaction_order = reaction.num_reactants()
         reaction_generativity = reaction.generativity()
