@@ -31,7 +31,7 @@ import timeit
 
 def main():
     crn = rb.Gillespie()
-    pop_exponent = 5
+    pop_exponent = 7
     crn.add_reaction(30, ['X1'], ['X1', 'X1'])
     crn.add_reaction(0.5 * .1 ** pop_exponent, ['X1', 'X1'], ['X1'])
     crn.add_reaction(1 * .1 ** pop_exponent, ['X2', 'X1'], ['X2', 'X2'])
@@ -44,7 +44,7 @@ def main():
     x2_init = int(n / 3)
     x3_init = int(n / 3)
     inits = {"X1": x1_init, "X2": x2_init, "X3": x3_init}
-    end_time = .3
+    end_time = 2
     num_samples = 100
     results_rebop = {}
     results_rebop = crn.run(inits, end_time, num_samples)
@@ -53,13 +53,14 @@ def main():
     rxns = [
         (x1 >> 2*x1).k(30),
         (2*x1 >> x1).k(0.5),
-        (x2+x1 >> 2*x1).k(1),
+        (x2+x1 >> 2*x2).k(1),
         (x2 >> None).k(10),
         (x1+x3 >> None).k(1),
         (x3 >> 2*x3).k(16.5),
         (2*x3 >> x3).k(0.5),
     ]
     inits = {x1: x1_init, x2: x2_init, x3: x3_init}
+    print(inits) #type: ignore 
     sim = pp.Simulation(inits, rxns, simulator_method="crn", continuous_time=True)
     print(sim.simulator.transition_probabilities) #type: ignore 
 
@@ -80,7 +81,7 @@ def main():
     # print(results_rebop)
     # print(np.linspace(0, end_time, num_samples + 1))
     # print(sim.history['A'])
-    ax.plot(sim.history['K'], label = 'K (ppsim)')
+    # ax.plot(sim.history['K'], label = 'K (ppsim)')
     ax.plot(sim.history['X1'], label = 'X1 (ppsim)')
     ax.plot(sim.history['X2'], label = 'X2 (ppsim)')
     ax.plot(sim.history['X3'], label = 'X3 (ppsim)')
