@@ -30,30 +30,32 @@ import rebop as rb
 import timeit
 
 def main():
+    for pop_exponent in range(5, 8):
+        make_and_save_plot(pop_exponent)
+    
+def make_and_save_plot(pop_exponent: int) -> None:
     crn = rb.Gillespie()
-    pop_exponent = 6
-    crn.add_reaction(.1 ** pop_exponent, ['A', 'B'], ['B', 'B'])
-    crn.add_reaction(1, ['A'], ['A', 'A'])
-    crn.add_reaction(1, ['B'], [])
-    sampling_increment = 1000
+    crn.add_reaction(.1 ** pop_exponent, ['R', 'F'], ['F', 'F'])
+    crn.add_reaction(1, ['R'], ['R', 'R'])
+    crn.add_reaction(1, ['F'], [])
     n = int(10 ** pop_exponent)
     p = 0.5
-    a_init = int(n * p)
-    b_init = n - a_init
-    inits = {"A": a_init, "B": b_init}
+    r_init = int(n * p)
+    f_init = n - r_init
+    inits = {'R': r_init, 'F': f_init}
     end_time = 10.0
-    num_samples = 200
+    num_samples = 10**5
     # results_rebop = {}
-    results_rebop = crn.run(inits, end_time, sampling_increment)
+    results_rebop = crn.run(inits, end_time, num_samples)
 
-    a,b = pp.species('A B')
+    r,f = pp.species('R F')
     rxns = [
-        (a+b >> 2*b).k(1),
-        (a >> 2*a).k(1),
-        (b >> None).k(1),
+        (r+f >> 2*f).k(1),
+        (r >> 2*r).k(1),
+        (f >> None).k(1),
     ]
     
-    inits = {a: a_init, b: b_init}
+    inits = {r: r_init, f: f_init}
     sim = pp.Simulation(inits, rxns, simulator_method="crn", continuous_time=True)
 
     sim.run(end_time, end_time / num_samples)
@@ -61,25 +63,25 @@ def main():
     # plt.ylim(0, 2.1 * n)
     # plt.title('lotka volterra (with batching)')
     
-    # print(f"Total reactions simulated: {sampling_increment * len(results_rebop['A'])}")
+    # print(f"Total reactions simulated: {sampling_increment * len(results_rebop['R'])}")
 
     f, ax = plt.subplots()
 
-    ax.plot(results_rebop['time'], results_rebop['B'], label='B (rebop)')
-    ax.plot(results_rebop['time'], results_rebop['A'], label='A (rebop)')
+    ax.plot(results_rebop['time'], results_rebop['R'], label='R (rebop)')
+    ax.plot(results_rebop['time'], results_rebop['F'], label='F (rebop)')
     # print(sim.history)
     # print(results_rebop)
     # print(np.linspace(0, end_time, num_samples + 1))
-    # print(sim.history['A'])
-    ax.plot(sim.history['A'], label = 'A (ppsim)')
-    ax.plot(sim.history['B'], label = 'B (ppsim)')
-    # ax2.plot(np.linspace(0, end_time, num_samples + 1), sim.history['A'], label='A (ppsim)')
-    # ax2.plot(np.linspace(0, end_time, num_samples + 1), sim.history['B'], label='B (ppsim)')
-    # ax.hist([results_rebop['A'], results_rebop['B']], bins = np.linspace(0, n, 20), 
-    #         alpha = 1, label=['A', 'B']) #, density=True, edgecolor = 'k', linewidth = 0.5)
+    # print(sim.history['R'])
+    ax.plot(sim.history['R'], label = 'R (batching)')
+    ax.plot(sim.history['F'], label = 'F (batching)')
+    # ax2.plot(np.linspace(0, end_time, num_samples + 1), sim.history['R'], label='A (ppsim)')
+    # ax2.plot(np.linspace(0, end_time, num_samples + 1), sim.history['F'], label='B (ppsim)')
+    # ax.hist([results_rebop['R'], results_rebop['F']], bins = np.linspace(0, n, 20), 
+    #         alpha = 1, label=['R', 'F']) #, density=True, edgecolor = 'k', linewidth = 0.5)
     ax.legend()
-    sim.simulator.write_profile() # type: ignore
-
+    # sim.simulator.write_profile() # type: ignore
+    plt.savefig(f'data/lotka_volterra_counts_time10_n1e{pop_exponent}.pdf', bbox_inches='tight')
     plt.show()
     # We could just write gpac reactions directly, but this is ensuring the gpac_format function works.
     # gp_rxns, gp_inits = pp.gpac_format(lotka_volterra, inits)
@@ -99,5 +101,6 @@ def main():
     # plt.title('approximate majority (ppsim)')
     # plt.show()
     # print("Done!")
+
 if __name__ == "__main__":
     main()

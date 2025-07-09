@@ -11,7 +11,7 @@ import json
 import importlib.util
 from pathlib import Path
 import sys
-if False:
+if True:
     # Path to your renamed .pyd file
     custom_pyd_path = Path("C:/Dropbox/git/ppsim-rust/python/ppsim/ppsim_rust/ppsim_rust.cp312-win_amd64_rebop.pyd")
 
@@ -119,7 +119,7 @@ def read_results(fn: str) -> tuple[list[int], list[float]]:
     times = [item[1] for item in data]
     return ns, times
 
-def plot_results(fn_rebop_data: str, fn_ppsim_data: str, fn_out: str):
+def plot_results(fn_rebop_data: str, fn_ppsim_data_f64: str, fn_ppsim_data_f128: str, fn_out: str):
     # figsize = (6,4)
     figsize = (5,3.5)
     _, ax = plt.subplots(figsize = figsize)
@@ -127,13 +127,15 @@ def plot_results(fn_rebop_data: str, fn_ppsim_data: str, fn_out: str):
     # matplotlib.rcParams.update({'font.size': 14}) # default font is too small for paper figures
     # matplotlib.rcParams['mathtext.fontset'] = 'cm' # use Computer Modern font for LaTeX
     rebop_ns, rebop_times = read_results(fn_rebop_data)
-    ppsim_ns, ppsim_times = read_results(fn_ppsim_data)
-    ax.loglog(ppsim_ns, ppsim_times, label="batching run time", marker="o")
+    ppsim_ns_f64, ppsim_times_f64 = read_results(fn_ppsim_data_f64)
+    ppsim_ns_f128, ppsim_times_f128 = read_results(fn_ppsim_data_f128)
+    ax.loglog(ppsim_ns_f64, ppsim_times_f64, label="batching f64 run time", marker="o")
+    ax.loglog(ppsim_ns_f128, ppsim_times_f128, label="batching f128 run time", marker="o")
     ax.loglog(rebop_ns, rebop_times, label="rebop run time", marker="o")
     ax.set_xlabel(f'Initial molecular count')
     ax.set_ylabel(f'Run time (s)')
     ax.set_xticks([10**i for i in range(3, 15)])
-    ax.set_ylim(bottom=None, top=10**4)
+    ax.set_ylim(bottom=None, top=10**5)
     ax.legend(loc='upper left')
     # plt.savefig("data/lotka_volterra_scaling_f128.pdf", bbox_inches='tight')
     plt.savefig(fn_out, bbox_inches='tight')
@@ -291,13 +293,11 @@ def test_distribution():
 
 def main():
     # create_rebop_data("data/lotka_volterra_times_rebop.json", 3, 12, 1.0)
-    # create_ppsim_data("data/lotka_volterra_times_ppsim_f128.json", 3, 14, 1.0)
-    plot_results('data/lotka_volterra_times_rebop.json', 
-                 'data/lotka_volterra_times_ppsim_f64.json',
-                 'data/lotka_volterra_scaling_f64.pdf')
-    plot_results('data/lotka_volterra_times_rebop.json', 
-                 'data/lotka_volterra_times_ppsim_f128.json',
-                 'data/lotka_volterra_scaling_f128.pdf')
+    # # create_ppsim_data("data/lotka_volterra_times_ppsim_f128.json", 3, 14, 1.0)
+    plot_results('data/lotka_volterra_time1_times_rebop.json', 
+                 'data/lotka_volterra_time1_times_ppsim_f64.json',
+                 'data/lotka_volterra_time1_times_ppsim_f128.json',
+                 'data/lotka_volterra_scaling_time1.pdf')
     # test_distribution()
 
 if __name__ == "__main__":
