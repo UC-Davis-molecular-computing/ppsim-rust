@@ -1,15 +1,35 @@
 import math
 import numpy as np
-import ppsim as pp
 import random
 from tqdm import tqdm
 from matplotlib import pyplot as plt
-import timeit
 import time
 import rebop as rb
 from scipy import stats
+import json
 
-def measure_time(fn, trials=1):
+import importlib.util
+from pathlib import Path
+import sys
+if False:
+    # Path to your renamed .pyd file
+    custom_pyd_path = Path("C:/Dropbox/git/ppsim-rust/python/ppsim/ppsim_rust/ppsim_rust.cp312-win_amd64_rebop.pyd")
+
+    # Define a custom finder and loader for .pyd files
+    class CustomPydFinder:
+        @classmethod
+        def find_spec(cls, fullname, path=None, target=None):
+            # Only handle the specific module we want to redirect
+            if fullname == "ppsim.ppsim_rust.ppsim_rust":
+                return importlib.util.spec_from_file_location(fullname, str(custom_pyd_path))
+            return None
+
+    # Register our custom finder at the beginning of the meta_path
+    sys.meta_path.insert(0, CustomPydFinder)
+
+import ppsim as pp
+
+def measure_time(fn, trials=1) -> float:
     """
     Measure the time taken by a function over a number of trials.
     """
@@ -19,85 +39,104 @@ def measure_time(fn, trials=1):
     end_time = time.perf_counter()
     return (end_time - start_time) / trials
 
-def test_time_scaling_vs_population():
-    ppsim_times = []
+def write_results(fn: str, times: list[float], ns: list[int]):
+    results = list(zip(ns, times))
+    with open(fn, 'w') as f:
+        json.dump(results, f, indent=4)
+
+def create_rebop_data(fn: str, min_pop_exponent: int, max_pop_exponent: int, end_time: float):
+    num_trials = 1
     rebop_times = []
     ns_rebop = []
-    ns_ppsim = []
-    min_pop_exponent = 3
-    max_pop_exponent_rebop = 10
-    max_pop_exponent = 12
-    figsize = (5,3)
-    num_trials = 1
-    end_time = 1.0
     seed = 1
+
+    print('creating rebop data')
     # for pop_exponent_increment in tqdm(range(num_ns)):
     for pop_exponent in range(min_pop_exponent, max_pop_exponent + 1):
         print(f'n = 10^{pop_exponent}')
-        a,b = pp.species('A B')
-        
-        predator_fraction = 0.5
-
-        rxns = [
-            (a+b >> 2*b).k(0.1 ** pop_exponent),
-            (a >> 2*a).k(1),
-            (b >> None).k(1),
-        ]
-        
-        a_init = 1
-        b_init = 0
-        fake_inits = {a: a_init, b: b_init}
-        sim = pp.Simulation(fake_inits, rxns, simulator_method="crn", continuous_time=True, seed=seed)
-        
-        def run_ppsim(n):
-            a_init = int(n * (1 - predator_fraction))
-            b_init = n - a_init
-            inits = {a: a_init, b: b_init}
-            sim.reset(inits) # type: ignore
-            # s = pp.Simulation(inits, rxns, simulator_method="crn", continuous_time=True, seed=seed)
-            sim.run(end_time, 0.5)
-            # sim.simulator.write_profile() # type: ignore
-        # sim = pp.Simulation(inits, rxns, simulator_method="crn", continuous_time=True)
         
         crn = rb.Gillespie()
         crn.add_reaction(0.1 ** pop_exponent, ['A', 'B'], ['B', 'B'])
         crn.add_reaction(1, ['A'], ['A', 'A'])
         crn.add_reaction(1, ['B'], [])
 
-        def run_rebop(n, t):
-            a_init = int(n * (1 - predator_fraction))
-            b_init = n - a_init
-            inits = {"A": a_init, "B": b_init}
-            crn.run(inits, t, 1, rng=seed)
-        
+        predator_fraction = 0.5
         n = int(10 ** pop_exponent)
         
-        if pop_exponent <= max_pop_exponent_rebop:
-            if pop_exponent == min_pop_exponent:
-                # for some reason the first time it runs, rebop takes a long time
-                run_rebop(n, end_time)
-                run_rebop(n, end_time)
-            print('rebop')
-            rebop_times.append(measure_time(lambda: run_rebop(n, end_time), num_trials))
-            ns_rebop.append(n)
-        print('ppsim')
-        if pop_exponent == min_pop_exponent:
-            run_ppsim(n)
-        ppsim_times.append(measure_time(lambda: run_ppsim(n), num_trials))
-        ns_ppsim.append(n)
+        a_init = int(n * (1 - predator_fraction))
+        b_init = n - a_init
+        rebop_inits = {"A": a_init, "B": b_init}
+
+        def run_rebop():
+            crn.run(rebop_inits, end_time, 1, rng=seed)
         
+        if pop_exponent == min_pop_exponent:
+            # for some reason the first time it runs, rebop takes a long time
+            run_rebop()
+            run_rebop()
+        print('rebop')
+        rebop_times.append(measure_time(run_rebop, num_trials))
+        ns_rebop.append(n)
+        write_results(fn, rebop_times, ns_rebop)
+
+def create_ppsim_data(fn: str, min_pop_exponent: int, max_pop_exponent: int, end_time: float):
+    num_trials = 1
+    ppsim_times = []
+    ns_ppsim = []
+    seed = 1
+    a,b = pp.species('A B')
+    rxns = [
+        (a+b >> 2*b).k(1),
+        (a >> 2*a).k(1),
+        (b >> None).k(1),
+    ]
+
+    print('creating ppsim data')
+    # for pop_exponent_increment in tqdm(range(num_ns)):
+    for pop_exponent in range(min_pop_exponent, max_pop_exponent + 1):
+        print(f'n = 10^{pop_exponent}')
+        
+        predator_fraction = 0.5
+        n = int(10 ** pop_exponent)
+        a_init = int(n * (1 - predator_fraction))
+        b_init = n - a_init
+        ppsim_inits = {a: a_init, b: b_init}
+        sim = pp.Simulation(ppsim_inits, rxns, simulator_method="crn", continuous_time=True, seed=seed)
+        
+        def run_ppsim():
+            sim.run(end_time, 0.1)
+        
+        if pop_exponent == min_pop_exponent:
+            run_ppsim()
+        ppsim_times.append(measure_time(run_ppsim, num_trials))
+        ns_ppsim.append(n)
+        write_results(fn, ppsim_times, ns_ppsim)
+
+def read_results(fn: str) -> tuple[list[int], list[float]]:
+    with open(fn, 'r') as f:
+        data = json.load(f)
+    ns = [item[0] for item in data]
+    times = [item[1] for item in data]
+    return ns, times
+
+def plot_results(fn_rebop_data: str, fn_ppsim_data: str, fn_out: str):
+    # figsize = (6,4)
+    figsize = (5,3.5)
     _, ax = plt.subplots(figsize = figsize)
     import matplotlib
-    # matplotlib.rcParams.update({'font.size': 16}) # default font is too small for paper figures
-    matplotlib.rcParams['mathtext.fontset'] = 'cm' # use Computer Modern font for LaTeX
-    ax.loglog(ns_ppsim, ppsim_times, label="batching run time", marker="o")
-    ax.loglog(ns_rebop, rebop_times, label="rebop run time", marker="o")
+    # matplotlib.rcParams.update({'font.size': 14}) # default font is too small for paper figures
+    # matplotlib.rcParams['mathtext.fontset'] = 'cm' # use Computer Modern font for LaTeX
+    rebop_ns, rebop_times = read_results(fn_rebop_data)
+    ppsim_ns, ppsim_times = read_results(fn_ppsim_data)
+    ax.loglog(ppsim_ns, ppsim_times, label="batching run time", marker="o")
+    ax.loglog(rebop_ns, rebop_times, label="rebop run time", marker="o")
     ax.set_xlabel(f'Initial molecular count')
     ax.set_ylabel(f'Run time (s)')
-    ax.set_ylim(bottom=None, top=10**3)
-    ax.legend()
-    plt.savefig("lotka_volterra_scaling_f128.pdf", bbox_inches='tight')
-    # plt.savefig("lotka_volterra_scaling_f64.pdf", bbox_inches='tight')
+    ax.set_xticks([10**i for i in range(3, 15)])
+    ax.set_ylim(bottom=None, top=10**4)
+    ax.legend(loc='upper left')
+    # plt.savefig("data/lotka_volterra_scaling_f128.pdf", bbox_inches='tight')
+    plt.savefig(fn_out, bbox_inches='tight')
     plt.show()
     # print(stats.linregress([math.log(x) for x in ns_ppsim], [math.log(x) for x in ppsim_times]))
     # print(stats.linregress([math.log(x) for x in ns_ppsim], [math.log(x) for x in rebop_times]))
@@ -251,7 +290,14 @@ def test_distribution():
 
 
 def main():
-    test_time_scaling_vs_population()
+    # create_rebop_data("data/lotka_volterra_times_rebop.json", 3, 12, 1.0)
+    # create_ppsim_data("data/lotka_volterra_times_ppsim_f128.json", 3, 14, 1.0)
+    plot_results('data/lotka_volterra_times_rebop.json', 
+                 'data/lotka_volterra_times_ppsim_f64.json',
+                 'data/lotka_volterra_scaling_f64.pdf')
+    plot_results('data/lotka_volterra_times_rebop.json', 
+                 'data/lotka_volterra_times_ppsim_f128.json',
+                 'data/lotka_volterra_scaling_f128.pdf')
     # test_distribution()
 
 if __name__ == "__main__":
