@@ -43,11 +43,11 @@ def main():
     x2_init = int(4 * n / 6)
     x3_init = int(n / 6)
     inits = {"X1": x1_init, "X2": x2_init, "X3": x3_init}
-    end_time = .001
+    end_time = .00000000001
     num_samples = 500
     results_rebop = {}
-    results_rebop = crn.run(inits, end_time, num_samples)
-    print(results_rebop)
+    # results_rebop = crn.run(inits, end_time, num_samples)
+    # print(results_rebop)
 
     x1,x2,x3 = pp.species('X1 X2 X3')
     rxns = [
@@ -60,9 +60,21 @@ def main():
     ]
     inits = {x1: x1_init, x2: x2_init, x3: x3_init}
     sim = pp.Simulation(inits, rxns, simulator_method="crn", continuous_time=True)
+
+    gp_rxns, gp_inits = pp.gpac_format(rxns, inits)
+    gp_x1, gp_x2, gp_x3 = tuple(gp_inits.keys())
+    gp_inits[gp_x1] = 5.24608*10**-8
+    gp_inits[gp_x2] = 3.22392*10**-7
+    gp_inits[gp_x3] = 6.10428*10**-8
+    print(f'{gp_inits=}')
+    gp_end_time = 20
+    t_eval = np.linspace(0, gp_end_time, num_samples + 1)
+    gp.plot_crn(gp_rxns, gp_inits, t_eval, figsize=(10,5), show=True)
+    return
+
     # print(sim.simulator.transition_probabilities) #type: ignore 
 
-    sim.run(end_time, end_time / num_samples)
+    # sim.run(end_time, end_time / num_samples)
     # print(sim.simulator.transition_probabilities) #type: ignore
     # sim.history.plot(figsize = (15,4))
     # plt.ylim(0, 2.1 * n)

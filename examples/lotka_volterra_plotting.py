@@ -30,10 +30,13 @@ import rebop as rb
 import timeit
 
 def main():
-    for pop_exponent in range(5, 8):
+    # for pop_exponent in [4, 5, 6, 7]:
+    for pop_exponent in [5, 6]:
+    # for pop_exponent in [6]:
         make_and_save_plot(pop_exponent)
     
 def make_and_save_plot(pop_exponent: int) -> None:
+    seed = 5
     crn = rb.Gillespie()
     crn.add_reaction(.1 ** pop_exponent, ['R', 'F'], ['F', 'F'])
     crn.add_reaction(1, ['R'], ['R', 'R'])
@@ -43,10 +46,10 @@ def make_and_save_plot(pop_exponent: int) -> None:
     r_init = int(n * p)
     f_init = n - r_init
     inits = {'R': r_init, 'F': f_init}
-    end_time = 10.0
+    end_time = 20.0
     num_samples = 10**5
     # results_rebop = {}
-    results_rebop = crn.run(inits, end_time, num_samples)
+    results_rebop = crn.run(inits, end_time, num_samples, rng=seed)
 
     r,f = pp.species('R F')
     rxns = [
@@ -56,7 +59,7 @@ def make_and_save_plot(pop_exponent: int) -> None:
     ]
     
     inits = {r: r_init, f: f_init}
-    sim = pp.Simulation(inits, rxns, simulator_method="crn", continuous_time=True)
+    sim = pp.Simulation(inits, rxns, simulator_method="crn", continuous_time=True, seed=seed)
 
     sim.run(end_time, end_time / num_samples)
     # sim.history.plot(figsize = (15,4))
@@ -65,7 +68,8 @@ def make_and_save_plot(pop_exponent: int) -> None:
     
     # print(f"Total reactions simulated: {sampling_increment * len(results_rebop['R'])}")
 
-    f, ax = plt.subplots()
+    # f, ax = plt.subplots()
+    f, ax = plt.subplots(figsize=(8, 4))
 
     ax.plot(results_rebop['time'], results_rebop['R'], label='R (rebop)')
     ax.plot(results_rebop['time'], results_rebop['F'], label='F (rebop)')
@@ -79,7 +83,7 @@ def make_and_save_plot(pop_exponent: int) -> None:
     # ax2.plot(np.linspace(0, end_time, num_samples + 1), sim.history['F'], label='B (ppsim)')
     # ax.hist([results_rebop['R'], results_rebop['F']], bins = np.linspace(0, n, 20), 
     #         alpha = 1, label=['R', 'F']) #, density=True, edgecolor = 'k', linewidth = 0.5)
-    ax.legend()
+    ax.legend(loc='upper left')
     # sim.simulator.write_profile() # type: ignore
     plt.savefig(f'data/lotka_volterra_counts_time10_n1e{pop_exponent}.pdf', bbox_inches='tight')
     plt.show()
