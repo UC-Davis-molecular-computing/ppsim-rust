@@ -32,7 +32,12 @@ import timeit
 def main():
     # for pop_exponent in [4, 5, 6, 7]:
     for pop_exponent in [5, 6]:
-    # for pop_exponent in [6]:
+        #XXX: pop_exponent 5 and 6 these show the slowdown bug in ppsim
+        # going to time 20, for n=10^5 around time 6.966 (35% progress bar)
+        # and for n=10^6, around time 13.718 (69% progress bar),
+        # there is a massive slowdown in ppsim compared to the other time intervals.
+        # Despite using the same random seed each time, the exact times when this
+        # happens is stochastic, but it is always around the same time.
         make_and_save_plot(pop_exponent)
     
 def make_and_save_plot(pop_exponent: int) -> None:
@@ -49,7 +54,7 @@ def make_and_save_plot(pop_exponent: int) -> None:
     end_time = 20.0
     num_samples = 10**5
     # results_rebop = {}
-    results_rebop = crn.run(inits, end_time, num_samples, rng=seed)
+    # results_rebop = crn.run(inits, end_time, num_samples, rng=seed)
 
     r,f = pp.species('R F')
     rxns = [
@@ -71,8 +76,8 @@ def make_and_save_plot(pop_exponent: int) -> None:
     # f, ax = plt.subplots()
     f, ax = plt.subplots(figsize=(8, 4))
 
-    ax.plot(results_rebop['time'], results_rebop['R'], label='R (rebop)')
-    ax.plot(results_rebop['time'], results_rebop['F'], label='F (rebop)')
+    # ax.plot(results_rebop['time'], results_rebop['R'], label='R (rebop)')
+    # ax.plot(results_rebop['time'], results_rebop['F'], label='F (rebop)')
     # print(sim.history)
     # print(results_rebop)
     # print(np.linspace(0, end_time, num_samples + 1))
