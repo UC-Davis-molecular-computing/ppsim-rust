@@ -1884,6 +1884,10 @@ impl SimulatorCRNMultiBatch {
         //     "Beginning: {:?}, {:?}, {:?}, {:?}",
         //     time_at_checkpoint, pop_size_at_checkpoint, t_max, l
         // );
+        // Special case: if l = 1, we know the answer is 0 but the below loop won't realize that.
+        if l == 1 {
+            return 0;
+        }
         while !ran_over_end_time {
             // We're either starting for the first time, or just rejected a sample.
             let mut current_simulated_time = time_at_checkpoint;
