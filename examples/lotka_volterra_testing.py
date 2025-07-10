@@ -11,10 +11,10 @@ import json
 import importlib.util
 from pathlib import Path
 import sys
-if True:
+if False:
     # Path to your renamed .pyd file
-    # custom_pyd_path = Path("C:/Dropbox/git/ppsim-rust/python/ppsim/ppsim_rust/ppsim_rust.cp312-win_amd64_rebop.pyd")
-    custom_pyd_path = Path("C:/Dropbox/git/ppsim-rust/python/ppsim/ppsim_rust/ppsim_rust.cp312-win_amd64_f128.pyd")
+    custom_pyd_path = Path("C:/Dropbox/git/ppsim-rust/python/ppsim/ppsim_rust/ppsim_rust.cp312-win_amd64_rebop.pyd")
+    # custom_pyd_path = Path("C:/Dropbox/git/ppsim-rust/python/ppsim/ppsim_rust/ppsim_rust.cp312-win_amd64_f128.pyd")
 
     # Define a custom finder and loader for .pyd files
     class CustomPydFinder:
@@ -45,7 +45,7 @@ def write_results(fn: str, times: list[float], ns: list[int]):
     with open(fn, 'w') as f:
         json.dump(results, f, indent=4)
 
-def create_rebop_data(fn: str, min_pop_exponent: int, max_pop_exponent: int, end_time: float):
+def create_rebop_running_time_data(fn: str, min_pop_exponent: int, max_pop_exponent: int, end_time: float):
     num_trials = 1
     rebop_times = []
     ns_rebop = []
@@ -80,7 +80,7 @@ def create_rebop_data(fn: str, min_pop_exponent: int, max_pop_exponent: int, end
         ns_rebop.append(n)
         write_results(fn, rebop_times, ns_rebop)
 
-def create_ppsim_data(fn: str, min_pop_exponent: int, max_pop_exponent: int, end_time: float):
+def create_ppsim_running_time_data(fn: str, min_pop_exponent: int, max_pop_exponent: int, end_time: float):
     num_trials = 1
     ppsim_times = []
     ns_ppsim = []
@@ -113,7 +113,7 @@ def create_ppsim_data(fn: str, min_pop_exponent: int, max_pop_exponent: int, end
         ns_ppsim.append(n)
         write_results(fn, ppsim_times, ns_ppsim)
 
-def read_results(fn: str) -> tuple[list[int], list[float]]:
+def read_running_time_results(fn: str) -> tuple[list[int], list[float]]:
     with open(fn, 'r') as f:
         data = json.load(f)
     ns = [item[0] for item in data]
@@ -127,9 +127,9 @@ def plot_results(fn_rebop_data: str, fn_ppsim_data_f64: str, fn_ppsim_data_f128:
     import matplotlib
     # matplotlib.rcParams.update({'font.size': 14}) # default font is too small for paper figures
     # matplotlib.rcParams['mathtext.fontset'] = 'cm' # use Computer Modern font for LaTeX
-    rebop_ns, rebop_times = read_results(fn_rebop_data)
-    ppsim_ns_f64, ppsim_times_f64 = read_results(fn_ppsim_data_f64)
-    ppsim_ns_f128, ppsim_times_f128 = read_results(fn_ppsim_data_f128)
+    rebop_ns, rebop_times = read_running_time_results(fn_rebop_data)
+    ppsim_ns_f64, ppsim_times_f64 = read_running_time_results(fn_ppsim_data_f64)
+    ppsim_ns_f128, ppsim_times_f128 = read_running_time_results(fn_ppsim_data_f128)
     ax.loglog(ppsim_ns_f64, ppsim_times_f64, label="batching f64 run time", marker="o")
     ax.loglog(ppsim_ns_f128, ppsim_times_f128, label="batching f128 run time", marker="o")
     ax.loglog(rebop_ns, rebop_times, label="rebop run time", marker="o")
@@ -215,8 +215,13 @@ def plot_results(fn_rebop_data: str, fn_ppsim_data_f64: str, fn_ppsim_data_f128:
 #     plt.show()
 #     return
 
-def write_rebop_count_samples(fn: str, pop_exponent: int, trials_exponent: int, state: str, final_time: float) -> None:
-    print('collecting rebop data')
+def fn_count_samples(alg: str, pop_exponent: int, trials_exponent: int, species: str, final_time: float) -> str:
+    return f'data/lk_{alg}_{species}-counts_time{final_time}_n1e{pop_exponent}_trials1e{trials_exponent}.json'
+
+def write_rebop_count_samples(pop_exponent: int, trials_exponent: int, species: str, final_time: float) -> None:
+    fn = fn_count_samples('rebop', pop_exponent, trials_exponent, species, final_time)
+    print(f'collecting rebop data with n = 10^{pop_exponent} for {trials_exponent} trials')
+    print(f'writing to {fn}')
     n = 10 ** pop_exponent
     crn = rb.Gillespie()
     crn.add_reaction(0.1 ** pop_exponent, ['R', 'F'], ['F', 'F'])
@@ -235,7 +240,7 @@ def write_rebop_count_samples(fn: str, pop_exponent: int, trials_exponent: int, 
                 results_rebop = crn.run(inits, final_time, 1)
                 # print(f"There are {len(results_rebop[state])} total steps in rebop simulation.")
                 # print(results_rebop[state])
-                count = int(results_rebop[state][-1])
+                count = int(results_rebop[species][-1])
                 counts[count] += 1
                 break
             except IndexError:
@@ -251,8 +256,9 @@ def sort_dict_by_key(d: dict) -> dict:
     """
     return dict(sorted(d.items(), key=lambda item: item[0]))
 
-def write_ppsim_count_samples(fn: str, pop_exponent: int, trials_exponent: int, state: str, final_time: float) -> None:
-    print('collecting ppsim data')
+def write_ppsim_count_samples(pop_exponent: int, trials_exponent: int, species: str, final_time: float) -> None:
+    print(f'collecting ppsim data with n = 10^{pop_exponent} for {trials_exponent} trials')
+    fn = fn_count_samples('ppsim', pop_exponent, trials_exponent, species, final_time)
     n = 10 ** pop_exponent
     r,f = pp.species('R F')
     rxns = [
@@ -268,7 +274,7 @@ def write_ppsim_count_samples(fn: str, pop_exponent: int, trials_exponent: int, 
     counts = defaultdict(int)
     trials = 10**trials_exponent
     results_batching = sim.sample_future_configuration(final_time, num_samples=trials)
-    count_list: list[int] = results_batching[state].squeeze().tolist() # type: ignore
+    count_list: list[int] = results_batching[species].squeeze().tolist() # type: ignore
     counts = defaultdict(int)
     for count in count_list:
         counts[count] += 1
@@ -277,54 +283,44 @@ def write_ppsim_count_samples(fn: str, pop_exponent: int, trials_exponent: int, 
     with open(fn, 'w') as f:
         json.dump(counts, f, indent=4)
 
-def test_distribution():
-    pop_exponent = 3
-    trials_exponent = 3
-    final_time_exponent = -2
-    a,b = pp.species('A B')
-    
-    final_time = 10 ** final_time_exponent
-    rxns = [
-        (a+b >> 2*b).k(1),
-        (a >> 2*a).k(1),
-        (b >> None).k(1),
-    ]
+def read_count_samples(fn: str) -> list[int]:
+    """
+    Read the count samples from a JSON file.
+    """
+    with open(fn, 'r') as f:
+        counts = json.load(f)
+    count_list = []
+    for count, num_samples_with_count in counts.items():
+        count_list.extend([int(count)] * num_samples_with_count)
+    return count_list
 
-    n = 10 ** pop_exponent
-    print(f"n = {n}")
-    a_init = n // 2
-    b_init = n - a_init
-    inits = {a: a_init, b: b_init}
-    sim = pp.Simulation(inits, rxns, simulator_method="crn", continuous_time=True, seed=4) #type: ignore
+def plot_rebop_ppsim_histogram(pop_exponent: int, trials_exponent: int, species: str, final_time: float):
+    rebop_fn = fn_count_samples('rebop', pop_exponent, trials_exponent, species, final_time)
+    ppsim_fn = fn_count_samples('ppsim', pop_exponent, trials_exponent, species, final_time)
     
-    trials = 10**trials_exponent
+    rebop_counts = read_count_samples(rebop_fn)
+    ppsim_counts = read_count_samples(ppsim_fn)
     
-    # The simulator multiplies by n currently so just gonna be lazy here.
-    # state = 'A'
-    state = 'B'
-    results_batching = sim.sample_future_configuration(final_time, num_samples=trials)
-    print(f"total reactions simulated by batching: {sim.simulator.discrete_steps_not_including_nulls}") #type: ignore
-    # sim.simulator.write_profile() # type: ignore
-    print('rebop sampling...')
-    results_rebop = write_rebop_count_samples(pop_exponent, trials, b_init, state, final_time)
     fig, ax = plt.subplots(figsize = (10,4))
     # print((results_batching).shape)
     # print((results_batching[state].squeeze().tolist()))
     # print(results_rebop) 
     # print([results_batching[state].squeeze().tolist(), results_rebop])
     # ax.hist(results_rebop)
-    ax.hist([results_batching[state].squeeze().tolist(), results_rebop], # type: ignore
-            #bins = np.linspace(int(n*0.32), int(n*.43), 20), # type: ignore
-            alpha = 1, label=['ppsim', 'rebop']) #, density=True, edgecolor = 'k', linewidth = 0.5)
+    ax.hist([ppsim_counts, rebop_counts], # type: ignore
+            bins = 20,
+            alpha = 1, label=['batching', 'rebop']) #, density=True, edgecolor = 'k', linewidth = 0.5)
     ax.legend()
 
-    ax.set_xlabel(f'Count of state {state}')
+    ax.set_xlabel(f'Count of species {species}')
     ax.set_ylabel(f'Number of samples')
-    ax.set_title(f'State {state} distribution sampled at simulated time {final_time} ($10^{trials_exponent}$ samples)')
+    ax.set_title(f'Species {species} distribution sampled at simulated time {final_time}'
+                 f'(n=$10^{pop_exponent}$; trials=$10^{trials_exponent}$)')
     
     # plt.ylim(0, 200_000)
-
-    # plt.savefig(pdf_fn, bbox_inches='tight')
+    pdf_fn = fn_count_samples('ppsim-vs-rebop', pop_exponent, trials_exponent, species, final_time)
+    pdf_fn = pdf_fn.replace('.json', '.pdf')
+    plt.savefig(pdf_fn, bbox_inches='tight')
     plt.show()
 
 
@@ -338,11 +334,13 @@ def main():
     # test_distribution()
 
     pop_exponent = 4
-    trials_exponent = 6
-    # write_rebop_count_samples(f'data/lk_rebop_Fcounts_n1e{pop_exponent}_trials1e{trials_exponent}.json', 
-    #                           pop_exponent, trials_exponent, 'F', 1.0)
-    write_ppsim_count_samples(f'data/lk_ppsim_Fcounts_n1e{pop_exponent}_trials1e{trials_exponent}.json', 
-                              pop_exponent, trials_exponent, 'F', 1.0)
+    trials_exponent = 3
+    final_time = 1.0
+    species = 'F'
+    # write_rebop_count_samples(pop_exponent, trials_exponent, species, final_time)
+    # write_ppsim_count_samples(pop_exponent, trials_exponent, species, final_time)
+    plot_rebop_ppsim_histogram(pop_exponent, trials_exponent, species, final_time)
+
 
 if __name__ == "__main__":
     main()
