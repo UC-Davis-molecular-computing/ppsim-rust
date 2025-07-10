@@ -218,6 +218,10 @@ impl UniformCRN {
             "random_outputs and transition_probabilities length mismatch"
         );
         flame::end("construct_transition_arrays");
+        // println!(
+        //     "Arrays are {:?}, {:?}, {:?}",
+        //     random_transitions, random_outputs, random_probabilities
+        // );
         return (random_transitions, random_outputs, random_probabilities);
     }
 
@@ -493,7 +497,7 @@ impl SimulatorCRNMultiBatch {
             // coll_table_r_values,
             // coll_table_u_values,
         };
-        simulator.reset_k_count();
+        simulator.reset_k_count(true);
         (simulator, Simulator::default())
     }
 
@@ -516,7 +520,7 @@ impl SimulatorCRNMultiBatch {
                 return Ok(());
             } else {
                 self.batch_step(t_max);
-                self.reset_k_count();
+                self.reset_k_count(false);
                 self.recycle_waste();
             }
             // TODO this should be set more generally
@@ -560,7 +564,7 @@ impl SimulatorCRNMultiBatch {
         self.n_including_extra_species = self.urn.size;
         self.n = self.n_including_extra_species
             - (self.urn.config[self.crn.k] + self.urn.config[self.crn.w]);
-        self.reset_k_count();
+        self.reset_k_count(true);
         self.continuous_time = t;
         self.discrete_steps_not_including_nulls = 0;
         self.discrete_steps_including_nulls = 0;
@@ -1371,12 +1375,13 @@ impl SimulatorCRNMultiBatch {
     /// Update the count of K in preparation for the next batch.
     /// We will try to choose a value for the count of K that maximizes the expected amount
     /// of progress we make in simulating the original CRN.
-    fn reset_k_count(&mut self) {
+    fn reset_k_count(&mut self, always_reset_count: bool) {
         // TODO: maybe do something more complicated than this to actually be efficient.
         // For now, it looks like construct_transition_arrays is a bottleneck, so we're only going
-        // to change the count of K if the population size has significantly changed.
+        // to change the count of K if the population size has significantly changed, or
+        // we're constructing them for the first time or resetting everything.
         let current_k_count = self.urn.config[self.crn.k];
-        if current_k_count == 0
+        if always_reset_count
             || (current_k_count.min(self.n) as f64) / (current_k_count.max(self.n) as f64)
                 < K_COUNT_RATIO_THRESHOLD
         {
