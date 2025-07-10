@@ -15,7 +15,8 @@ import sys
 if False:
     # Path to your renamed .pyd file
     # custom_pyd_path = Path("C:/Dropbox/git/ppsim-rust/python/ppsim/ppsim_rust/ppsim_rust.cp312-win_amd64_rebop.pyd")
-    custom_pyd_path = Path("C:/Dropbox/git/ppsim-rust/python/ppsim/ppsim_rust/ppsim_rust.cp312-win_amd64_f128.pyd")
+    # custom_pyd_path = Path("C:/Dropbox/git/ppsim-rust/python/ppsim/ppsim_rust/ppsim_rust.cp312-win_amd64_f128.pyd")
+    custom_pyd_path = Path("C:/Dropbox/git/ppsim-rust/python/ppsim/ppsim_rust/ppsim_rust.cp312-win_amd64_2.pyd")
 
     # Define a custom finder and loader for .pyd files
     class CustomPydFinder:
@@ -196,18 +197,21 @@ def plot_rebop_ppsim_histogram(pop_exponent: int, trials_exponent: int, species_
     
     rebop_counts = read_count_samples(rebop_fn)
     ppsim_counts = read_count_samples(ppsim_fn)
-    
-    fig, ax = plt.subplots(figsize = (10,4))
+
+    _, ax = plt.subplots(figsize = (10,4))
     # print((results_batching).shape)
     # print((results_batching[state].squeeze().tolist()))
     # print(results_rebop) 
     # print([results_batching[state].squeeze().tolist(), results_rebop])
     # ax.hist(results_rebop)
+    largest = max(max(rebop_counts), max(ppsim_counts))
+    smallest = min(min(rebop_counts), min(ppsim_counts))
+    bins = largest - smallest + 1
     ax.hist([ppsim_counts, rebop_counts], # type: ignore
-            bins = 20,
+            bins = bins,
             alpha = 1, label=['batching', 'rebop']) #, density=True, edgecolor = 'k', linewidth = 0.5)
     ax.legend()
-
+    # ax.set_xticks(range(10, 30))
     ax.set_xlabel(f'Count of species {species_name}')
     ax.set_ylabel(f'Number of samples')
     ax.set_title(f'Species {species_name} distribution sampled at simulated time {final_time} '
@@ -248,17 +252,18 @@ def ppsim_dimerization_crn(pop_exponent: int, seed: int) -> pp.Simulation:
 
 def main():
     pop_exponent = 2
-    trials_exponent = 5
+    trials_exponent = 6
     final_time = 0.5
-    species_name = 'M'
+    species_name = 'D'
     seed = 4
     rebop_crn, rebop_inits = rebop_dimerization_with_inits(pop_exponent)
     ppsim_sim = ppsim_dimerization_crn(pop_exponent, seed)
-    # print(f'Running dimerization test with n = 10^{pop_exponent} for 10^{trials_exponent} trials')
+    
     # ppsim_sim.run(final_time, 0.01) # type: ignore
     # print(f'done with ppsim')
     # ppsim_sim.history.plot(figsize=(10, 4)) # type: ignore
     # plt.show()
+    
     # write_rebop_count_samples(rebop_crn, rebop_inits, pop_exponent, trials_exponent, species_name, final_time)
     # write_ppsim_count_samples(ppsim_sim, pop_exponent, trials_exponent, species_name, final_time)
     plot_rebop_ppsim_histogram(pop_exponent, trials_exponent, species_name, final_time)

@@ -20,6 +20,13 @@
             "cwd": "${workspaceFolder}"
         },
         {
+            "name": "Python Debug examples/dimerization_testing.py",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "examples/dimerization_testing.py",
+            "console": "integratedTerminal"
+        },
+        {
             "name": "Python Debug examples/oregonator_plotting.py",
             "type": "debugpy",
             "request": "launch",
