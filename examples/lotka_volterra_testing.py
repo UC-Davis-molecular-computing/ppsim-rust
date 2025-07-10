@@ -13,7 +13,8 @@ from pathlib import Path
 import sys
 if True:
     # Path to your renamed .pyd file
-    custom_pyd_path = Path("C:/Dropbox/git/ppsim-rust/python/ppsim/ppsim_rust/ppsim_rust.cp312-win_amd64_rebop.pyd")
+    # custom_pyd_path = Path("C:/Dropbox/git/ppsim-rust/python/ppsim/ppsim_rust/ppsim_rust.cp312-win_amd64_rebop.pyd")
+    custom_pyd_path = Path("C:/Dropbox/git/ppsim-rust/python/ppsim/ppsim_rust/ppsim_rust.cp312-win_amd64_f128.pyd")
 
     # Define a custom finder and loader for .pyd files
     class CustomPydFinder:
@@ -121,7 +122,7 @@ def read_results(fn: str) -> tuple[list[int], list[float]]:
 
 def plot_results(fn_rebop_data: str, fn_ppsim_data_f64: str, fn_ppsim_data_f128: str, fn_out: str):
     # figsize = (6,4)
-    figsize = (5,3.5)
+    figsize = (5,4)
     _, ax = plt.subplots(figsize = figsize)
     import matplotlib
     # matplotlib.rcParams.update({'font.size': 14}) # default font is too small for paper figures
@@ -139,7 +140,7 @@ def plot_results(fn_rebop_data: str, fn_ppsim_data_f64: str, fn_ppsim_data_f128:
     ax.legend(loc='upper left')
     # plt.savefig("data/lotka_volterra_scaling_f128.pdf", bbox_inches='tight')
     plt.savefig(fn_out, bbox_inches='tight')
-    plt.show()
+    # plt.show()
     # print(stats.linregress([math.log(x) for x in ns_ppsim], [math.log(x) for x in ppsim_times]))
     # print(stats.linregress([math.log(x) for x in ns_ppsim], [math.log(x) for x in rebop_times]))
     # print(ns_ppsim)
@@ -214,19 +215,19 @@ def plot_results(fn_rebop_data: str, fn_ppsim_data_f64: str, fn_ppsim_data_f128:
 #     plt.show()
 #     return
 
-def get_rebop_samples(pop_exponent, trials, predator_count, state, final_time):
+def write_rebop_count_samples(fn: str, pop_exponent: int, trials_exponent: int, state: str, final_time: float) -> None:
+    print('collecting rebop data')
     n = 10 ** pop_exponent
-    output = []
-    total_time_inside_simulation = 0.0
-    total_time_outside = 0.0
-    for _ in tqdm(range(trials)):
-        crn = rb.Gillespie()
-        crn.add_reaction(0.1 ** pop_exponent, ['A', 'B'], ['B', 'B'])
-        crn.add_reaction(1, ['A'], ['A', 'A'])
-        crn.add_reaction(1, ['B'], [])
-        b_init = predator_count
-        a_init = n - b_init
-        inits = {"A": a_init, "B": b_init}
+    crn = rb.Gillespie()
+    crn.add_reaction(0.1 ** pop_exponent, ['R', 'F'], ['F', 'F'])
+    crn.add_reaction(1, ['R'], ['R', 'R'])
+    crn.add_reaction(1, ['F'], [])
+    from collections import defaultdict
+    counts = defaultdict(int)
+    for _ in tqdm(range(10**trials_exponent)):
+        r_init = n // 2
+        f_init = n // 2
+        inits = {'R': r_init, 'F': f_init}
         # It should be very roughly 1 step every 1/n real time, so to get a particular number
         # of steps, it should be safe to run for, say, 3 times that much time
         while True:
@@ -234,22 +235,57 @@ def get_rebop_samples(pop_exponent, trials, predator_count, state, final_time):
                 results_rebop = crn.run(inits, final_time, 1)
                 # print(f"There are {len(results_rebop[state])} total steps in rebop simulation.")
                 # print(results_rebop[state])
-                output.append(int(results_rebop[state][-1]))
+                count = int(results_rebop[state][-1])
+                counts[count] += 1
                 break
             except IndexError:
                 pass
                 print("Index error caught and ignored. Rebop distribution may be slightly off.")
-    return output
+    counts = sort_dict_by_key(counts)
+    with open(fn, 'w') as f:
+        json.dump(counts, f, indent=4)
+
+def sort_dict_by_key(d: dict) -> dict:
+    """
+    Sort a dictionary by its keys.
+    """
+    return dict(sorted(d.items(), key=lambda item: item[0]))
+
+def write_ppsim_count_samples(fn: str, pop_exponent: int, trials_exponent: int, state: str, final_time: float) -> None:
+    print('collecting ppsim data')
+    n = 10 ** pop_exponent
+    r,f = pp.species('R F')
+    rxns = [
+        (r+f >> 2*f).k(1),
+        (r >> 2*r).k(1),
+        (f >> None).k(1),
+    ]
+    a_init = n // 2
+    b_init = n - a_init
+    inits = {r: a_init, f: b_init}
+    sim = pp.Simulation(inits, rxns, simulator_method="crn", continuous_time=True, seed=4) #type: ignore
+    from collections import defaultdict
+    counts = defaultdict(int)
+    trials = 10**trials_exponent
+    results_batching = sim.sample_future_configuration(final_time, num_samples=trials)
+    count_list: list[int] = results_batching[state].squeeze().tolist() # type: ignore
+    counts = defaultdict(int)
+    for count in count_list:
+        counts[count] += 1
+    
+    counts = sort_dict_by_key(counts)
+    with open(fn, 'w') as f:
+        json.dump(counts, f, indent=4)
 
 def test_distribution():
-    pop_exponent = 10.69
-    trials_exponent = 0
+    pop_exponent = 3
+    trials_exponent = 3
     final_time_exponent = -2
     a,b = pp.species('A B')
     
     final_time = 10 ** final_time_exponent
     rxns = [
-        (a+b >> 2*b).k(0.1 ** pop_exponent),
+        (a+b >> 2*b).k(1),
         (a >> 2*a).k(1),
         (b >> None).k(1),
     ]
@@ -261,7 +297,7 @@ def test_distribution():
     inits = {a: a_init, b: b_init}
     sim = pp.Simulation(inits, rxns, simulator_method="crn", continuous_time=True, seed=4) #type: ignore
     
-    trials = 3
+    trials = 10**trials_exponent
     
     # The simulator multiplies by n currently so just gonna be lazy here.
     # state = 'A'
@@ -269,36 +305,44 @@ def test_distribution():
     results_batching = sim.sample_future_configuration(final_time, num_samples=trials)
     print(f"total reactions simulated by batching: {sim.simulator.discrete_steps_not_including_nulls}") #type: ignore
     # sim.simulator.write_profile() # type: ignore
-    # results_rebop = get_rebop_samples(pop_exponent, trials, b_init, state, final_time)
-    # fig, ax = plt.subplots(figsize = (10,4))
-    # # print((results_batching).shape)
-    # # print((results_batching[state].squeeze().tolist()))
-    # # print(results_rebop) 
-    # # print([results_batching[state].squeeze().tolist(), results_rebop])
-    # # ax.hist(results_rebop)
-    # ax.hist([results_batching[state].squeeze().tolist(), results_rebop], # type: ignore
-    #         #bins = np.linspace(int(n*0.32), int(n*.43), 20), # type: ignore
-    #         alpha = 1, label=['ppsim', 'rebop']) #, density=True, edgecolor = 'k', linewidth = 0.5)
-    # ax.legend()
+    print('rebop sampling...')
+    results_rebop = write_rebop_count_samples(pop_exponent, trials, b_init, state, final_time)
+    fig, ax = plt.subplots(figsize = (10,4))
+    # print((results_batching).shape)
+    # print((results_batching[state].squeeze().tolist()))
+    # print(results_rebop) 
+    # print([results_batching[state].squeeze().tolist(), results_rebop])
+    # ax.hist(results_rebop)
+    ax.hist([results_batching[state].squeeze().tolist(), results_rebop], # type: ignore
+            #bins = np.linspace(int(n*0.32), int(n*.43), 20), # type: ignore
+            alpha = 1, label=['ppsim', 'rebop']) #, density=True, edgecolor = 'k', linewidth = 0.5)
+    ax.legend()
 
-    # ax.set_xlabel(f'Count of state {state}')
-    # ax.set_ylabel(f'Number of samples')
-    # ax.set_title(f'State {state} distribution sampled at simulated time {final_time} ($10^{trials_exponent}$ samples)')
+    ax.set_xlabel(f'Count of state {state}')
+    ax.set_ylabel(f'Number of samples')
+    ax.set_title(f'State {state} distribution sampled at simulated time {final_time} ($10^{trials_exponent}$ samples)')
     
-    # # plt.ylim(0, 200_000)
+    # plt.ylim(0, 200_000)
 
-    # # plt.savefig(pdf_fn, bbox_inches='tight')
-    # plt.show()
+    # plt.savefig(pdf_fn, bbox_inches='tight')
+    plt.show()
 
 
 def main():
-    # create_rebop_data("data/lotka_volterra_times_rebop.json", 3, 12, 1.0)
-    # # create_ppsim_data("data/lotka_volterra_times_ppsim_f128.json", 3, 14, 1.0)
-    plot_results('data/lotka_volterra_time1_times_rebop.json', 
-                 'data/lotka_volterra_time1_times_ppsim_f64.json',
-                 'data/lotka_volterra_time1_times_ppsim_f128.json',
-                 'data/lotka_volterra_scaling_time1.pdf')
+    # create_rebop_data("data/lotka_volterra_time1_times_rebop.json", 3, 12, 1.0)
+    # create_ppsim_data("data/lotka_volterra_time1_times_ppsim_f128.json", 3, 14, 1.0)
+    # plot_results('data/lotka_volterra_time1_times_rebop.json', 
+    #              'data/lotka_volterra_time1_times_ppsim_f64.json',
+    #              'data/lotka_volterra_time1_times_ppsim_f128.json',
+    #              'data/lotka_volterra_scaling_time1.pdf')
     # test_distribution()
+
+    pop_exponent = 4
+    trials_exponent = 6
+    # write_rebop_count_samples(f'data/lk_rebop_Fcounts_n1e{pop_exponent}_trials1e{trials_exponent}.json', 
+    #                           pop_exponent, trials_exponent, 'F', 1.0)
+    write_ppsim_count_samples(f'data/lk_ppsim_Fcounts_n1e{pop_exponent}_trials1e{trials_exponent}.json', 
+                              pop_exponent, trials_exponent, 'F', 1.0)
 
 if __name__ == "__main__":
     main()

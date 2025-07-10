@@ -30,8 +30,14 @@ import rebop as rb
 import timeit
 
 def main():
-    # for pop_exponent in [4, 5, 6, 7]:
-    for pop_exponent in [5, 6]:
+    import matplotlib.pyplot as plt
+
+    # Get the default color cycle
+    # default_colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+    # print(default_colors)
+    # return
+    # for pop_exponent in [4, 6, 8]:
+    for pop_exponent in [3]:
         #XXX: pop_exponent 5 and 6 these show the slowdown bug in ppsim
         # going to time 20, for n=10^5 around time 6.966 (35% progress bar)
         # and for n=10^6, around time 13.718 (69% progress bar),
@@ -41,7 +47,7 @@ def main():
         make_and_save_plot(pop_exponent)
     
 def make_and_save_plot(pop_exponent: int) -> None:
-    seed = 5
+    seed = 4
     crn = rb.Gillespie()
     crn.add_reaction(.1 ** pop_exponent, ['R', 'F'], ['F', 'F'])
     crn.add_reaction(1, ['R'], ['R', 'R'])
@@ -52,9 +58,10 @@ def make_and_save_plot(pop_exponent: int) -> None:
     f_init = n - r_init
     inits = {'R': r_init, 'F': f_init}
     end_time = 20.0
-    num_samples = 10**5
-    # results_rebop = {}
-    # results_rebop = crn.run(inits, end_time, num_samples, rng=seed)
+    num_samples = 10**3
+    results_rebop = {}
+    print(f'running rebop with n = 10^{pop_exponent}')
+    results_rebop = crn.run(inits, end_time, num_samples, rng=seed)
 
     r,f = pp.species('R F')
     rxns = [
@@ -76,40 +83,15 @@ def make_and_save_plot(pop_exponent: int) -> None:
     # f, ax = plt.subplots()
     f, ax = plt.subplots(figsize=(8, 4))
 
-    # ax.plot(results_rebop['time'], results_rebop['R'], label='R (rebop)')
-    # ax.plot(results_rebop['time'], results_rebop['F'], label='F (rebop)')
-    # print(sim.history)
-    # print(results_rebop)
-    # print(np.linspace(0, end_time, num_samples + 1))
-    # print(sim.history['R'])
-    ax.plot(sim.history['R'], label = 'R (batching)')
-    ax.plot(sim.history['F'], label = 'F (batching)')
-    # ax2.plot(np.linspace(0, end_time, num_samples + 1), sim.history['R'], label='A (ppsim)')
-    # ax2.plot(np.linspace(0, end_time, num_samples + 1), sim.history['F'], label='B (ppsim)')
-    # ax.hist([results_rebop['R'], results_rebop['F']], bins = np.linspace(0, n, 20), 
-    #         alpha = 1, label=['R', 'F']) #, density=True, edgecolor = 'k', linewidth = 0.5)
+    blue, orange, green, red  = '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728'
+    ax.plot(results_rebop['time'], results_rebop['R'], label='R (rebop)', color=red)
+    ax.plot(results_rebop['time'], results_rebop['F'], label='F (rebop)', color=green)
+    ax.plot(sim.history['R'], label = 'R (batching)', color=blue)
+    ax.plot(sim.history['F'], label = 'F (batching)', color=orange)
     ax.legend(loc='upper left')
-    # sim.simulator.write_profile() # type: ignore
     plt.savefig(f'data/lotka_volterra_counts_time10_n1e{pop_exponent}.pdf', bbox_inches='tight')
-    plt.show()
-    # We could just write gpac reactions directly, but this is ensuring the gpac_format function works.
-    # gp_rxns, gp_inits = pp.gpac_format(lotka_volterra, inits)
-    # print('Reactions:')
-    # for rxn in gp_rxns:
-    #     print(rxn)
-    # print('Initial conditions:')
-    # for sp, count in gp_inits.items():
-    #     print(f'{sp}: {count}')
-    
-    # # for trials_exponent in range(3, 7):
-    # # for trials_exponent in range(3, 8):
-    # print(f'*************\nCollecting rebop data for pop size 10^{pop_exponent} with 10^{trials_exponent} trials\n')
-    # results_rebop = gp.rebop_crn_counts(gp_rxns, gp_inits, end_time)
-    # df = pl.DataFrame(results_rebop).to_pandas()
-    # df.plot(figsize=(10,5)) # .plot(figsize = (6, 4))
-    # plt.title('approximate majority (ppsim)')
     # plt.show()
-    # print("Done!")
+    
 
 if __name__ == "__main__":
     main()
