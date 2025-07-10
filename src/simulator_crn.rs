@@ -497,7 +497,7 @@ impl SimulatorCRNMultiBatch {
             // coll_table_r_values,
             // coll_table_u_values,
         };
-        simulator.reset_k_count(true);
+        simulator.reset_k_count();
         (simulator, Simulator::default())
     }
 
@@ -520,7 +520,12 @@ impl SimulatorCRNMultiBatch {
                 return Ok(());
             } else {
                 self.batch_step(t_max);
-                self.reset_k_count(false);
+                let current_k_count = self.urn.config[self.crn.k];
+                if (current_k_count.min(self.n) as f64) / (current_k_count.max(self.n) as f64)
+                    < K_COUNT_RATIO_THRESHOLD
+                {
+                    self.reset_k_count();
+                }
                 self.recycle_waste();
             }
             // TODO this should be set more generally
@@ -560,11 +565,20 @@ impl SimulatorCRNMultiBatch {
         //     "Before: {:?}, {:?}, {:?}",
         //     self.urn.config, self.n_including_extra_species, self.continuous_time
         // );
+        let old_k_count = self.urn.config[self.crn.k];
         self.urn.reset_config(&config);
         self.n_including_extra_species = self.urn.size;
         self.n = self.n_including_extra_species
             - (self.urn.config[self.crn.k] + self.urn.config[self.crn.w]);
-        self.reset_k_count(true);
+        if old_k_count != self.n {
+            // If the count of k changed during the simulation, we need to do the expensive operation
+            // of recomputing transition arrays.
+            self.reset_k_count();
+        } else {
+            // Otherwise, we know what to set the count of k to, but transition arrays are already right.
+            self.urn.add_to_entry(self.crn.k, self.n as i64);
+        }
+        self.n_including_extra_species = self.n + self.urn.config[self.crn.k];
         self.continuous_time = t;
         self.discrete_steps_not_including_nulls = 0;
         self.discrete_steps_including_nulls = 0;
@@ -1375,27 +1389,24 @@ impl SimulatorCRNMultiBatch {
     /// Update the count of K in preparation for the next batch.
     /// We will try to choose a value for the count of K that maximizes the expected amount
     /// of progress we make in simulating the original CRN.
-    fn reset_k_count(&mut self, always_reset_count: bool) {
+    fn reset_k_count(&mut self) {
         // TODO: maybe do something more complicated than this to actually be efficient.
         // For now, it looks like construct_transition_arrays is a bottleneck, so we're only going
         // to change the count of K if the population size has significantly changed, or
-        // we're constructing them for the first time or resetting everything.
+        // we're constructing them for the first time or resetting e
         let current_k_count = self.urn.config[self.crn.k];
-        if always_reset_count
-            || (current_k_count.min(self.n) as f64) / (current_k_count.max(self.n) as f64)
-                < K_COUNT_RATIO_THRESHOLD
-        {
-            let delta_k = self.n as i64 - current_k_count as i64;
-            assert!(self.n_including_extra_species as i64 + delta_k >= 0);
-            self.n_including_extra_species =
-                (self.n_including_extra_species as i64 + delta_k) as usize;
-            self.urn.add_to_entry(self.crn.k, delta_k);
-            (
-                self.random_transitions,
-                self.random_outputs,
-                self.transition_probabilities,
-            ) = self.crn.construct_transition_arrays(self.n);
+        let delta_k = self.n as i64 - current_k_count as i64;
+        if delta_k == 0 {
+            return;
         }
+        assert!(self.n_including_extra_species as i64 + delta_k >= 0);
+        self.n_including_extra_species = (self.n_including_extra_species as i64 + delta_k) as usize;
+        self.urn.add_to_entry(self.crn.k, delta_k);
+        (
+            self.random_transitions,
+            self.random_outputs,
+            self.transition_probabilities,
+        ) = self.crn.construct_transition_arrays(self.n);
     }
 
     /// Get rid of W from self.urn.

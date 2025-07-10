@@ -204,7 +204,7 @@ def plot_rebop_ppsim_histogram(pop_exponent: int, trials_exponent: int, species_
     # print([results_batching[state].squeeze().tolist(), results_rebop])
     # ax.hist(results_rebop)
     ax.hist([ppsim_counts, rebop_counts], # type: ignore
-            bins = 30,
+            bins = 20,
             alpha = 1, label=['batching', 'rebop']) #, density=True, edgecolor = 'k', linewidth = 0.5)
     ax.legend()
 
@@ -248,7 +248,7 @@ def ppsim_dimerization_crn(pop_exponent: int, seed: int) -> pp.Simulation:
 
 def main():
     pop_exponent = 2
-    trials_exponent = 6
+    trials_exponent = 5
     final_time = 0.5
     species_name = 'M'
     seed = 4
@@ -259,8 +259,8 @@ def main():
     # print(f'done with ppsim')
     # ppsim_sim.history.plot(figsize=(10, 4)) # type: ignore
     # plt.show()
-    write_rebop_count_samples(rebop_crn, rebop_inits, pop_exponent, trials_exponent, species_name, final_time)
-    write_ppsim_count_samples(ppsim_sim, pop_exponent, trials_exponent, species_name, final_time)
+    # write_rebop_count_samples(rebop_crn, rebop_inits, pop_exponent, trials_exponent, species_name, final_time)
+    # write_ppsim_count_samples(ppsim_sim, pop_exponent, trials_exponent, species_name, final_time)
     plot_rebop_ppsim_histogram(pop_exponent, trials_exponent, species_name, final_time)
 
 if __name__ == "__main__":
