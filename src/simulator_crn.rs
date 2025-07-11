@@ -570,14 +570,16 @@ impl SimulatorCRNMultiBatch {
         self.n_including_extra_species = self.urn.size;
         self.n = self.n_including_extra_species
             - (self.urn.config[self.crn.k] + self.urn.config[self.crn.w]);
+        // println!("Old k count is {:?}.", old_k_count);
+        // println!("self.n is {:?}.", self.n);
         if old_k_count != self.n {
             // If the count of k changed during the simulation, we need to do the expensive operation
             // of recomputing transition arrays.
             self.reset_k_count();
         } else {
-            // Otherwise, we know what to set the count of k to, but transition arrays are already right.
-            self.urn.add_to_entry(self.crn.k, self.n as i64);
+            // Otherwise, k should already be set correctly, as it should be in the input config.
         }
+        // println!("self.n is {:?}.", self.n);
         self.n_including_extra_species = self.n + self.urn.config[self.crn.k];
         self.continuous_time = t;
         self.discrete_steps_not_including_nulls = 0;
@@ -933,6 +935,7 @@ impl SimulatorCRNMultiBatch {
             self.urn.size - (self.urn.config[self.crn.k] + self.urn.config[self.crn.w]),
             "Self.n should match self.urn.size minus counts of K and W."
         );
+        let initial_k_count: usize = self.urn.config[self.crn.k];
 
         let u: f64 = self.rng.sample(StandardUniform);
 
@@ -1267,6 +1270,10 @@ impl SimulatorCRNMultiBatch {
             self.urn.size - self.n_including_extra_species,
             (self.discrete_steps_including_nulls - initial_t_including_nulls) * self.crn.g,
             "Inconsistency between number of reactions simulated and population size change."
+        );
+        assert_eq!(
+            initial_k_count, self.urn.config[self.crn.k],
+            "Count of K should never change within running a batch."
         );
         self.n_including_extra_species = self.urn.size;
         self.n = self.n_including_extra_species
