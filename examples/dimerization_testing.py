@@ -198,7 +198,7 @@ def plot_rebop_ppsim_histogram(pop_exponent: int, trials_exponent: int, species_
     rebop_counts = read_count_samples(rebop_fn)
     ppsim_counts = read_count_samples(ppsim_fn)
 
-    _, ax = plt.subplots(figsize = (10,4))
+    _, ax = plt.subplots(figsize = (7,3))
     # print((results_batching).shape)
     # print((results_batching[state].squeeze().tolist()))
     # print(results_rebop) 
@@ -208,16 +208,18 @@ def plot_rebop_ppsim_histogram(pop_exponent: int, trials_exponent: int, species_
     smallest = min(min(rebop_counts), min(ppsim_counts))
     bins = largest - smallest + 1
     ax.hist([ppsim_counts, rebop_counts], # type: ignore
-            bins = bins,
+            bins = bins, 
+            # bins = 20, range = (10,31),
+            weights=[np.ones(len(ppsim_counts)) / len(ppsim_counts),  # gives empirical distribution
+                     np.ones(len(rebop_counts)) / len(rebop_counts)], # instead of counts
             alpha = 1, label=['batching', 'rebop']) #, density=True, edgecolor = 'k', linewidth = 0.5)
     ax.legend()
-    # ax.set_xticks(range(10, 30))
+    ax.set_xticks(range(10, 31, 5))
     ax.set_xlabel(f'Count of species {species_name}')
-    ax.set_ylabel(f'Number of samples')
-    ax.set_title(f'Species {species_name} distribution sampled at simulated time {final_time} '
+    ax.set_ylabel(f'Empirical probability')
+    ax.set_title(f'Species ${species_name}$ distribution sampled at time {final_time} '
                  f'(n=$10^{pop_exponent}$; trials=$10^{trials_exponent}$)')
     
-    # plt.ylim(0, 200_000)
     pdf_fn = fn_count_samples('ppsim-vs-rebop', pop_exponent, trials_exponent, species_name, final_time)
     pdf_fn = pdf_fn.replace('.json', '.pdf')
     plt.savefig(pdf_fn, bbox_inches='tight')
@@ -250,14 +252,32 @@ def ppsim_dimerization_crn(pop_exponent: int, seed: int) -> pp.Simulation:
     
     return sim
 
+def plot_dimerization_crn(pop_exponent: int, seed: int) -> None:
+    import gpac as gp
+    import numpy as np
+
+    n = 10**pop_exponent
+    m,d = gp.species('M D')
+    rxns = [ m+m | d ]
+    import matplotlib.pyplot as plt
+    inits_discrete = { m: n }
+    tmax = 2
+    gp.plot_gillespie(rxns, inits_discrete, tmax, figsize=(4,4), seed=seed, latex_legend=True)
+    # add dashed red line at x = 0.5
+    plt.axvline(x=0.5, color='r', linestyle='--')
+    plt.savefig('data/dimerization_counts_vs_time.pdf', dpi=300, bbox_inches='tight')
+    plt.show()
+
 def main():
     pop_exponent = 2
     trials_exponent = 4
     final_time = 0.005
     species_name = 'D'
-    seed = 45
+    seed = 1
     rebop_crn, rebop_inits = rebop_dimerization_with_inits(pop_exponent)
     ppsim_sim = ppsim_dimerization_crn(pop_exponent, seed)
+
+    # plot_dimerization_crn(pop_exponent, seed)
     
     # ppsim_sim.run(final_time, 0.01) # type: ignore
     # print(f'done with ppsim')
