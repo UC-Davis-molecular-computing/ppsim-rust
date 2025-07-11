@@ -16,7 +16,8 @@ if False:
     # Path to your renamed .pyd file
     # custom_pyd_path = Path("C:/Dropbox/git/ppsim-rust/python/ppsim/ppsim_rust/ppsim_rust.cp312-win_amd64_rebop.pyd")
     # custom_pyd_path = Path("C:/Dropbox/git/ppsim-rust/python/ppsim/ppsim_rust/ppsim_rust.cp312-win_amd64_f128.pyd")
-    custom_pyd_path = Path("C:/Dropbox/git/ppsim-rust/python/ppsim/ppsim_rust/ppsim_rust.cp312-win_amd64_2.pyd")
+    # custom_pyd_path = Path("C:/Dropbox/git/ppsim-rust/python/ppsim/ppsim_rust/ppsim_rust.cp312-win_amd64_2.pyd")
+    custom_pyd_path = Path("C:/Dropbox/git/ppsim-rust/python/ppsim/ppsim_rust/ppsim_rust.cp312-win_amd64_bugfix_jul10.pyd")
 
     # Define a custom finder and loader for .pyd files
     class CustomPydFinder:
@@ -270,8 +271,8 @@ def plot_dimerization_crn(pop_exponent: int, seed: int) -> None:
 
 def main():
     pop_exponent = 2
-    trials_exponent = 4
-    final_time = 0.005
+    trials_exponent = 8
+    final_time = 0.5
     species_name = 'D'
     seed = 1
     rebop_crn, rebop_inits = rebop_dimerization_with_inits(pop_exponent)
@@ -284,8 +285,8 @@ def main():
     # ppsim_sim.history.plot(figsize=(10, 4)) # type: ignore
     # plt.show()
     
+    # write_rebop_count_samples(rebop_crn, rebop_inits, pop_exponent, trials_exponent, species_name, final_time)
     write_ppsim_count_samples(ppsim_sim, pop_exponent, trials_exponent, species_name, final_time)
-    write_rebop_count_samples(rebop_crn, rebop_inits, pop_exponent, trials_exponent, species_name, final_time)
     plot_rebop_ppsim_histogram(pop_exponent, trials_exponent, species_name, final_time)
 
 if __name__ == "__main__":
