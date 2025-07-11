@@ -983,22 +983,22 @@ impl SimulatorCRNMultiBatch {
             do_collision = false;
             flame::start("checkpoint rejection sampling");
             // println!("Batch time was {:?}.", batch_time);
-            // rxns_before_coll = self.checkpoint_rejection_sampling(l, t_max);
+            rxns_before_coll = self.checkpoint_rejection_sampling(l, t_max);
 
-            let mut time_exceeded = false;
-            while !time_exceeded {
-                let mut partial_batch_time = 0.0;
-                for i in 0..l {
-                    let rate =
-                        self.get_exponential_rate(self.n_including_extra_species + i * self.crn.g);
-                    partial_batch_time += self.sample_exponential(rate);
-                    if partial_batch_time + self.continuous_time > t_max {
-                        time_exceeded = true;
-                        rxns_before_coll = i;
-                        break;
-                    }
-                }
-            }
+            // let mut time_exceeded = false;
+            // while !time_exceeded {
+            //     let mut partial_batch_time = 0.0;
+            //     for i in 0..l {
+            //         let rate =
+            //             self.get_exponential_rate(self.n_including_extra_species + i * self.crn.g);
+            //         partial_batch_time += self.sample_exponential(rate);
+            //         if partial_batch_time + self.continuous_time > t_max {
+            //             time_exceeded = true;
+            //             rxns_before_coll = i;
+            //             break;
+            //         }
+            //     }
+            // }
             self.continuous_time = t_max;
             flame::end("checkpoint rejection sampling");
         }
@@ -1899,7 +1899,7 @@ impl SimulatorCRNMultiBatch {
         // We binary search for the index of the interaction, indexing from 0, at which it goes over.
         // Equivalently, the number of reactions that happen before it goes over.
         // We may need to change this preconditioning at some point, making a new "checkpoint".
-        let mut latest_possible_collision_index = l - 1;
+        let mut latest_possible_collision_index = l;
         let mut time_at_checkpoint = self.continuous_time;
         let mut done_reactions_at_checkpoint = 0;
         let mut pop_size_at_checkpoint = self.n_including_extra_species;
@@ -1933,13 +1933,12 @@ impl SimulatorCRNMultiBatch {
                     // we have done so far.
                     done_reactions_at_checkpoint = current_simulated_reactions;
                     // Subtract 1 because the collision is indexed from 0.
-                    latest_possible_collision_index =
-                        current_simulated_reactions + halfway_point - 1;
+                    latest_possible_collision_index = current_simulated_reactions + halfway_point;
                     time_at_checkpoint = current_simulated_time;
                     pop_size_at_checkpoint = current_simulated_population_size;
                     // If the number of reactions we know must happen is one less than the
                     // latest possible index of the collision, we're done binary searching.
-                    if done_reactions_at_checkpoint == latest_possible_collision_index {
+                    if done_reactions_at_checkpoint + 1 == latest_possible_collision_index {
                         ran_over_end_time = true;
                     }
                 } else {
