@@ -113,7 +113,7 @@ def create_ppsim_running_time_data(fn: str, min_pop_exponent: int, max_pop_expon
         ns_ppsim.append(n)
         write_results(fn, ppsim_times, ns_ppsim)
 
-def read_running_time_results(fn: str) -> tuple[list[int], list[float]]:
+def read_results(fn: str) -> tuple[list[int], list[float]]:
     with open(fn, 'r') as f:
         data = json.load(f)
     ns = [item[0] for item in data]
@@ -127,9 +127,9 @@ def plot_results(fn_rebop_data: str, fn_ppsim_data_f64: str, fn_ppsim_data_f128:
     import matplotlib
     # matplotlib.rcParams.update({'font.size': 14}) # default font is too small for paper figures
     # matplotlib.rcParams['mathtext.fontset'] = 'cm' # use Computer Modern font for LaTeX
-    rebop_ns, rebop_times = read_running_time_results(fn_rebop_data)
-    ppsim_ns_f64, ppsim_times_f64 = read_running_time_results(fn_ppsim_data_f64)
-    ppsim_ns_f128, ppsim_times_f128 = read_running_time_results(fn_ppsim_data_f128)
+    rebop_ns, rebop_times = read_results(fn_rebop_data)
+    ppsim_ns_f64, ppsim_times_f64 = read_results(fn_ppsim_data_f64)
+    ppsim_ns_f128, ppsim_times_f128 = read_results(fn_ppsim_data_f128)
     ax.loglog(ppsim_ns_f64, ppsim_times_f64, label="batching f64 run time", marker="o")
     ax.loglog(ppsim_ns_f128, ppsim_times_f128, label="batching f128 run time", marker="o")
     ax.loglog(rebop_ns, rebop_times, label="rebop run time", marker="o")
@@ -333,12 +333,12 @@ def main():
     #              'data/lotka_volterra_scaling_time1.pdf')
     # test_distribution()
 
-    pop_exponent = 2
-    trials_exponent = 4
-    final_time = 0.003
+    pop_exponent = 4
+    trials_exponent = 3
+    final_time = 1.0
     species = 'F'
-    write_rebop_count_samples(pop_exponent, trials_exponent, species, final_time)
-    write_ppsim_count_samples(pop_exponent, trials_exponent, species, final_time)
+    # write_rebop_count_samples(pop_exponent, trials_exponent, species, final_time)
+    # write_ppsim_count_samples(pop_exponent, trials_exponent, species, final_time)
     plot_rebop_ppsim_histogram(pop_exponent, trials_exponent, species, final_time)
 
 

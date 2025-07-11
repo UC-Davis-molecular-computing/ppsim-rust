@@ -17,7 +17,8 @@ if False:
     # custom_pyd_path = Path("C:/Dropbox/git/ppsim-rust/python/ppsim/ppsim_rust/ppsim_rust.cp312-win_amd64_rebop.pyd")
     # custom_pyd_path = Path("C:/Dropbox/git/ppsim-rust/python/ppsim/ppsim_rust/ppsim_rust.cp312-win_amd64_f128.pyd")
     # custom_pyd_path = Path("C:/Dropbox/git/ppsim-rust/python/ppsim/ppsim_rust/ppsim_rust.cp312-win_amd64_2.pyd")
-    custom_pyd_path = Path("C:/Dropbox/git/ppsim-rust/python/ppsim/ppsim_rust/ppsim_rust.cp312-win_amd64_bugfix_jul10.pyd")
+    # custom_pyd_path = Path("C:/Dropbox/git/ppsim-rust/python/ppsim/ppsim_rust/ppsim_rust.cp312-win_amd64_bugfix_jul10.pyd")
+    custom_pyd_path = Path("C:/Dropbox/git/ppsim-rust/python/ppsim/ppsim_rust/ppsim_rust.cp312-win_amd64)bugfix_jul10_fastpp.pyd")
 
     # Define a custom finder and loader for .pyd files
     class CustomPydFinder:
@@ -218,7 +219,7 @@ def plot_rebop_ppsim_histogram(pop_exponent: int, trials_exponent: int, species_
     ax.set_xticks(range(10, 31, 5))
     ax.set_xlabel(f'Count of species {species_name}')
     ax.set_ylabel(f'Empirical probability')
-    ax.set_title(f'Species ${species_name}$ distribution sampled at time {final_time} '
+    ax.set_title(f'Species ${species_name}$ count sampled at time {final_time} '
                  f'(n=$10^{pop_exponent}$; trials=$10^{trials_exponent}$)')
     
     pdf_fn = fn_count_samples('ppsim-vs-rebop', pop_exponent, trials_exponent, species_name, final_time)
@@ -271,7 +272,7 @@ def plot_dimerization_crn(pop_exponent: int, seed: int) -> None:
 
 def main():
     pop_exponent = 2
-    trials_exponent = 8
+    trials_exponent = 9
     final_time = 0.5
     species_name = 'D'
     seed = 1
@@ -287,7 +288,7 @@ def main():
     
     # write_rebop_count_samples(rebop_crn, rebop_inits, pop_exponent, trials_exponent, species_name, final_time)
     write_ppsim_count_samples(ppsim_sim, pop_exponent, trials_exponent, species_name, final_time)
-    plot_rebop_ppsim_histogram(pop_exponent, trials_exponent, species_name, final_time)
+    # plot_rebop_ppsim_histogram(pop_exponent, trials_exponent, species_name, final_time)
 
 if __name__ == "__main__":
     main()
