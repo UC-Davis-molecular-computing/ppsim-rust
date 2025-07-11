@@ -252,10 +252,10 @@ def ppsim_dimerization_crn(pop_exponent: int, seed: int) -> pp.Simulation:
 
 def main():
     pop_exponent = 2
-    trials_exponent = 6
-    final_time = 0.5
+    trials_exponent = 4
+    final_time = 0.005
     species_name = 'D'
-    seed = 4
+    seed = 45
     rebop_crn, rebop_inits = rebop_dimerization_with_inits(pop_exponent)
     ppsim_sim = ppsim_dimerization_crn(pop_exponent, seed)
     
@@ -264,8 +264,8 @@ def main():
     # ppsim_sim.history.plot(figsize=(10, 4)) # type: ignore
     # plt.show()
     
-    # write_rebop_count_samples(rebop_crn, rebop_inits, pop_exponent, trials_exponent, species_name, final_time)
-    # write_ppsim_count_samples(ppsim_sim, pop_exponent, trials_exponent, species_name, final_time)
+    write_ppsim_count_samples(ppsim_sim, pop_exponent, trials_exponent, species_name, final_time)
+    write_rebop_count_samples(rebop_crn, rebop_inits, pop_exponent, trials_exponent, species_name, final_time)
     plot_rebop_ppsim_histogram(pop_exponent, trials_exponent, species_name, final_time)
 
 if __name__ == "__main__":

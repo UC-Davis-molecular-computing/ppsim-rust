@@ -333,12 +333,12 @@ def main():
     #              'data/lotka_volterra_scaling_time1.pdf')
     # test_distribution()
 
-    pop_exponent = 4
-    trials_exponent = 3
-    final_time = 1.0
+    pop_exponent = 2
+    trials_exponent = 4
+    final_time = 0.003
     species = 'F'
-    # write_rebop_count_samples(pop_exponent, trials_exponent, species, final_time)
-    # write_ppsim_count_samples(pop_exponent, trials_exponent, species, final_time)
+    write_rebop_count_samples(pop_exponent, trials_exponent, species, final_time)
+    write_ppsim_count_samples(pop_exponent, trials_exponent, species, final_time)
     plot_rebop_ppsim_histogram(pop_exponent, trials_exponent, species, final_time)
 
 

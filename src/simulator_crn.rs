@@ -171,6 +171,7 @@ impl UniformCRN {
             if total_adjusted_rate_constant > max_total_adjusted_rate_constant {
                 max_total_adjusted_rate_constant = total_adjusted_rate_constant;
                 self.continuous_time_correction_factor = total_adjusted_rate_constant;
+                // println!("CTCF is {:?}", self.continuous_time_correction_factor);
             }
         }
         flame::end("construct_transition_arrays: first reaction loop");
@@ -572,12 +573,11 @@ impl SimulatorCRNMultiBatch {
             - (self.urn.config[self.crn.k] + self.urn.config[self.crn.w]);
         // println!("Old k count is {:?}.", old_k_count);
         // println!("self.n is {:?}.", self.n);
-        if old_k_count != self.n {
+        if old_k_count != config[self.crn.k] {
             // If the count of k changed during the simulation, we need to do the expensive operation
             // of recomputing transition arrays.
-            self.reset_k_count();
-        } else {
             // Otherwise, k should already be set correctly, as it should be in the input config.
+            self.reset_k_count();
         }
         // println!("self.n is {:?}.", self.n);
         self.n_including_extra_species = self.n + self.urn.config[self.crn.k];
@@ -983,22 +983,22 @@ impl SimulatorCRNMultiBatch {
             do_collision = false;
             flame::start("checkpoint rejection sampling");
             // println!("Batch time was {:?}.", batch_time);
-            rxns_before_coll = self.checkpoint_rejection_sampling(l, t_max);
+            // rxns_before_coll = self.checkpoint_rejection_sampling(l, t_max);
 
-            // let mut time_exceeded = false;
-            // while !time_exceeded {
-            //     let mut partial_batch_time = 0.0;
-            //     for i in 0..l {
-            //         let rate =
-            //             self.get_exponential_rate(self.n_including_extra_species + i * self.crn.g);
-            //         partial_batch_time += self.sample_exponential(rate);
-            //         if partial_batch_time + self.continuous_time > t_max {
-            //             time_exceeded = true;
-            //             rxns_before_coll = i;
-            //             break;
-            //         }
-            //     }
-            // }
+            let mut time_exceeded = false;
+            while !time_exceeded {
+                let mut partial_batch_time = 0.0;
+                for i in 0..l {
+                    let rate =
+                        self.get_exponential_rate(self.n_including_extra_species + i * self.crn.g);
+                    partial_batch_time += self.sample_exponential(rate);
+                    if partial_batch_time + self.continuous_time > t_max {
+                        time_exceeded = true;
+                        rxns_before_coll = i;
+                        break;
+                    }
+                }
+            }
             self.continuous_time = t_max;
             flame::end("checkpoint rejection sampling");
         }
@@ -1403,9 +1403,6 @@ impl SimulatorCRNMultiBatch {
         // we're constructing them for the first time or resetting e
         let current_k_count = self.urn.config[self.crn.k];
         let delta_k = self.n as i64 - current_k_count as i64;
-        if delta_k == 0 {
-            return;
-        }
         assert!(self.n_including_extra_species as i64 + delta_k >= 0);
         self.n_including_extra_species = (self.n_including_extra_species as i64 + delta_k) as usize;
         self.urn.add_to_entry(self.crn.k, delta_k);
@@ -1754,6 +1751,10 @@ impl SimulatorCRNMultiBatch {
     /// Helper function to get the rate of the exponential representing the time to the next reaction
     /// at some particular population size.
     pub fn get_exponential_rate(&self, pop_size: usize) -> f64 {
+        // println!(
+        //     "rate is {:?}",
+        //     self.crn.continuous_time_correction_factor * binomial_as_f64(pop_size, self.crn.o)
+        // );
         return self.crn.continuous_time_correction_factor * binomial_as_f64(pop_size, self.crn.o);
     }
     /// Sample from an exponential distribution.
