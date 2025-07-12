@@ -182,16 +182,16 @@ def write_ppsim_count_samples(sim: pp.Simulation,
     with open(fn, 'w') as f:
         json.dump(counts, f, indent=4)
 
-def read_count_samples(fn: str) -> list[int]:
+def read_count_samples(fn: str) -> dict[int, int]:
     """
     Read the count samples from a JSON file.
     """
     with open(fn, 'r') as f:
         counts = json.load(f)
-    count_list = []
+    count_dict = {}
     for count, num_samples_with_count in counts.items():
-        count_list.extend([int(count)] * num_samples_with_count)
-    return count_list
+        count_dict[int(count)] = num_samples_with_count
+    return count_dict
 
 def plot_rebop_ppsim_histogram(pop_exponent: int, trials_exponent: int, species_name: str, final_time: float):
     rebop_fn = fn_count_samples('rebop', pop_exponent, trials_exponent, species_name, final_time)
@@ -201,22 +201,31 @@ def plot_rebop_ppsim_histogram(pop_exponent: int, trials_exponent: int, species_
     ppsim_counts = read_count_samples(ppsim_fn)
 
     _, ax = plt.subplots(figsize = (7,3))
-    # print((results_batching).shape)
-    # print((results_batching[state].squeeze().tolist()))
-    # print(results_rebop) 
-    # print([results_batching[state].squeeze().tolist(), results_rebop])
-    # ax.hist(results_rebop)
-    largest = max(max(rebop_counts), max(ppsim_counts))
-    smallest = min(min(rebop_counts), min(ppsim_counts))
-    bins = largest - smallest + 1
-    ax.hist([ppsim_counts, rebop_counts], # type: ignore
-            bins = bins, 
-            # bins = 20, range = (10,31),
-            weights=[np.ones(len(ppsim_counts)) / len(ppsim_counts),  # gives empirical distribution
-                     np.ones(len(rebop_counts)) / len(rebop_counts)], # instead of counts
-            alpha = 1, label=['batching', 'rebop']) #, density=True, edgecolor = 'k', linewidth = 0.5)
+
+    # Get the range of values and calculate total trials for normalization
+    all_values = set(rebop_counts.keys()) | set(ppsim_counts.keys())
+    min_val = min(all_values)
+    max_val = max(all_values)
+    
+    # Calculate total number of trials for each method (for normalization to empirical probability)
+    total_ppsim_trials = sum(ppsim_counts.values())
+    total_rebop_trials = sum(rebop_counts.values())
+    
+    # Create arrays for the bar plot
+    values = list(range(min_val, max_val + 1))
+    ppsim_probs = [ppsim_counts.get(val, 0) / total_ppsim_trials for val in values]
+    rebop_probs = [rebop_counts.get(val, 0) / total_rebop_trials for val in values]
+    
+    # Create side-by-side bars
+    bar_width = 0.4
+    x_positions = np.array(values)
+    
+    ax.bar(x_positions - bar_width/2, ppsim_probs, bar_width, label='batching', alpha=1)
+    ax.bar(x_positions + bar_width/2, rebop_probs, bar_width, label='rebop', alpha=1)
+    
     ax.legend()
-    ax.set_xticks(range(10, 31, 5))
+    ax.set_xlim((5,35))
+    ax.set_xticks(range(5, 36, 5))
     ax.set_xlabel(f'count of species {species_name}')
     ax.set_ylabel(f'empirical probability')
     ax.set_title(f'count of species ${species_name}$ sampled at time {final_time} '
