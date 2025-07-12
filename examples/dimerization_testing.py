@@ -290,7 +290,7 @@ def plot_dimerization_crn(pop_exponent: int, seed: int, num_runs: int = 3) -> No
     matplotlib.rcParams.update({'font.size': 16})  # Increase font size
     plt.figure(figsize=(5, 5))
     
-    plt.axvline(x=0.5, color='r', linestyle='--')
+    plt.axvline(x=0.5, color='g', linestyle='--')
 
     # Plot D counts - all same color (first default color), only label the first one
     for i, data in enumerate(datasets):
