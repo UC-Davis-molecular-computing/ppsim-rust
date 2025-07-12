@@ -295,14 +295,14 @@ def plot_dimerization_crn(pop_exponent: int, seed: int, num_runs: int = 3) -> No
     # Plot D counts - all same color (first default color), only label the first one
     for i, data in enumerate(datasets):
         if i == 0:
-            plt.plot(data.time, data.D, color='C0', label='D')
+            plt.plot(data.time, data.D, color='C0', label='$D$')
         else:
             plt.plot(data.time, data.D, color='C0')
     
     # Plot M counts - all same color (second default color), only label the first one
     for i, data in enumerate(datasets):
         if i == 0:
-            plt.plot(data.time, data.M, color='C1', label='M')
+            plt.plot(data.time, data.M, color='C1', label='$M$')
         else:
             plt.plot(data.time, data.M, color='C1')
     
@@ -322,7 +322,7 @@ def main():
     rebop_crn, rebop_inits = rebop_dimerization_with_inits(pop_exponent)
     ppsim_sim = ppsim_dimerization_crn(pop_exponent, seed)
 
-    # plot_dimerization_crn(pop_exponent, seed, num_runs)
+    plot_dimerization_crn(pop_exponent, seed, num_runs)
     
     # ppsim_sim.run(final_time, 0.01) # type: ignore
     # print(f'done with ppsim')
@@ -331,7 +331,7 @@ def main():
     
     # write_rebop_count_samples(rebop_crn, rebop_inits, pop_exponent, trials_exponent, species_name, final_time)
     # write_ppsim_count_samples(ppsim_sim, pop_exponent, trials_exponent, species_name, final_time)
-    plot_rebop_ppsim_histogram(pop_exponent, trials_exponent, species_name, final_time)
+    # plot_rebop_ppsim_histogram(pop_exponent, trials_exponent, species_name, final_time)
 
 if __name__ == "__main__":
     main()
