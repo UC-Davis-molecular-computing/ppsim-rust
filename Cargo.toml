@@ -13,6 +13,10 @@ crate-type = ["cdylib", "rlib"]
 name = "main"
 path = "src/main.rs"
 
+[[bin]]
+name = "rebop"
+path = "src/generate_rebop_samples.rs"
+
 [features]
 flm = ["flame"]  # Enable flame profiling to be switched on/off
 

@@ -16,7 +16,7 @@ fn main() {
     println!("Running Lotka-Volterra model with rebop");
     let mut crn = LV::new();
     crn.seed(1);
-    let pop_exponent = 3;
+    let pop_exponent = 2;
     let n = 10isize.pow(pop_exponent);
     crn.join_rate = 1.0 / n as f64;
     crn.split_rate = 1.0;

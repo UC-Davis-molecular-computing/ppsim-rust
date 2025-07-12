@@ -226,7 +226,7 @@ def plot_rebop_ppsim_histogram(pop_exponent: int, trials_exponent: int, species_
     ax.legend()
     ax.set_xlim((5,35))
     ax.set_xticks(range(5, 36, 5))
-    ax.set_xlabel(f'count of species {species_name}')
+    ax.set_xlabel(f'count of species ${species_name}$')
     ax.set_ylabel(f'empirical probability')
     ax.set_title(f'count of species ${species_name}$ sampled at time {final_time} '
                  f'(n=$10^{pop_exponent}$; trials=$10^{trials_exponent}$)')
@@ -263,7 +263,7 @@ def ppsim_dimerization_crn(pop_exponent: int, seed: int) -> pp.Simulation:
     
     return sim
 
-def plot_dimerization_crn(pop_exponent: int, seed: int) -> None:
+def plot_dimerization_crn(pop_exponent: int, seed: int, num_runs: int = 3) -> None:
     import gpac as gp
     import numpy as np
 
@@ -273,9 +273,42 @@ def plot_dimerization_crn(pop_exponent: int, seed: int) -> None:
     import matplotlib.pyplot as plt
     inits_discrete = { m: n }
     tmax = 2
-    gp.plot_gillespie(rxns, inits_discrete, tmax, figsize=(4,4), seed=seed, latex_legend=True)
-    # add dashed red line at x = 0.5
+    
+    # Generate datasets for the specified number of runs
+    datasets = []
+    for i in range(num_runs):
+        data = gp.rebop_crn_counts(rxns, inits_discrete, tmax, seed=seed+i)
+        datasets.append(data)
+    
+    # Print first dataset for reference
+    print(datasets[0])
+    
+    #gp.plot_gillespie(rxns, inits_discrete, tmax, figsize=(4,4), seed=seed, latex_legend=True)
+    
+    # Plot all datasets in a single plot
+    import matplotlib
+    matplotlib.rcParams.update({'font.size': 16})  # Increase font size
+    plt.figure(figsize=(5, 5))
+    
     plt.axvline(x=0.5, color='r', linestyle='--')
+
+    # Plot D counts - all same color (first default color), only label the first one
+    for i, data in enumerate(datasets):
+        if i == 0:
+            plt.plot(data.time, data.D, color='C0', label='D')
+        else:
+            plt.plot(data.time, data.D, color='C0')
+    
+    # Plot M counts - all same color (second default color), only label the first one
+    for i, data in enumerate(datasets):
+        if i == 0:
+            plt.plot(data.time, data.M, color='C1', label='M')
+        else:
+            plt.plot(data.time, data.M, color='C1')
+    
+    plt.xlabel('time')
+    plt.ylabel('count')
+    plt.legend()
     plt.savefig('data/dimerization_counts_vs_time.pdf', dpi=300, bbox_inches='tight')
     plt.show()
 
@@ -285,10 +318,11 @@ def main():
     final_time = 0.5
     species_name = 'D'
     seed = 1
+    num_runs = 10  # Number of simulation runs to plot
     rebop_crn, rebop_inits = rebop_dimerization_with_inits(pop_exponent)
     ppsim_sim = ppsim_dimerization_crn(pop_exponent, seed)
 
-    # plot_dimerization_crn(pop_exponent, seed)
+    plot_dimerization_crn(pop_exponent, seed, num_runs)
     
     # ppsim_sim.run(final_time, 0.01) # type: ignore
     # print(f'done with ppsim')
@@ -297,7 +331,7 @@ def main():
     
     # write_rebop_count_samples(rebop_crn, rebop_inits, pop_exponent, trials_exponent, species_name, final_time)
     # write_ppsim_count_samples(ppsim_sim, pop_exponent, trials_exponent, species_name, final_time)
-    plot_rebop_ppsim_histogram(pop_exponent, trials_exponent, species_name, final_time)
+    # plot_rebop_ppsim_histogram(pop_exponent, trials_exponent, species_name, final_time)
 
 if __name__ == "__main__":
     main()
