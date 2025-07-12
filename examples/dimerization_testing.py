@@ -229,7 +229,7 @@ def plot_rebop_ppsim_histogram(pop_exponent: int, trials_exponent: int, species_
     ax.set_xlabel(f'count of species ${species_name}$')
     ax.set_ylabel(f'empirical probability')
     ax.set_title(f'count of species ${species_name}$ sampled at time {final_time} '
-                 f'(n=$10^{pop_exponent}$; trials=$10^{trials_exponent}$)')
+                 f'($n$=$10^{pop_exponent}$; trials=$10^{trials_exponent}$)')
     
     pdf_fn = fn_count_samples('ppsim-vs-rebop', pop_exponent, trials_exponent, species_name, final_time)
     pdf_fn = pdf_fn.replace('.json', '.pdf')
@@ -322,7 +322,7 @@ def main():
     rebop_crn, rebop_inits = rebop_dimerization_with_inits(pop_exponent)
     ppsim_sim = ppsim_dimerization_crn(pop_exponent, seed)
 
-    plot_dimerization_crn(pop_exponent, seed, num_runs)
+    # plot_dimerization_crn(pop_exponent, seed, num_runs)
     
     # ppsim_sim.run(final_time, 0.01) # type: ignore
     # print(f'done with ppsim')
@@ -331,7 +331,7 @@ def main():
     
     # write_rebop_count_samples(rebop_crn, rebop_inits, pop_exponent, trials_exponent, species_name, final_time)
     # write_ppsim_count_samples(ppsim_sim, pop_exponent, trials_exponent, species_name, final_time)
-    # plot_rebop_ppsim_histogram(pop_exponent, trials_exponent, species_name, final_time)
+    plot_rebop_ppsim_histogram(pop_exponent, trials_exponent, species_name, final_time)
 
 if __name__ == "__main__":
     main()
