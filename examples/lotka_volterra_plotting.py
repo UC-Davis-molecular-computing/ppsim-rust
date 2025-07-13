@@ -2,6 +2,7 @@ import sys
 import importlib.util
 import os
 from pathlib import Path
+import gpac as gp
 
 if False:
     # Path to your renamed .pyd file
@@ -36,8 +37,8 @@ def main():
     # default_colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
     # print(default_colors)
     # return
-    # for pop_exponent in [3,4,5,8]:
     for pop_exponent in [3,4,5,8]:
+    # for pop_exponent in [5]:
         #XXX: pop_exponent 5 and 6 these show the slowdown bug in ppsim
         # going to time 20, for n=10^5 around time 6.966 (35% progress bar)
         # and for n=10^6, around time 13.718 (69% progress bar),
@@ -47,7 +48,8 @@ def main():
         make_and_save_plot(pop_exponent)
     
 def make_and_save_plot(pop_exponent: int) -> None:
-    seed = 4
+    seed = 1
+    figsize = (4, 2)
     crn = rb.Gillespie()
     crn.add_reaction(.1 ** pop_exponent, ['R', 'F'], ['F', 'F'])
     crn.add_reaction(1, ['R'], ['R', 'R'])
@@ -62,7 +64,6 @@ def make_and_save_plot(pop_exponent: int) -> None:
     results_rebop = {}
     print(f'running rebop with n = 10^{pop_exponent}')
     results_rebop = crn.run(inits, end_time, num_samples, rng=seed)
-    print(f'done with rebop')
 
     r,f = pp.species('R F')
     rxns = [
@@ -76,7 +77,23 @@ def make_and_save_plot(pop_exponent: int) -> None:
 
     print(f'running ppsim with n = 10^{pop_exponent}')
     sim.run(end_time, end_time / num_samples)
-    print(f'done with ppsim')
+
+    gp_r, gp_f = gp.species('R F')
+    gp_rxns = [
+        (gp_r+gp_f >> 2*gp_f).k(1),
+        (gp_r >> 2*gp_r).k(1),
+        (gp_f >> gp.empty).k(1),
+    ]
+    gp_inits = {gp_r: 0.5, gp_f: 0.5}
+    t_eval = np.linspace(0, 20, num_samples)
+    # Here's something funny: the default RK45 method makes thegpac data bad;
+    # so it's more precise to rely on the discrete model than the ODE model.
+    gp_data = gp.integrate_crn_odes(gp_rxns, gp_inits, t_eval, method='Radau')
+    gp_times = gp_data.t
+    gp_r_counts = gp_data.y[0] * n
+    gp_f_counts = gp_data.y[1] * n
+
+
     # sim.history.plot(figsize = (15,4))
     # plt.ylim(0, 2.1 * n)
     # plt.title('lotka volterra (with batching)')
@@ -84,16 +101,33 @@ def make_and_save_plot(pop_exponent: int) -> None:
     # print(f"Total reactions simulated: {sampling_increment * len(results_rebop['R'])}")
 
     # f, ax = plt.subplots()
-    f, ax = plt.subplots(figsize=(4, 2))
+    f, ax = plt.subplots(figsize=figsize)
 
     blue, orange, green, red  = '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728'
-    ax.plot(results_rebop['time'], results_rebop['R'], label='R (rebop)', color=red)
-    ax.plot(results_rebop['time'], results_rebop['F'], label='F (rebop)', color=green)
-    ax.plot(sim.history['R'], label = 'R (batching)', color=blue, linestyle='--')
-    ax.plot(sim.history['F'], label = 'F (batching)', color=orange, linestyle='--')
-    ax.legend(loc='upper left')
-    plt.savefig(f'data/lotka_volterra_counts_time10_n1e{pop_exponent}.pdf', bbox_inches='tight')
+    ax.plot(sim.history['R'], label = 'R (batching)', color=blue)
+    ax.plot(sim.history['F'], label = 'F (batching)', color=orange)
+    ax.plot(results_rebop['time'], results_rebop['R'], label='R (rebop)', color=red, linestyle='--')
+    ax.plot(results_rebop['time'], results_rebop['F'], label='F (rebop)', color=green, linestyle='--')
+    ax.plot(gp_times, gp_r_counts, label = 'R (ODE)', color='C4', linestyle=':')
+    ax.plot(gp_times, gp_f_counts, label = 'F (ODE)', color='C5', linestyle=':')
+    # ax.legend(loc='center left')
+    ax.set_ylim(0, 2.6 * n)
+
+    # Force scientific notation on y-axis
+    from matplotlib.ticker import ScalarFormatter
+    formatter = ScalarFormatter(useMathText=True)
+    formatter.set_scientific(True)
+    formatter.set_powerlimits((0, 0))  # Always use scientific notation
+    ax.yaxis.set_major_formatter(formatter)
+
+    plt.savefig(f'data/lotka_volterra_counts_time20_n1e{pop_exponent}.pdf', bbox_inches='tight')
     plt.show()
+
+    # make separate file for legend to share among all 4 subplots
+    # handles, labels = plt.gca().get_legend_handles_labels()
+    # figLegend = plt.figure()
+    # figLegend.legend(handles, labels, ncols=3, loc='center')
+    # figLegend.savefig(f'data/lotka_volterra_counts_time20_legend.pdf', format='pdf', bbox_inches='tight')
     
 
 if __name__ == "__main__":
