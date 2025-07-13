@@ -16,6 +16,9 @@ path = "src/main.rs"
 [[bin]]
 name = "rebop"
 path = "src/generate_rebop_samples.rs"
+[[bin]]
+name = "time_rebop"
+path = "src/rebop_runtime_sampling.rs"
 
 [features]
 flm = ["flame"]  # Enable flame profiling to be switched on/off

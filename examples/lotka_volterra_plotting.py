@@ -36,8 +36,8 @@ def main():
     # default_colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
     # print(default_colors)
     # return
-    # for pop_exponent in [8]:
-    for pop_exponent in [4]:
+    # for pop_exponent in [3,4,5,8]:
+    for pop_exponent in [3,4,5,8]:
         #XXX: pop_exponent 5 and 6 these show the slowdown bug in ppsim
         # going to time 20, for n=10^5 around time 6.966 (35% progress bar)
         # and for n=10^6, around time 13.718 (69% progress bar),
@@ -84,7 +84,7 @@ def make_and_save_plot(pop_exponent: int) -> None:
     # print(f"Total reactions simulated: {sampling_increment * len(results_rebop['R'])}")
 
     # f, ax = plt.subplots()
-    f, ax = plt.subplots(figsize=(8, 4))
+    f, ax = plt.subplots(figsize=(4, 2))
 
     blue, orange, green, red  = '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728'
     ax.plot(results_rebop['time'], results_rebop['R'], label='R (rebop)', color=red)
@@ -93,7 +93,7 @@ def make_and_save_plot(pop_exponent: int) -> None:
     ax.plot(sim.history['F'], label = 'F (batching)', color=orange, linestyle='--')
     ax.legend(loc='upper left')
     plt.savefig(f'data/lotka_volterra_counts_time10_n1e{pop_exponent}.pdf', bbox_inches='tight')
-    # plt.show()
+    plt.show()
     
 
 if __name__ == "__main__":

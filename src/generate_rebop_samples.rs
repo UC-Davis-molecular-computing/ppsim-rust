@@ -7,14 +7,14 @@ use tqdm::tqdm;
 
 define_system! {
     join_rate split_rate;
-    LV { M, D }
+    MD { M, D }
     join  : 2 M => D    @ join_rate
     split : D   => 2 M  @ split_rate
 }
 
 fn main() {
-    println!("Running Lotka-Volterra model with rebop");
-    let mut crn = LV::new();
+    println!("Running reversible dimerization model with rebop to test count disitribution");
+    let mut crn = MD::new();
     crn.seed(1);
     let pop_exponent = 2;
     let n = 10isize.pow(pop_exponent);

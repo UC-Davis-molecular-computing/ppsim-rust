@@ -2,11 +2,12 @@ import math
 import numpy as np
 import random
 from tqdm import tqdm
-from matplotlib import pyplot as plt
+from matplotlib import pyplot as plt, ticker
 import time
 import rebop as rb
 from scipy import stats
 import json
+import gillespy2 as gl
 
 import importlib.util
 from pathlib import Path
@@ -57,16 +58,16 @@ def create_rebop_running_time_data(fn: str, min_pop_exponent: int, max_pop_expon
         print(f'n = 10^{pop_exponent}')
         
         crn = rb.Gillespie()
-        crn.add_reaction(0.1 ** pop_exponent, ['A', 'B'], ['B', 'B'])
-        crn.add_reaction(1, ['A'], ['A', 'A'])
-        crn.add_reaction(1, ['B'], [])
+        crn.add_reaction(0.1 ** pop_exponent, ['R', 'F'], ['F', 'F'])
+        crn.add_reaction(1, ['R'], ['R', 'R'])
+        crn.add_reaction(1, ['F'], [])
 
         predator_fraction = 0.5
         n = int(10 ** pop_exponent)
         
-        a_init = int(n * (1 - predator_fraction))
-        b_init = n - a_init
-        rebop_inits = {"A": a_init, "B": b_init}
+        r_init = int(n * (1 - predator_fraction))
+        f_init = n - r_init
+        rebop_inits = {'R': r_init, 'F': f_init}
 
         def run_rebop():
             crn.run(rebop_inits, end_time, 1, rng=seed)
@@ -80,16 +81,55 @@ def create_rebop_running_time_data(fn: str, min_pop_exponent: int, max_pop_expon
         ns_rebop.append(n)
         write_results(fn, rebop_times, ns_rebop)
 
+def create_gillespy_running_time_data(fn: str, min_pop_exponent: int, max_pop_exponent: int, end_time: float):
+    num_trials = 1
+    gl_times = []
+    gl_ns = []
+    seed = 1
+
+    print('creating Gillespy2 data')
+    # for pop_exponent_increment in tqdm(range(num_ns)):
+    r,f = pp.species('R F')
+    ppsim_rxns = [
+        (r+f >> 2*f).k(1),
+        (r >> 2*r).k(1),
+        (f >> None).k(1),
+    ]
+    for pop_exponent in range(min_pop_exponent, max_pop_exponent + 1):
+        print(f'n = 10^{pop_exponent}')
+        
+        n = int(10 ** pop_exponent)
+        predator_fraction = 0.5
+        r_init = int(n * (1 - predator_fraction))
+        f_init = n - r_init
+        ppsim_inits = {r: r_init, f: f_init}
+        gl_crn = pp.gillespy2_format(ppsim_inits, ppsim_rxns, n)
+        gl_crn.timespan((0, end_time))
+        # print(f'gl_crn = {gl_crn}')
+        
+        # results = gl_crn.run(t=end_time, increment=0.1, algorithm='SSA')
+        # print(f'results = {results}')
+
+        def run_gillespy():
+            gl_crn.run(algorithm='SSA')
+        
+        measured_time = measure_time(run_gillespy, num_trials)
+        gl_times.append(measured_time)
+        gl_ns.append(n)
+        print(f'Gillespy2 took {measured_time} seconds to run with n = 10^{pop_exponent}')
+        write_results(fn, gl_times, gl_ns)
+
+
 def create_ppsim_running_time_data(fn: str, min_pop_exponent: int, max_pop_exponent: int, end_time: float):
     num_trials = 1
     ppsim_times = []
     ns_ppsim = []
     seed = 1
-    a,b = pp.species('A B')
+    r,f = pp.species('R F')
     rxns = [
-        (a+b >> 2*b).k(1),
-        (a >> 2*a).k(1),
-        (b >> None).k(1),
+        (r+f >> 2*f).k(1),
+        (r >> 2*r).k(1),
+        (f >> None).k(1),
     ]
 
     print('creating ppsim data')
@@ -99,9 +139,9 @@ def create_ppsim_running_time_data(fn: str, min_pop_exponent: int, max_pop_expon
         
         predator_fraction = 0.5
         n = int(10 ** pop_exponent)
-        a_init = int(n * (1 - predator_fraction))
-        b_init = n - a_init
-        ppsim_inits = {a: a_init, b: b_init}
+        r_init = int(n * (1 - predator_fraction))
+        f_init = n - r_init
+        ppsim_inits = {r: r_init, f: f_init}
         sim = pp.Simulation(ppsim_inits, rxns, simulator_method="crn", continuous_time=True, seed=seed)
         
         def run_ppsim():
@@ -120,7 +160,7 @@ def read_results(fn: str) -> tuple[list[int], list[float]]:
     times = [item[1] for item in data]
     return ns, times
 
-def plot_results(fn_rebop_data: str, fn_ppsim_data_f64: str, fn_ppsim_data_f128: str, fn_out: str):
+def plot_results(fn_rebop_data: str, fn_rebop_rust_data: str, fn_ppsim_data_f64: str, fn_ppsim_data_f128: str, fn_out: str):
     # figsize = (6,4)
     figsize = (5,4)
     _, ax = plt.subplots(figsize = figsize)
@@ -128,19 +168,24 @@ def plot_results(fn_rebop_data: str, fn_ppsim_data_f64: str, fn_ppsim_data_f128:
     # matplotlib.rcParams.update({'font.size': 14}) # default font is too small for paper figures
     # matplotlib.rcParams['mathtext.fontset'] = 'cm' # use Computer Modern font for LaTeX
     rebop_ns, rebop_times = read_results(fn_rebop_data)
+    rebop_rust_ns, rebop_rust_times = read_results(fn_rebop_rust_data)
     ppsim_ns_f64, ppsim_times_f64 = read_results(fn_ppsim_data_f64)
     ppsim_ns_f128, ppsim_times_f128 = read_results(fn_ppsim_data_f128)
-    ax.loglog(ppsim_ns_f64, ppsim_times_f64, label="batching f64 run time", marker="o")
-    ax.loglog(ppsim_ns_f128, ppsim_times_f128, label="batching f128 run time", marker="o")
-    ax.loglog(rebop_ns, rebop_times, label="rebop run time", marker="o")
-    ax.set_xlabel(f'Initial molecular count')
-    ax.set_ylabel(f'Run time (s)')
+    ax.loglog(ppsim_ns_f64, ppsim_times_f64, label="batching (f64)", marker="o")
+    ax.loglog(ppsim_ns_f128, ppsim_times_f128, label="batching (f128)", marker=".")
+    ax.loglog(rebop_ns, rebop_times, label="rebop (Python)", marker="^")
+    ax.loglog(rebop_rust_ns, rebop_rust_times, label="rebop (Rust)", marker="s")
+    ax.set_xlabel(f'initial molecular count')
+    ax.set_ylabel(f'run time (s)')
     ax.set_xticks([10**i for i in range(3, 15)])
-    ax.set_ylim(bottom=None, top=10**5)
     ax.legend(loc='upper left')
-    # plt.savefig("data/lotka_volterra_scaling_f128.pdf", bbox_inches='tight')
+    ax.set_ylim(bottom=None, top=10**5)
+    
+    ax.yaxis.set_major_locator(ticker.LogLocator(numticks=999))
+    ax.yaxis.set_minor_locator(ticker.LogLocator(numticks=999, subs="auto"))
+    
     plt.savefig(fn_out, bbox_inches='tight')
-    # plt.show()
+    plt.show()
     # print(stats.linregress([math.log(x) for x in ns_ppsim], [math.log(x) for x in ppsim_times]))
     # print(stats.linregress([math.log(x) for x in ns_ppsim], [math.log(x) for x in rebop_times]))
     # print(ns_ppsim)
@@ -246,7 +291,7 @@ def write_rebop_count_samples(pop_exponent: int, trials_exponent: int, species: 
             except IndexError:
                 pass
                 print("Index error caught and ignored. Rebop distribution may be slightly off.")
-    counts = sort_dict_by_key(counts)
+        counts = sort_dict_by_key(counts)
     with open(fn, 'w') as f:
         json.dump(counts, f, indent=4)
 
@@ -325,12 +370,13 @@ def plot_rebop_ppsim_histogram(pop_exponent: int, trials_exponent: int, species:
 
 
 def main():
-    # create_rebop_data("data/lotka_volterra_time1_times_rebop.json", 3, 12, 1.0)
-    # create_ppsim_data("data/lotka_volterra_time1_times_ppsim_f128.json", 3, 14, 1.0)
-    # plot_results('data/lotka_volterra_time1_times_rebop.json', 
-    #              'data/lotka_volterra_time1_times_ppsim_f64.json',
-    #              'data/lotka_volterra_time1_times_ppsim_f128.json',
-    #              'data/lotka_volterra_scaling_time1.pdf')
+    # create_rebop_running_time_data("data/lotka_volterra_time1_times_rebop.json", 3, 12, 1.0)
+    # create_ppsim_running_time_data("data/lotka_volterra_time1_times_ppsim_f128.json", 3, 14, 1.0)
+    plot_results('data/lotka_volterra_time1_times_rebop.json', 
+                 'data/lotka_volterra_time1_times_rebop_rust.json',
+                 'data/lotka_volterra_time1_times_ppsim_f64.json',
+                 'data/lotka_volterra_time1_times_ppsim_f128.json',
+                 'data/lotka_volterra_scaling_time1.pdf')
     # test_distribution()
 
     pop_exponent = 4
@@ -339,7 +385,7 @@ def main():
     species = 'F'
     # write_rebop_count_samples(pop_exponent, trials_exponent, species, final_time)
     # write_ppsim_count_samples(pop_exponent, trials_exponent, species, final_time)
-    plot_rebop_ppsim_histogram(pop_exponent, trials_exponent, species, final_time)
+    # plot_rebop_ppsim_histogram(pop_exponent, trials_exponent, species, final_time)
 
 
 if __name__ == "__main__":
