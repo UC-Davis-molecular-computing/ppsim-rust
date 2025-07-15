@@ -129,6 +129,20 @@ class Simulation:
     times: list[float]
     """A list of all the corresponding times for configs."""
 
+
+    discrete_steps_total: list[int]
+    """
+    Parallel to self.times and self.configs, this is how many total steps were taken up to that time,
+    including steps that simulated passive reactions. This is a cumulative list, i.e.,
+    self.discrete_steps_total[i] is the total number of steps taken up to time self.times[i].
+    """
+
+    discrete_steps_no_nulls: list[int]
+    """
+    Parallel to self.times and self.configs, this is how many total steps were taken up to that time,
+    NOT including steps that simulated passive reactions. Cumulative list similarly to self.discrete_steps_total.
+    """
+
     steps_per_time_unit: float
     """Number of simulated interactions per time unit."""
 
@@ -174,6 +188,8 @@ class Simulation:
 
     simulator_method: str
 
+    #TODO: this manual constructor defeats some of the purpose of dataclasses; make more default values and
+    # replace this with __post_init__ 
     def __init__(
             self, 
             init_config: dict[StateTypeVar, int], 
@@ -276,6 +292,8 @@ class Simulation:
                     sim = Simulation(init_config, rule, threshold=20)
 
         """
+        self.discrete_steps_total = []
+        self.discrete_steps_no_nulls = []
         self.simulator_method = simulator_method
         self.seed = seed
         self.rng = np.random.default_rng(seed)
@@ -830,6 +848,9 @@ class Simulation:
         """Appends the current simulator configuration and time."""
         self.configs.append(np.array(self.simulator.config))
         self.times.append(self.time)
+
+        self.discrete_steps_total.append(self.simulator.discrete_steps_including_nulls)
+        self.discrete_steps_no_nulls.append( self.simulator.discrete_steps_not_including_nulls)
 
     def set_snapshot_time(self, time: float) -> None:
         """Updates all snapshots to the nearest recorded configuration to a specified time.

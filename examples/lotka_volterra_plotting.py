@@ -37,8 +37,8 @@ def main():
     # default_colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
     # print(default_colors)
     # return
-    for pop_exponent in [3,4,5,8]:
-    # for pop_exponent in [5]:
+    # for pop_exponent in [3,4,5,8]:
+    for pop_exponent in [5]:
         #XXX: pop_exponent 5 and 6 these show the slowdown bug in ppsim
         # going to time 20, for n=10^5 around time 6.966 (35% progress bar)
         # and for n=10^6, around time 13.718 (69% progress bar),
@@ -127,8 +127,68 @@ def make_and_save_plot(pop_exponent: int) -> None:
     # handles, labels = plt.gca().get_legend_handles_labels()
     # figLegend = plt.figure()
     # figLegend.legend(handles, labels, ncols=3, loc='center')
+    # print(f'saving legend for lotka volterra n=10^{pop_exponent}')
     # figLegend.savefig(f'data/lotka_volterra_counts_time20_legend.pdf', format='pdf', bbox_inches='tight')
     
 
+def plot_null_reactions(pop_exponent: int, seed: int) -> None:
+    figsize = (6, 3)
+    n = int(10 ** pop_exponent)
+    p = 0.5
+    r_init = int(n * p)
+    f_init = n - r_init
+    inits = {'R': r_init, 'F': f_init}
+    end_time = 20.0
+    num_samples = 10**3
+    
+    r,f = pp.species('R F')
+    rxns = [
+        (r+f >> 2*f).k(1),
+        (r >> 2*r).k(1),
+        (f >> None).k(1),
+    ]
+    
+    inits = {r: r_init, f: f_init}
+    sim = pp.Simulation(inits, rxns, simulator_method="crn", continuous_time=True, seed=seed)
+
+    print(f'running ppsim with n = 10^{pop_exponent}')
+    sim.run(end_time, end_time / num_samples)
+
+    times = sim.history.index.tolist()
+    total_steps = np.diff(np.array(sim.discrete_steps_total), prepend=[0])
+    non_null_steps = np.diff(np.array(sim.discrete_steps_no_nulls), prepend=[0])
+    null_steps = total_steps - non_null_steps
+    null_fractions = null_steps / total_steps
+
+    f, ax = plt.subplots(figsize=figsize)
+
+    blue, orange, green, red  = '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728'
+    # Create the primary plot with R and F (left y-axis)
+    ax.plot(sim.history['R'], label='R', color=blue)
+    ax.plot(sim.history['F'], label='F', color=orange)
+
+    # Set up the left y-axis
+    ax.set_ylabel('counts')
+
+    # Create a second y-axis that shares the same x-axis
+    ax2 = ax.twinx()
+
+    # Plot null_fractions on the second y-axis
+    ax2.plot(times, null_fractions, label='passive', color=green)
+
+    # Set up the right y-axis
+    ax2.set_ylabel('fraction of passive reactions')
+    ax2.set_ylim(0.0, 1.0)
+
+    # Create a single legend with handles from both axes
+    handles1, labels1 = ax.get_legend_handles_labels()
+    handles2, labels2 = ax2.get_legend_handles_labels()
+    ax.legend(handles1 + handles2, labels1 + labels2, loc='lower right')
+    plt.savefig(f'data/lotka_volterra_plot_with_passive_reactions_n1e{pop_exponent}.pdf', bbox_inches='tight')
+    plt.show()
+
 if __name__ == "__main__":
-    main()
+    # main()
+    pop_exponent = 5
+    seed = 1
+    plot_null_reactions(pop_exponent, seed)

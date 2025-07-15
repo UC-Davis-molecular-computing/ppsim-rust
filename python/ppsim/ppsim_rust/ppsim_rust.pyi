@@ -34,6 +34,12 @@ class Simulator(ABC):
     silent: bool
     """TODO"""
 
+    discrete_steps_not_including_nulls: int
+    """TODO"""
+
+    discrete_steps_including_nulls: int
+    """TODO"""
+
     def run_until_silent(self) -> None:
         """TODO"""
         ...
@@ -45,6 +51,7 @@ class Simulator(ABC):
     ) -> None: 
         """TODO"""
         ...
+
         
     def run(
             self,

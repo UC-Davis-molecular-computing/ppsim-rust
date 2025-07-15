@@ -1044,7 +1044,7 @@ impl SimulatorCRNMultiBatch {
             let initial_updated_counts_size = self.updated_counts.size;
             let (num_outputs, first_idx) = (random_transition[0], random_transition[1]);
             // TODO and WARNING: this code is more or less copy-paste with the collision sampling code.
-            // They do the same thing. But it's apparently very annoying to reafactor this into a
+            // They do the same thing. But it's apparently very annoying to refactor this into a
             // helper method in rust because of the immutable borrow of self above.
             flame::end("pre-reaction-checking");
             if num_outputs == 0 {
