@@ -97,9 +97,7 @@ def create_ppsim_running_time_data(fn: str, min_pop_exponent: int, max_pop_expon
         
         predator_fraction = 0.5
         n = int(10 ** pop_exponent)
-        a_init = int(n * (1 - predator_fraction))
-        b_init = n - a_init
-        ppsim_inits = {a: a_init, b: b_init}
+        ppsim_inits = { m: n }
         sim = pp.Simulation(ppsim_inits, rxns, simulator_method="crn", continuous_time=True, seed=seed)
         
         def run_ppsim():
