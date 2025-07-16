@@ -268,24 +268,43 @@ pub struct SimulatorCRNMultiBatch {
     /// The CRN with a list of reactions, so we can recompute probabilities when the
     /// count of K is updated between batches.
     pub crn: UniformCRN,
+
     /// The population size (sum of values in urn.config).
     #[pyo3(get, set)]
     pub n_including_extra_species: usize,
+
     /// The population size of all species except k and w.
     #[pyo3(get, set)]
     pub n: usize,
+
     /// The amount of continuous time that has been simulated so far.
     #[pyo3(get, set)]
     pub continuous_time: f64,
+
     /// The current number of elapsed interaction steps that actually simulated something in
-    /// the original CRN, rather than being a "null reaction".
+    /// the original CRN, rather than being a "null reaction",
+    /// since the Simulator was created.
     #[pyo3(get, set)]
-    pub discrete_steps_not_including_nulls: usize,
-    /// The current number of elapsed interaction steps in this CRN, including null reactions.
+    pub discrete_steps_no_nulls: usize,
+
+    /// The current number of elapsed interaction steps in this CRN, including null reactions,
+    /// since the Simulator was created.
     #[pyo3(get, set)]
-    pub discrete_steps_including_nulls: usize,
+    pub discrete_steps_total: usize,
+
+    /// The total number of states (length of urn.config),
+    /// in the most recent call to run.
+    #[pyo3(get, set)]
+    pub discrete_steps_no_nulls_last_run: usize,
+
+    /// The number of elapsed interaction steps in this CRN, including null reactions,
+    /// in the most recent call to run.
+    #[pyo3(get, set)]
+    pub discrete_steps_total_last_run: usize,
+
     /// The total number of states (length of urn.config).
     pub q: usize,
+
     /// An (o + 1)-dimensional array. The first o dimensions represent reactants. After indexing through
     /// the first o dimensions, the last dimension always has size two, with elements (`num_outputs`, `first_idx`).
     /// `num_outputs` is the number of possible outputs if transition i,j --> ... is non-null,
@@ -295,6 +314,7 @@ pub struct SimulatorCRNMultiBatch {
     /// rather than (o+1)-dimensional.
     /// #[pyo3(get, set)] // XXX: for testing
     pub random_transitions: ArrayD<usize>,
+
     /// A 1D array of tuples containing all outputs of random transitions,
     /// whose indexing information is contained in random_transitions.
     /// For example, if there are random transitions
@@ -307,38 +327,49 @@ pub struct SimulatorCRNMultiBatch {
     /// they should only ever be iterated through together.
     #[pyo3(get, set)] // XXX: for testing
     pub random_outputs: Vec<StateList>,
+
     /// An array containing all random transition probabilities,
     /// whose indexing matches random_outputs.
     /// May add up to less than 1 for a given reaction, in which case the remainder is assumed null.
     #[pyo3(get, set)] // XXX: for testing
     pub transition_probabilities: Vec<f64>,
+
     /// The maximum number of random outputs from any random transition.
     pub random_depth: usize,
+
     /// A pseudorandom number generator.
     rng: SmallRng,
+
     /// An :any:`Urn` object that stores the configuration (as urn.config) and has methods for sampling.
     /// This is the equivalent of C in the pseudocode for the batching algorithm in the
     /// original Berenbrink et al. paper.
     urn: Urn,
+
     /// An additional :any:`Urn` where agents are stored that have been
     /// updated during a batch. Called `C'` in the pseudocode for the batching algorithm.
     #[allow(dead_code)]
     updated_counts: Urn,
+
     /// Struct which stores the result of hypergeometric sampling.
     array_sums: NDBatchResult,
+
     /// Array which stores the counts of responder agents for each type of
     /// initiator agent (one row of the 'D' matrix from the paper).
     #[allow(dead_code)]
     row: Vec<usize>,
+
     /// Vector holding multinomial samples when doing randomized transitions.
     #[allow(dead_code)]
     m: Vec<usize>,
+
     /// A boolean determining if we are currently doing Gillespie steps.
     #[pyo3(get, set)]
     pub do_gillespie: bool,
+
     /// A boolean determining if the configuration is silent (all interactions are null).
     #[pyo3(get, set)]
     pub silent: bool,
+
     /// A module containing code for calling python-implemented collision sampling.
     pub python_module: Py<PyModule>,
     // /// A list of reactions, as (input, input, output, output). TODO: re-add these when re-adding the ability to do gillespie.
@@ -424,8 +455,10 @@ impl SimulatorCRNMultiBatch {
             .fold(0, |acc, x| acc.max(x));
 
         let continuous_time = 0.0;
-        let discrete_steps_not_including_nulls = 0;
-        let discrete_steps_including_nulls = 0;
+        let discrete_steps_no_nulls = 0;
+        let discrete_steps_total = 0;
+        let discrete_steps_no_nulls_last_run = 0;
+        let discrete_steps_total_last_run = 0;
         let rng = if let Some(s) = seed {
             SmallRng::seed_from_u64(s)
         } else {
@@ -477,8 +510,10 @@ impl SimulatorCRNMultiBatch {
             n,
             n_including_extra_species,
             continuous_time,
-            discrete_steps_not_including_nulls,
-            discrete_steps_including_nulls,
+            discrete_steps_no_nulls,
+            discrete_steps_total,
+            discrete_steps_no_nulls_last_run,
+            discrete_steps_total_last_run,
             q,
             random_transitions,
             random_outputs,
@@ -510,6 +545,8 @@ impl SimulatorCRNMultiBatch {
     /// Run the simulation for a specified number of steps or until max time is reached
     #[pyo3(signature = (t_max, max_wallclock_time=3600.0))]
     pub fn run(&mut self, t_max: f64, max_wallclock_time: f64) -> PyResult<()> {
+        self.discrete_steps_no_nulls_last_run = 0;
+        self.discrete_steps_total_last_run = 0;
         if self.silent {
             return Err(PyValueError::new_err("Simulation is silent; cannot run."));
         }
@@ -582,8 +619,10 @@ impl SimulatorCRNMultiBatch {
         // println!("self.n is {:?}.", self.n);
         self.n_including_extra_species = self.n + self.urn.config[self.crn.k];
         self.continuous_time = t;
-        self.discrete_steps_not_including_nulls = 0;
-        self.discrete_steps_including_nulls = 0;
+        self.discrete_steps_no_nulls = 0;
+        self.discrete_steps_total = 0;
+        self.discrete_steps_no_nulls_last_run = 0;
+        self.discrete_steps_total_last_run = 0;
         self.silent = self.n == 0;
         // println!(
         //     "After: {:?}, {:?}, {:?}",
@@ -1011,7 +1050,7 @@ impl SimulatorCRNMultiBatch {
             .sample_batch_result(rxns_before_coll, &mut self.urn);
         flame::end("sample batch");
 
-        let initial_t_including_nulls = self.discrete_steps_including_nulls;
+        let initial_t_including_nulls = self.discrete_steps_total;
         flame::start("process batch");
         let mut done = false;
         let reactions_iter = self.random_transitions.lanes(Axis(self.crn.o)).into_iter();
@@ -1059,7 +1098,8 @@ impl SimulatorCRNMultiBatch {
             } else {
                 flame::start("non-null reaction");
                 // We'll add this for now, then subtract off the probabilistically null reactions later.
-                self.discrete_steps_not_including_nulls += quantity;
+                self.discrete_steps_no_nulls += quantity;
+                self.discrete_steps_no_nulls_last_run += quantity;
                 // println!(
                 //     "Probabilities: {:?}. Self.m: {:?}.",
                 //     self.transition_probabilities, self.m
@@ -1103,7 +1143,8 @@ impl SimulatorCRNMultiBatch {
                         self.updated_counts
                             .add_to_entry(reactant, null_count as i64);
                     }
-                    self.discrete_steps_not_including_nulls -= null_count;
+                    self.discrete_steps_no_nulls -= null_count;
+                    self.discrete_steps_no_nulls_last_run -= null_count;
                 }
                 flame::end("non-null reaction");
             }
@@ -1212,7 +1253,8 @@ impl SimulatorCRNMultiBatch {
                 self.updated_counts
                     .add_to_entry(self.crn.w, (self.crn.g) as i64);
             } else {
-                self.discrete_steps_not_including_nulls += 1;
+                self.discrete_steps_no_nulls += 1;
+                self.discrete_steps_no_nulls_last_run += 1;
                 let mut probabilities =
                     self.transition_probabilities[first_idx..first_idx + num_outputs].to_vec();
                 let non_null_probability_sum: f64 = probabilities.iter().sum();
@@ -1248,7 +1290,8 @@ impl SimulatorCRNMultiBatch {
                         self.updated_counts
                             .add_to_entry(reactant, null_count as i64);
                     }
-                    self.discrete_steps_not_including_nulls -= null_count;
+                    self.discrete_steps_no_nulls -= null_count;
+                    self.discrete_steps_no_nulls_last_run -= null_count;
                 }
             }
             assert_eq!(
@@ -1256,19 +1299,21 @@ impl SimulatorCRNMultiBatch {
                 self.crn.o + self.crn.g - num_resampled,
                 "Collision failed to add exactly g things to updated_counts"
             );
-            self.discrete_steps_including_nulls += 1;
+            self.discrete_steps_total += 1;
+            self.discrete_steps_total_last_run += 1;
         }
         flame::end("sample collision");
 
         // TODO move this line to a more sensible place
-        self.discrete_steps_including_nulls += rxns_before_coll;
+        self.discrete_steps_total += rxns_before_coll;
+        self.discrete_steps_total_last_run += rxns_before_coll;
 
         self.urn.add_vector(&self.updated_counts.config);
         self.urn.sort();
         // Check that we added the right number of things to the urn.
         assert_eq!(
             self.urn.size - self.n_including_extra_species,
-            (self.discrete_steps_including_nulls - initial_t_including_nulls) * self.crn.g,
+            (self.discrete_steps_total - initial_t_including_nulls) * self.crn.g,
             "Inconsistency between number of reactions simulated and population size change."
         );
         assert_eq!(
@@ -1402,7 +1447,8 @@ impl SimulatorCRNMultiBatch {
         // to change the count of K if the population size has significantly changed, or
         // we're constructing them for the first time or resetting e
         let current_k_count = self.urn.config[self.crn.k];
-        let delta_k = self.n as i64 - current_k_count as i64;
+        let k_count = self.n / 2;
+        let delta_k = k_count as i64 - current_k_count as i64;
         assert!(self.n_including_extra_species as i64 + delta_k >= 0);
         self.n_including_extra_species = (self.n_including_extra_species as i64 + delta_k) as usize;
         self.urn.add_to_entry(self.crn.k, delta_k);
@@ -1410,7 +1456,7 @@ impl SimulatorCRNMultiBatch {
             self.random_transitions,
             self.random_outputs,
             self.transition_probabilities,
-        ) = self.crn.construct_transition_arrays(self.n);
+        ) = self.crn.construct_transition_arrays(k_count);
     }
 
     /// Get rid of W from self.urn.

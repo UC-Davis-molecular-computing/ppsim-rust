@@ -248,6 +248,50 @@ def rebop_dimerization_with_inits(pop_exponent: int) -> tuple[rb.Gillespie, dict
     
     return crn, inits
 
+def plot_dimerization_crn_ppsim_with_null(pop_exponent: int, seed: int) -> None:
+    figsize = (12, 6)
+    sim = ppsim_dimerization_crn(pop_exponent, seed)
+    print(f'running ppsim with n = 10^{pop_exponent}')
+
+    sim.run(2, 0.01)
+
+    # total steps starts with 0 (and for some reason ends with 0, I don't get that),
+    # so we slice it to remove the first and last element to avoid dividing by zero.
+    total_steps = np.array(sim.discrete_steps_total_last_run)[1:-1]
+    non_null_steps = np.array(sim.discrete_steps_no_nulls_last_run)[1:-1]
+    null_steps = total_steps - non_null_steps
+    null_fractions = null_steps / total_steps
+    times = sim.history.index.tolist()[1:-1] # make same length as null_fractions
+    
+
+    f, ax = plt.subplots(figsize=figsize)
+
+    blue, orange, green, red  = '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728'
+    # Create the primary plot with R and F (left y-axis)
+    ax.plot(sim.history['M'], label='M', color=blue)
+    ax.plot(sim.history['D'], label='D', color=orange)
+
+    # Set up the left y-axis
+    ax.set_ylabel('counts')
+
+    # Create a second y-axis that shares the same x-axis
+    ax2 = ax.twinx()
+
+    # Plot null_fractions on the second y-axis
+    ax2.plot(times, null_fractions, label='passive', color=red)
+
+    # Set up the right y-axis
+    ax2.set_ylabel('fraction of passive reactions')
+    ax2.set_ylim(0.0, 1.0)
+
+    # Create a single legend with handles from both axes
+    handles1, labels1 = ax.get_legend_handles_labels()
+    handles2, labels2 = ax2.get_legend_handles_labels()
+    ax.legend(handles1 + handles2, labels1 + labels2, loc='lower right')
+    # plt.savefig(f'data/dimerization_plot_with_passive_reactions_n1e{pop_exponent}.pdf', bbox_inches='tight')
+    plt.show()
+
+
 def ppsim_dimerization_crn(pop_exponent: int, seed: int) -> pp.Simulation:
     m, d = pp.species('M D')
     rxns = [
@@ -263,7 +307,7 @@ def ppsim_dimerization_crn(pop_exponent: int, seed: int) -> pp.Simulation:
     
     return sim
 
-def plot_dimerization_crn(pop_exponent: int, seed: int, num_runs: int = 3) -> None:
+def plot_dimerization_crn(pop_exponent: int, seed: int, num_runs: int = 1) -> None:
     import gpac as gp
     import numpy as np
 
@@ -323,16 +367,18 @@ def plot_dimerization_crn(pop_exponent: int, seed: int, num_runs: int = 3) -> No
     plt.show()
 
 def main():
-    pop_exponent = 2
+    pop_exponent = 8
     trials_exponent = 9
     final_time = 0.5
     species_name = 'D'
     seed = 1
-    num_runs = 10  # Number of simulation runs to plot
+    num_runs = 1  # Number of simulation runs to plot
     rebop_crn, rebop_inits = rebop_dimerization_with_inits(pop_exponent)
     ppsim_sim = ppsim_dimerization_crn(pop_exponent, seed)
 
-    plot_dimerization_crn(pop_exponent, seed, num_runs)
+    plot_dimerization_crn_ppsim_with_null(pop_exponent, seed)
+    
+    # plot_dimerization_crn(pop_exponent, seed, num_runs)
     
     # ppsim_sim.run(final_time, 0.01) # type: ignore
     # print(f'done with ppsim')

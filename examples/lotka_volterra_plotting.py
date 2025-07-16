@@ -132,7 +132,7 @@ def make_and_save_plot(pop_exponent: int) -> None:
     
 
 def plot_null_reactions(pop_exponent: int, seed: int) -> None:
-    figsize = (6, 3)
+    figsize = (12, 6)
     n = int(10 ** pop_exponent)
     p = 0.5
     r_init = int(n * p)
@@ -154,12 +154,15 @@ def plot_null_reactions(pop_exponent: int, seed: int) -> None:
     print(f'running ppsim with n = 10^{pop_exponent}')
     sim.run(end_time, end_time / num_samples)
 
-    times = sim.history.index.tolist()
-    total_steps = np.diff(np.array(sim.discrete_steps_total), prepend=[0])
-    non_null_steps = np.diff(np.array(sim.discrete_steps_no_nulls), prepend=[0])
+    
+    # total steps starts with 0 (and for some reason ends with 0, I don't get that),
+    # so we slice it to remove the first and last element to avoid dividing by zero.
+    total_steps = np.array(sim.discrete_steps_total_last_run)[1:-1]
+    non_null_steps = np.array(sim.discrete_steps_no_nulls_last_run)[1:-1]
     null_steps = total_steps - non_null_steps
     null_fractions = null_steps / total_steps
-
+    times = sim.history.index.tolist()[1:-1] # make same length as null_fractions
+    
     f, ax = plt.subplots(figsize=figsize)
 
     blue, orange, green, red  = '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728'
@@ -174,7 +177,7 @@ def plot_null_reactions(pop_exponent: int, seed: int) -> None:
     ax2 = ax.twinx()
 
     # Plot null_fractions on the second y-axis
-    ax2.plot(times, null_fractions, label='passive', color=green)
+    ax2.plot(times, null_fractions, label='passive', color=red)
 
     # Set up the right y-axis
     ax2.set_ylabel('fraction of passive reactions')
@@ -189,6 +192,6 @@ def plot_null_reactions(pop_exponent: int, seed: int) -> None:
 
 if __name__ == "__main__":
     # main()
-    pop_exponent = 5
+    pop_exponent = 6
     seed = 1
     plot_null_reactions(pop_exponent, seed)
