@@ -787,7 +787,7 @@ impl SimulatorCRNMultiBatch {
 
 // TODO: if we're using this, figure out a sensible value for it? It will only matter really
 // for CRNs whose population size fluctuates a lot.
-const K_COUNT_RATIO_THRESHOLD: f64 = 0.3;
+const K_COUNT_RATIO_THRESHOLD: f64 = 0.5;
 // DD: I'm confused about a phenomenon; if this is 0.5, the fraction of passive reactions with LV
 // (with rate constant 1.5 for the F+R-->2F reaction) starts around 0.4 and drops, then increases
 // hovering closer to 0.5. However, if we set this to 0.33, then it starts around 0.4 and *increases*;
