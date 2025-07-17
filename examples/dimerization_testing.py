@@ -305,6 +305,108 @@ def ppsim_dimerization_crn(pop_exponent: int, seed: int) -> pp.Simulation:
     
     return sim
 
+def ppsim_vilar_crn(pop_exponent: int, seed: int) -> pp.Simulation:
+    a, da, dap, dr, drp, ma, mr, r, c = pp.species('A DA DAp DR DRp MA MR R C')
+    rxns = [
+        (da >> dap + a).k(50),
+        (dr >> drp + r).k(0.01),
+        (dap >> da + a).k(50),
+        (drp >> dr + a).k(100),
+        (ma >> ma + a).k(50),
+        (mr >> mr + r).k(5),
+        (a + da >> dap).k(1),
+        (a + dr >> drp).k(1),
+        (a + r >> c).k(2),
+        (c >> r).k(1),
+        (a >> None).k(1),
+        (ma >> None).k(10),
+        (mr >> None).k(0.5),
+        (r >> None).k(0.2)
+    ]
+    n = int(10 ** pop_exponent)
+    inits = {da: n//2, dr: n//2, a: 0, c: 0, dap: 0, drp: 0, ma: 0, mr: 0, r: 0}
+    sim = pp.Simulation(inits, rxns, simulator_method="crn", continuous_time=True, seed=seed)
+    return sim
+
+import rebop as rb
+
+def rebop_vilar_with_inits(pop_exponent: int) -> tuple[rb.Gillespie, dict[str, int]]:
+    """
+    Create a rebop Gillespie simulation of the Vilar oscillator.
+    
+    Args:
+        pop_exponent: Population size will be 10^pop_exponent
+        
+    Returns:
+        tuple of (rebop.Gillespie object, initial conditions dict)
+    """
+    crn = rb.Gillespie()
+    
+    n = int(10 ** pop_exponent)
+    
+    # Rate constants from the Vilar model
+    # Unimolecular rates (no volume scaling needed)
+    alphaA = 50      # DA -> DA + MA
+    alphaAp = 500    # DAp -> DAp + MA  
+    alphaR = 0.01    # DR -> DR + MR
+    alphaRp = 50     # DRp -> DRp + MR
+    betaA = 50       # MA -> MA + A
+    betaR = 5        # MR -> MR + R
+    thetaA = 50      # DAp -> DA + A
+    thetaR = 100     # DRp -> DR + A
+    deltaA = 1       # A -> ∅ and C -> R
+    deltaMA = 10     # MA -> ∅
+    deltaMR = 0.5    # MR -> ∅
+    deltaR = 0.2     # R -> ∅
+    
+    # Bimolecular rates (divide by volume n for discrete simulation)
+    gammaA = 1 / n   # A + DA -> DAp
+    gammaR = 1 / n   # A + DR -> DRp  
+    gammaC = 2 / n   # A + R -> C
+    
+    # Transcription reactions (unimolecular)
+    crn.add_reaction(alphaA, ['DA'], ['DA', 'MA'])
+    crn.add_reaction(alphaAp, ['DAp'], ['DAp', 'MA'])
+    crn.add_reaction(alphaR, ['DR'], ['DR', 'MR'])
+    crn.add_reaction(alphaRp, ['DRp'], ['DRp', 'MR'])
+    
+    # Translation reactions (unimolecular)
+    crn.add_reaction(betaA, ['MA'], ['MA', 'A'])
+    crn.add_reaction(betaR, ['MR'], ['MR', 'R'])
+    
+    # Binding reactions (bimolecular - volume scaled)
+    crn.add_reaction(gammaA, ['A', 'DA'], ['DAp'])
+    crn.add_reaction(gammaR, ['A', 'DR'], ['DRp'])
+    crn.add_reaction(gammaC, ['A', 'R'], ['C'])
+    
+    # Unbinding reactions (unimolecular)
+    crn.add_reaction(thetaA, ['DAp'], ['DA', 'A'])
+    crn.add_reaction(thetaR, ['DRp'], ['DR', 'A'])
+    
+    # Degradation reactions (unimolecular)
+    crn.add_reaction(deltaA, ['A'], [])
+    crn.add_reaction(deltaMA, ['MA'], [])
+    crn.add_reaction(deltaMR, ['MR'], [])
+    crn.add_reaction(deltaR, ['R'], [])
+    
+    # Complex dissociation (unimolecular)
+    crn.add_reaction(deltaA, ['C'], ['R'])
+    
+    # Initial conditions: split n half and half between DA and DR
+    inits = {
+        'A': 0,
+        'C': 0, 
+        'DA': n // 2,
+        'DAp': 0,
+        'DR': n // 2,
+        'DRp': 0,
+        'MA': 0,
+        'MR': 0,
+        'R': 0
+    }
+    
+    return crn, inits
+
 def plot_dimerization_crn(pop_exponent: int, seed: int, num_runs: int = 1) -> None:
     import gpac as gp
     import numpy as np

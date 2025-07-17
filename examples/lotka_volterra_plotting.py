@@ -143,7 +143,7 @@ def plot_null_reactions(pop_exponent: int, seed: int) -> None:
     
     r,f = pp.species('R F')
     rxns = [
-        (r+f >> 2*f).k(1),
+        (r+f >> 2*f).k(1.5), # blows up population size less than choosing 1; David S used this in PNAS paper
         (r >> 2*r).k(1),
         (f >> None).k(1),
     ]
@@ -192,6 +192,6 @@ def plot_null_reactions(pop_exponent: int, seed: int) -> None:
 
 if __name__ == "__main__":
     # main()
-    pop_exponent = 6
+    pop_exponent = 8
     seed = 1
     plot_null_reactions(pop_exponent, seed)

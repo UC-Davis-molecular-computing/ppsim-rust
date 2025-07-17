@@ -785,6 +785,16 @@ impl SimulatorCRNMultiBatch {
     }
 }
 
+// TODO: if we're using this, figure out a sensible value for it? It will only matter really
+// for CRNs whose population size fluctuates a lot.
+const K_COUNT_RATIO_THRESHOLD: f64 = 0.3;
+// DD: I'm confused about a phenomenon; if this is 0.5, the fraction of passive reactions with LV
+// (with rate constant 1.5 for the F+R-->2F reaction) starts around 0.4 and drops, then increases
+// hovering closer to 0.5. However, if we set this to 0.33, then it starts around 0.4 and *increases*;
+// This is just the way we decide when to reset K, so I don't understand why setting it differently
+// would change the behavior of the simulation *before* the first switch, i.e., why the fraction of
+// passive reactions goes up in one case and down in the other.
+
 fn relative_error(a: f64, b: f64) -> f64 {
     if a == 0.0 {
         return b.abs();
@@ -957,10 +967,6 @@ fn make_batch_result(dimensions: usize, length: usize) -> NDBatchResult {
     result.populate_empty();
     result
 }
-
-// TODO: if we're using this, figure out a sensible value for it? It will only matter really
-// for CRNs whose population size fluctuates a lot.
-const K_COUNT_RATIO_THRESHOLD: f64 = 0.7;
 
 impl SimulatorCRNMultiBatch {
     fn batch_step(&mut self, t_max: f64) -> () {
