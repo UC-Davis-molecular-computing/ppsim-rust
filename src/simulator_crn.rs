@@ -1960,7 +1960,8 @@ impl SimulatorCRNMultiBatch {
         //     "Beginning: {:?}, {:?}, {:?}, {:?}",
         //     time_at_checkpoint, pop_size_at_checkpoint, t_max, l
         // );
-        // Special case: if l = 1, we know the answer is 0 but the below loop won't realize that.
+        // Special case: if l = 1, we know the answer is 0 but the below loop won't realize that,
+        // as it never even gets a chance to enter the loop that can set ran_over_end_time to true.
         if l == 1 {
             return 0;
         }
@@ -1984,14 +1985,14 @@ impl SimulatorCRNMultiBatch {
                     // condition for the rejection sampling, essentially "locking in" *everything*
                     // we have done so far.
                     done_reactions_at_checkpoint = current_simulated_reactions;
-                    // Subtract 1 because the collision is indexed from 0.
                     latest_possible_collision_index = current_simulated_reactions + halfway_point;
                     time_at_checkpoint = current_simulated_time;
                     pop_size_at_checkpoint = current_simulated_population_size;
-                    // If the number of reactions we know must happen is one less than the
-                    // latest possible index of the collision, we're done binary searching.
-                    if done_reactions_at_checkpoint + 1 == latest_possible_collision_index {
+                    // If we ran over in the last step of binary searching, we've found the
+                    // exact collision index.
+                    if halfway_point == 1 {
                         ran_over_end_time = true;
+                        break;
                     }
                 } else {
                     // If not, then the first half of the reactions happen before a collision.
