@@ -572,7 +572,7 @@ impl SimulatorMultiBatch {
                     multinomial_sample(self.row[o_j], &probabilities, &mut self.m[0..num_outputs], &mut self.rng);
                     flame::end("multinomial sample");
                     assert_eq!(
-                        self.m.iter().sum::<usize>(),
+                        self.m[0..num_outputs].iter().sum::<usize>(),
                         self.row[o_j],
                         "sample sum mismatch"
                     );
