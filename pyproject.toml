@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "ppsim"
-version = "1.0.1"
+version = "1.0.2"
 description = "A Python package with Rust backend for efficient simulation of population protocols using the multibatching algorithm of Berenbrink et al."
 requires-python = ">=3.10"
 classifiers = [
