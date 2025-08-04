@@ -113,6 +113,7 @@ jobs:
             target: aarch64
     steps:
       - uses: actions/checkout@v4
+      #XXX: the next - uses key is really what we should use, but what's below is a hack to install Python 3.10 on macos-13; when we drop 3.10 support, revert to the next few lines
       # - uses: actions/setup-python@v5
       #   with:
       #     python-version: 3.x
