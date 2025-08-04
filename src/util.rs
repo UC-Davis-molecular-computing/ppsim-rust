@@ -59,7 +59,7 @@ pub fn multinomial_sample(n: usize, pix: &Vec<f64>, result: &mut Vec<usize>, rng
 }
 
 #[cfg(not(feature = "ue"))]
-pub fn multinomial_sample(n: usize, pix: &Vec<f64>, result: &mut Vec<usize>, rng: &mut SmallRng) {
+pub fn multinomial_sample(n: usize, pix: &Vec<f64>, result: &mut [usize], rng: &mut SmallRng) {
     // println!("non ue version called");
     multinomial_sample_manual(n, pix, result, rng);
 }
@@ -423,10 +423,10 @@ pub fn binomial_sample(n: usize, p: f64, mut rng: &mut SmallRng) -> usize {
 pub fn multinomial_sample_manual(
     n: usize,
     pix: &Vec<f64>,
-    result: &mut Vec<usize>,
+    result: &mut [usize],
     rng: &mut SmallRng,
 ) {
-    assert_eq!(pix.len(), result.len());
+    assert_eq!(pix.len(), result.len(), "pix and result (slice) must have the same length");
     let mut remaining_p = 1.0;
     let d = pix.len(); // in numpy C code, pix is just a pointer so they need pix's array length too
     let mut dn = n;
